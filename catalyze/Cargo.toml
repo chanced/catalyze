@@ -6,3 +6,6 @@ license = "MIT OR Apache-2.0"
 description = "wip"
 
 [dependencies]
+protobuf = "3.3.0"
+snafu = "0.7.5"
+itertools = "0.12.0"
