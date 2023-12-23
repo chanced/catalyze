@@ -1,7 +1,7 @@
 use std::{borrow::Cow, fmt};
 
 /// A message representing an option that parser does not recognize.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UninterpretedOption {
     name: Vec<NamePart>,
     identifier_value: Option<String>,
@@ -13,26 +13,32 @@ pub struct UninterpretedOption {
 }
 
 impl UninterpretedOption {
+    #[must_use]
     pub fn name(&self) -> &[NamePart] {
         self.name.as_ref()
     }
 
+    #[must_use]
     pub fn identifier_value(&self) -> Option<&String> {
         self.identifier_value.as_ref()
     }
 
+    #[must_use]
     pub fn negative_int_value(&self) -> Option<i64> {
         self.negative_int_value
     }
 
+    #[must_use]
     pub fn double_value(&self) -> Option<f64> {
         self.double_value
     }
 
+    #[must_use]
     pub fn string_value(&self) -> Option<&[u8]> {
         self.string_value.as_deref()
     }
 
+    #[must_use]
     pub fn aggregate_value(&self) -> Option<&str> {
         self.aggregate_value.as_deref()
     }
@@ -43,18 +49,20 @@ impl UninterpretedOption {
 ///
 ///  E.g.,`{ ["foo", false], ["bar.baz", true], ["qux", false] }` represents
 ///  `"foo.(bar.baz).qux"`.
-#[derive(PartialEq, Hash, Clone, Default, Debug)]
+#[derive(PartialEq, Eq, Hash, Clone, Default, Debug)]
 pub struct NamePart {
     value: String,
     is_extension: bool,
 }
 
 impl NamePart {
+    #[must_use]
     pub fn value(&self) -> &str {
         &self.value
     }
     /// true if a segment represents an extension (denoted with parentheses in
     ///  options specs in .proto files).
+    #[must_use]
     pub fn is_extension(&self) -> bool {
         self.is_extension
     }
@@ -63,6 +71,7 @@ impl NamePart {
     ///
     /// If `is_extension` is `true`, the formatted value will be wrapped in
     /// parentheses.
+    #[must_use]
     pub fn formatted_value(&self) -> Cow<'_, str> {
         if self.is_extension {
             Cow::Owned(format!("({})", self.value()))
@@ -70,6 +79,7 @@ impl NamePart {
             Cow::Borrowed(self.value())
         }
     }
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.value
     }
@@ -129,18 +139,23 @@ impl NameParts {
     pub fn iter(&self) -> std::slice::Iter<'_, NamePart> {
         self.parts.iter()
     }
+    #[must_use]
     pub fn get(&self, idx: usize) -> Option<&NamePart> {
         self.parts.get(idx)
     }
+    #[must_use]
     pub fn len(&self) -> usize {
         self.parts.len()
     }
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.parts.is_empty()
     }
+    #[must_use]
     pub fn contains(&self, part: &str) -> bool {
         self.parts.iter().any(|p| p.value == part)
     }
+    #[must_use]
     pub fn formatted(&self) -> String {
         itertools::join(self.iter().map(|v| v.formatted_value()), ".")
     }

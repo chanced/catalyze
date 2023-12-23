@@ -1,5 +1,9 @@
 use std::fmt;
 
+use crate::{file::File, message::Message, package::Package};
+
+pub(crate) enum Key {}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Kind {
     Package,
@@ -29,4 +33,18 @@ impl fmt::Display for Kind {
             Kind::Extension => write!(fmt, "Extension"),
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum Node {
+    Package(Package),
+    File(File),
+    Message(Message),
+    Oneof(Oneof),
+    Enum(Enum),
+    EnumValue(EnumValue),
+    Service(Service),
+    Method(Method),
+    Field(Field),
+    Extension(Extension),
 }

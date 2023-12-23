@@ -1,8 +1,12 @@
-use crate::{error::Error, package::WeakPackage, uninterpreted_option::UninterpretedOption};
+use crate::{
+    error::Error,
+    message::{Message, MessageKey},
+    package::WeakPackage,
+    uninterpreted_option::UninterpretedOption,
+};
 use std::{
     cell::RefCell,
     collections::HashSet,
-    path::PathBuf,
     str::FromStr,
     sync::{Arc, Weak},
 };
@@ -20,18 +24,21 @@ impl Default for Syntax {
 }
 
 impl Syntax {
+    #[must_use]
     pub fn supports_required_prefix(&self) -> bool {
         match self {
             Syntax::Proto2 => true,
             Syntax::Proto3 => false,
         }
     }
+    #[must_use]
     pub fn is_proto2(&self) -> bool {
         match self {
             Syntax::Proto2 => true,
             Syntax::Proto3 => false,
         }
     }
+    #[must_use]
     pub fn is_proto3(&self) -> bool {
         match self {
             Syntax::Proto2 => false,
@@ -45,9 +52,8 @@ impl FromStr for Syntax {
 
     fn from_str(v: &str) -> Result<Self, Self::Err> {
         match &*v.to_lowercase() {
-            "proto2" => Ok(Syntax::Proto2),
+            "proto2" | "" => Ok(Syntax::Proto2),
             "proto3" => Ok(Syntax::Proto3),
-            "" => Ok(Syntax::Proto2),
             _ => Err(Error::invalid_syntax(v.to_string())),
         }
     }
@@ -117,14 +123,16 @@ impl OptimizeMode {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct File(Arc<Inner>);
 
+#[derive(Debug, Clone, PartialEq)]
 struct Inner {
     name: String,
     package: String,
     // file_path: PathBuf,
     fqn: String,
-    // messages: RefCell<Vec<Message>>,
+    messages: Vec<Message>,
     // enums: RefCell<Vec<Enum>>,
     // services: RefCell<Vec<Service>>,
     // defined_extensions: RefCell<Vec<Extension>>,
@@ -223,70 +231,87 @@ struct Inner {
 }
 
 impl File {
+    #[must_use]
     pub fn name(&self) -> &str {
         self.0.name.as_ref()
     }
 
+    #[must_use]
     pub fn fully_qualified_name(&self) -> &str {
         self.0.fqn.as_ref()
     }
 
+    #[must_use]
     pub fn package(&self) -> &str {
         self.0.package.as_ref()
     }
 
+    #[must_use]
     pub fn used_imports(&self) -> &HashSet<String> {
         &self.0.used_imports
     }
 
+    #[must_use]
     pub fn is_build_target(&self) -> bool {
         self.0.is_build_target
     }
 
+    #[must_use]
     pub fn syntax(&self) -> Syntax {
         self.0.syntax
     }
 
+    #[must_use]
     pub fn java_multiple_files(&self) -> bool {
         self.0.java_multiple_files
     }
 
+    #[must_use]
     pub fn java_package(&self) -> Option<&str> {
         self.0.java_package.as_deref()
     }
 
+    #[must_use]
     pub fn java_outer_classname(&self) -> Option<&str> {
         self.0.java_outer_classname.as_deref()
     }
 
+    #[must_use]
     pub fn java_generate_equals_and_hash(&self) -> bool {
         self.0.java_generate_equals_and_hash
     }
 
+    #[must_use]
     pub fn java_string_check_utf8(&self) -> bool {
         self.0.java_string_check_utf8
     }
 
+    #[must_use]
     pub fn optimize_for(&self) -> Option<OptimizeMode> {
         self.0.optimize_for
     }
 
+    #[must_use]
     pub fn go_package(&self) -> Option<&str> {
         self.0.go_package.as_deref()
     }
 
+    #[must_use]
     pub fn cc_generic_services(&self) -> bool {
         self.0.cc_generic_services
     }
 
+    #[must_use]
     pub fn java_generic_services(&self) -> bool {
         self.0.java_generic_services
     }
 
+    #[must_use]
     pub fn py_generic_services(&self) -> bool {
         self.0.py_generic_services
     }
 
+    #[must_use]
     pub fn php_generic_services(&self) -> bool {
         self.0.php_generic_services
     }
@@ -302,17 +327,20 @@ impl File {
 
     ///  Enables the use of arenas for the proto messages in this file. This applies
     ///  only to generated classes for C++.
+    #[must_use]
     pub fn cc_enable_arenas(&self) -> bool {
         self.0.cc_enable_arenas
     }
 
     ///  Sets the objective c class prefix which is prepended to all objective c
     ///  generated classes from this .proto. There is no default.
+    #[must_use]
     pub fn objc_class_prefix(&self) -> Option<&str> {
         self.0.objc_class_prefix.as_deref()
     }
 
     ///  Namespace for generated classes; defaults to the package.
+    #[must_use]
     pub fn csharp_namespace(&self) -> Option<&str> {
         self.0.csharp_namespace.as_deref()
     }
@@ -321,12 +349,14 @@ impl File {
     ///  replacing '.' with underscore and use that to prefix the types/symbols
     ///  defined. When this options is provided, they will use this value instead
     ///  to prefix the types/symbols defined.
+    #[must_use]
     pub fn swift_prefix(&self) -> Option<&str> {
         self.0.swift_prefix.as_deref()
     }
 
     ///  Sets the php class prefix which is prepended to all php generated classes
     ///  from this .proto. Default is empty.
+    #[must_use]
     pub fn php_class_prefix(&self) -> Option<&str> {
         self.0.php_class_prefix.as_deref()
     }
@@ -334,6 +364,7 @@ impl File {
     ///  Use this option to change the namespace of php generated classes. Default
     ///  is empty. When this option is empty, the package name will be used for
     ///  determining the namespace.
+    #[must_use]
     pub fn php_namespace(&self) -> Option<&str> {
         self.0.php_namespace.as_deref()
     }
@@ -341,6 +372,7 @@ impl File {
     ///  Use this option to change the namespace of php generated metadata classes.
     ///  Default is empty. When this option is empty, the proto file name will be
     ///  used for determining the namespace.
+    #[must_use]
     pub fn php_metadata_namespace(&self) -> Option<&str> {
         self.0.php_metadata_namespace.as_deref()
     }
@@ -348,12 +380,14 @@ impl File {
     ///  Use this option to change the package of ruby generated classes. Default
     ///  is empty. When this option is not set, the package name will be used for
     ///  determining the ruby package.
+    #[must_use]
     pub fn ruby_package(&self) -> Option<&str> {
         self.0.ruby_package.as_deref()
     }
 
     ///  The parser stores options it doesn't recognize here.
     ///  See the documentation for the "Options" section above.
+    #[must_use]
     pub fn uninterpreted_option(&self) -> &[UninterpretedOption] {
         &self.0.uninterpreted_option
     }
@@ -361,7 +395,9 @@ impl File {
 
 pub(crate) struct WeakFile(Weak<Inner>);
 
+#[derive(Debug)]
 pub(crate) struct HydrateFile {
+    key: MessageKey,
     name: String,
     package: String,
     fqn: String,
