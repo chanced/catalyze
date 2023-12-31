@@ -6,4 +6,4 @@ struct Inner {}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Extension(Arc<Inner>);
 
-pub struct WeakExtension(Weak<Inner>);
+pub(crate) struct WeakExtension(Weak<Inner>);

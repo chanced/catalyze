@@ -10,8 +10,9 @@ use crate::{
     package::Package,
     r#enum::Enum,
     service::Service,
+    HashMap,
 };
-use std::{collections::HashMap, fmt};
+use std::{fmt, ops::Deref};
 
 pub(crate) trait Upgrade {
     type Target;
@@ -85,29 +86,54 @@ impl Node {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub(crate) struct Nodes<T> {
-    lookup: HashMap<FullyQualifiedName, T>,
+    lookup: HashMap<FullyQualifiedName, usize>,
     list: Vec<T>,
+}
+impl Default for Nodes<Node> {
+    fn default() -> Self {
+        Self {
+            lookup: HashMap::default(),
+            list: Vec::new(),
+        }
+    }
 }
 
 impl<T: Fqn + Clone> Nodes<T> {
     pub fn new() -> Self {
         Self {
-            lookup: HashMap::new(),
+            lookup: HashMap::default(),
             list: Vec::new(),
         }
     }
 
     pub fn insert(&mut self, node: T) {
-        self.lookup.insert(node.fqn().clone(), node.clone());
+        if self.lookup.contains_key(node.fully_qualified_name()) {
+            return;
+        }
+        self.lookup.insert(node.fqn().clone(), self.list.len());
         self.list.push(node);
     }
 
-    pub fn get(&self, fqn: &FullyQualifiedName) -> Option<&T> {
-        self.lookup.get(fqn)
+    pub fn get(&self, fqn: &FullyQualifiedName) -> Option<T> {
+        self.lookup.get(fqn).map(|i| self.list[*i].clone())
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.list.iter()
+    }
+}
+
+impl Deref for Nodes<Node> {
+    type Target = [Node];
+    fn deref(&self) -> &Self::Target {
+        &self.list
+    }
+}
+
+impl AsRef<[Node]> for Nodes<Node> {
+    fn as_ref(&self) -> &[Node] {
+        &self.list
     }
 }

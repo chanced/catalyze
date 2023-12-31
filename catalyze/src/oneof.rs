@@ -17,6 +17,6 @@ impl Fqn for Oneof {
         &self.0.fqn
     }
 }
-pub struct WeakOneof(Weak<Inner>);
+pub(crate) struct WeakOneof(Weak<Inner>);
 
 pub(crate) struct Hydrate {}

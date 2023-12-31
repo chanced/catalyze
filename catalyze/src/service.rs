@@ -19,6 +19,6 @@ impl Fqn for Service {
     }
 }
 
-pub struct WeakService(Weak<Inner>);
+pub(crate) struct WeakService(Weak<Inner>);
 
 pub(crate) struct Hydrate {}

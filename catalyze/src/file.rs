@@ -7,9 +7,9 @@ use crate::{
     node::{Downgrade, Upgrade},
     package::WeakPackage,
     uninterpreted_option::UninterpretedOption,
+    HashMap, HashSet,
 };
 use std::{
-    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     str::FromStr,
     sync::{Arc, Weak},
@@ -132,8 +132,8 @@ impl Files {
     pub(crate) fn new() -> Self {
         Self {
             files: Vec::new(),
-            fqn_lookup: HashMap::new(),
-            path_lookup: HashMap::new(),
+            fqn_lookup: HashMap::default(),
+            path_lookup: HashMap::default(),
         }
     }
     pub(crate) fn files(&self) -> &[WeakFile] {

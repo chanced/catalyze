@@ -18,4 +18,4 @@ impl Fqn for EnumValue {
     }
 }
 
-pub struct WeakEnumValue(Weak<Inner>);
+pub(crate) struct WeakEnumValue(Weak<Inner>);

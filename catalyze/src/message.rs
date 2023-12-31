@@ -7,20 +7,20 @@ use crate::{
     field::Field,
     file::WeakFile,
     fqn::{Fqn, FullyQualifiedName},
-    node::{Downgrade, Upgrade},
+    node::{Downgrade, Nodes, Upgrade},
     oneof::Oneof,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 struct Inner {
     fqn: FullyQualifiedName,
-    fields: Vec<Field>,
-    messages: Vec<Message>,
-    oneofs: Vec<Oneof>,
-    real_oneofs: Vec<Oneof>,
-    synthetic_oneofs: Vec<Oneof>,
-    dependents: Vec<WeakFile>,
-    applied_extensions: Vec<Extension>,
+    fields: Nodes<Field>,
+    messages: Nodes<Message>,
+    oneofs: Nodes<Oneof>,
+    real_oneofs: Nodes<Oneof>,
+    synthetic_oneofs: Nodes<Oneof>,
+    dependents: Nodes<WeakFile>,
+    applied_extensions: Nodes<Extension>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -39,7 +39,7 @@ impl Downgrade for Message {
         WeakMessage(Arc::downgrade(&self.0))
     }
 }
-pub struct WeakMessage(Weak<Inner>);
+pub(crate) struct WeakMessage(Weak<Inner>);
 impl Upgrade for WeakMessage {
     type Target = Message;
     fn upgrade(&self) -> Self::Target {
@@ -60,9 +60,4 @@ impl PartialEq for WeakMessage {
     fn eq(&self, other: &Self) -> bool {
         self.upgrade() == other.upgrade()
     }
-}
-
-struct Imports {
-    imports: Vec<WeakFile>,
-    unused_imports: Vec<WeakFile>,
 }

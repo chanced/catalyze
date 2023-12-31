@@ -1,7 +1,7 @@
+use crate::HashMap;
 use crate::{
     extension::Extension, file::File, fqn::FullyQualifiedName, node::Node, package::Package,
 };
-use std::collections::HashMap;
 
 mod hydrate;
 
