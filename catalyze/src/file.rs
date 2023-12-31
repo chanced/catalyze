@@ -1,12 +1,16 @@
+use inherent::inherent;
+
 use crate::{
     error::Error,
-    message::{Message, MessageKey},
+    fqn::{Fqn, FullyQualifiedName},
+    message::Message,
+    node::{Downgrade, Upgrade},
     package::WeakPackage,
     uninterpreted_option::UninterpretedOption,
 };
 use std::{
-    cell::RefCell,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
     str::FromStr,
     sync::{Arc, Weak},
 };
@@ -26,24 +30,15 @@ impl Default for Syntax {
 impl Syntax {
     #[must_use]
     pub fn supports_required_prefix(&self) -> bool {
-        match self {
-            Syntax::Proto2 => true,
-            Syntax::Proto3 => false,
-        }
+        self.is_proto2()
     }
     #[must_use]
     pub fn is_proto2(&self) -> bool {
-        match self {
-            Syntax::Proto2 => true,
-            Syntax::Proto3 => false,
-        }
+        matches!(self, Self::Proto2)
     }
     #[must_use]
     pub fn is_proto3(&self) -> bool {
-        match self {
-            Syntax::Proto2 => false,
-            Syntax::Proto3 => true,
-        }
+        matches!(self, Self::Proto3)
     }
 }
 
@@ -123,15 +118,70 @@ impl OptimizeMode {
     }
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct Imports(Files);
+
+#[derive(Debug, Default)]
+pub(crate) struct Files {
+    files: Vec<WeakFile>,
+    fqn_lookup: HashMap<FullyQualifiedName, usize>,
+    path_lookup: HashMap<PathBuf, usize>,
+}
+
+impl Files {
+    pub(crate) fn new() -> Self {
+        Self {
+            files: Vec::new(),
+            fqn_lookup: HashMap::new(),
+            path_lookup: HashMap::new(),
+        }
+    }
+    pub(crate) fn files(&self) -> &[WeakFile] {
+        &self.files
+    }
+    pub(crate) fn contains_fqn(&self, fqn: &FullyQualifiedName) -> bool {
+        self.fqn_lookup.contains_key(fqn)
+    }
+    pub(crate) fn contains_path(&self, path: &Path) -> bool {
+        self.path_lookup.contains_key(path)
+    }
+    pub(crate) fn get_by_fqn(&self, fqn: &FullyQualifiedName) -> Option<&WeakFile> {
+        self.fqn_lookup.get(fqn).map(|idx| &self.files[*idx])
+    }
+    pub(crate) fn get_by_path(&self, path: impl AsRef<Path>) -> Option<&WeakFile> {
+        self.path_lookup
+            .get(path.as_ref())
+            .map(|idx| &self.files[*idx])
+    }
+    pub(crate) fn push(&mut self, weak_file: WeakFile) {
+        let file = weak_file.upgrade();
+        let fqn = file.fully_qualified_name().clone();
+        if self.fqn_lookup.contains_key(&fqn) {
+            return;
+        }
+        let idx = self.files.len();
+        self.fqn_lookup.insert(fqn, self.files.len());
+        self.path_lookup.insert(file.path().to_owned(), idx);
+        self.files.push(weak_file);
+    }
+}
+
+impl AsRef<[WeakFile]> for Files {
+    fn as_ref(&self) -> &[WeakFile] {
+        &self.files
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct File(Arc<Inner>);
 
 #[derive(Debug, Clone, PartialEq)]
 struct Inner {
-    name: String,
-    package: String,
+    path: PathBuf,
+    pkg_name: String,
+    pkg: Option<WeakPackage>,
     // file_path: PathBuf,
-    fqn: String,
+    fqn: FullyQualifiedName,
     messages: Vec<Message>,
     // enums: RefCell<Vec<Enum>>,
     // services: RefCell<Vec<Service>>,
@@ -230,20 +280,22 @@ struct Inner {
     uninterpreted_option: Vec<UninterpretedOption>,
 }
 
+#[inherent]
+impl Fqn for File {
+    pub fn fully_qualified_name(&self) -> &FullyQualifiedName {
+        &self.0.fqn
+    }
+}
+
 impl File {
     #[must_use]
-    pub fn name(&self) -> &str {
-        self.0.name.as_ref()
-    }
-
-    #[must_use]
-    pub fn fully_qualified_name(&self) -> &str {
-        self.0.fqn.as_ref()
+    pub fn path(&self) -> &Path {
+        self.0.path.as_ref()
     }
 
     #[must_use]
     pub fn package(&self) -> &str {
-        self.0.package.as_ref()
+        self.0.pkg_name.as_ref()
     }
 
     #[must_use]
@@ -393,45 +445,41 @@ impl File {
     }
 }
 
-pub(crate) struct WeakFile(Weak<Inner>);
+impl Downgrade for File {
+    type Target = WeakFile;
 
-#[derive(Debug)]
-pub(crate) struct HydrateFile {
-    key: MessageKey,
-    name: String,
-    package: String,
-    fqn: String,
-    // messages: RefCell<Vec<Message>>,
-    // enums: RefCell<Vec<Enum>>,
-    // services: RefCell<Vec<Service>>,
-    // defined_extensions: RefCell<Vec<Extension>>,
-    is_build_target: bool,
-    // pkg_comments: RefCell<Comments>,
-    // comments: RefCell<Comments>,
-    pkg: WeakPackage,
-    dependents: RefCell<Vec<HydrateFile>>,
-    imports: RefCell<Vec<HydrateFile>>,
-    used_imports: HashSet<String>,
-    syntax: Syntax,
-    java_package: Option<String>,
-    java_outer_classname: Option<String>,
-    java_multiple_files: bool,
-    java_generate_equals_and_hash: bool,
-    java_string_check_utf8: bool,
-    optimize_for: Option<OptimizeMode>,
-    go_package: Option<String>,
-    cc_generic_services: bool,
-    java_generic_services: bool,
-    py_generic_services: bool,
-    php_generic_services: bool,
-    deprecated: bool,
-    cc_enable_arenas: bool,
-    objc_class_prefix: Option<String>,
-    csharp_namespace: Option<String>,
-    swift_prefix: Option<String>,
-    php_class_prefix: Option<String>,
-    php_namespace: Option<String>,
-    php_metadata_namespace: Option<String>,
-    ruby_package: Option<String>,
-    uninterpreted_option: Vec<UninterpretedOption>,
+    fn downgrade(&self) -> Self::Target {
+        WeakFile(Arc::downgrade(&self.0))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct WeakFile(Weak<Inner>);
+impl From<File> for WeakFile {
+    fn from(value: File) -> Self {
+        WeakFile(Arc::downgrade(&value.0))
+    }
+}
+
+impl PartialEq<File> for WeakFile {
+    fn eq(&self, other: &File) -> bool {
+        self.upgrade() == *other
+    }
+}
+impl PartialEq<WeakFile> for File {
+    fn eq(&self, other: &WeakFile) -> bool {
+        *self == other.upgrade()
+    }
+}
+impl PartialEq for WeakFile {
+    fn eq(&self, other: &Self) -> bool {
+        self.upgrade() == other.upgrade()
+    }
+}
+impl Upgrade for WeakFile {
+    type Target = File;
+
+    fn upgrade(&self) -> Self::Target {
+        File(self.0.upgrade().unwrap())
+    }
 }

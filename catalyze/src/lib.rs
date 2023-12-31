@@ -3,6 +3,7 @@
 #![cfg_attr(doc_cfg, feature(doc_cfg))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(clippy::all, clippy::pedantic)]
+#![warn(clippy::nursery)]
 // #![warn(missing_docs)]
 #![allow(
     clippy::module_name_repetitions,
@@ -22,14 +23,20 @@
 #![cfg_attr(test, allow(clippy::too_many_lines))]
 
 pub mod ast;
-pub mod comment;
+pub mod container;
 pub mod r#enum;
+pub mod enum_value;
 pub mod error;
 pub mod extension;
 pub mod field;
 pub mod file;
+pub mod fqn;
+pub mod generator;
+pub mod location;
 pub mod message;
+pub mod method;
 pub mod node;
+pub mod oneof;
 pub mod package;
 pub mod service;
 pub mod uninterpreted_option;

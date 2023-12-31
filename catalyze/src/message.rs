@@ -1,32 +1,68 @@
 use std::sync::{Arc, Weak};
 
-use slotmap::new_key_type;
+use inherent::inherent;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Inner {}
+use crate::{
+    extension::Extension,
+    field::Field,
+    file::WeakFile,
+    fqn::{Fqn, FullyQualifiedName},
+    node::{Downgrade, Upgrade},
+    oneof::Oneof,
+};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Message(Arc<Inner>);
-
-pub struct WeakMessage(Weak<Inner>);
-
-new_key_type! {
-    pub(crate) struct MessageKey;
+#[derive(Debug, Clone, PartialEq)]
+struct Inner {
+    fqn: FullyQualifiedName,
+    fields: Vec<Field>,
+    messages: Vec<Message>,
+    oneofs: Vec<Oneof>,
+    real_oneofs: Vec<Oneof>,
+    synthetic_oneofs: Vec<Oneof>,
+    dependents: Vec<WeakFile>,
+    applied_extensions: Vec<Extension>,
 }
 
-pub(crate) struct HydrateMessage {
-    // message fields
-    name: Option<::std::string::String>,
-    // field: Vec<FieldDescriptorProto>,
-    // extension: Vec<FieldDescriptorProto>,
-    // nested_type: Vec<DescriptorProto>,
-    // enum_type: Vec<EnumDescriptorProto>,
-    // extension_range: Vec<descriptor_proto::ExtensionRange>,
-    // oneof_decl: Vec<OneofDescriptorProto>,
-    // options: protobuf::MessageField<MessageOptions>,
-    // reserved_range: Vec<descriptor_proto::ReservedRange>,
-    ///  Reserved field names, which may not be used by fields in the same message.
-    ///  A given name may only be reserved once.
-    reserved_name: Vec<::std::string::String>,
-    pub special_fields: protobuf::SpecialFields,
+#[derive(Debug, Clone, PartialEq)]
+pub struct Message(Arc<Inner>);
+
+#[inherent]
+impl Fqn for Message {
+    pub fn fully_qualified_name(&self) -> &FullyQualifiedName {
+        &self.0.fqn
+    }
+}
+impl Downgrade for Message {
+    type Target = WeakMessage;
+
+    fn downgrade(&self) -> Self::Target {
+        WeakMessage(Arc::downgrade(&self.0))
+    }
+}
+pub struct WeakMessage(Weak<Inner>);
+impl Upgrade for WeakMessage {
+    type Target = Message;
+    fn upgrade(&self) -> Self::Target {
+        Message(self.0.upgrade().unwrap())
+    }
+}
+impl PartialEq<Message> for WeakMessage {
+    fn eq(&self, other: &Message) -> bool {
+        self.upgrade() == *other
+    }
+}
+impl PartialEq<WeakMessage> for Message {
+    fn eq(&self, other: &WeakMessage) -> bool {
+        *self == other.upgrade()
+    }
+}
+impl PartialEq for WeakMessage {
+    fn eq(&self, other: &Self) -> bool {
+        self.upgrade() == other.upgrade()
+    }
+}
+
+struct Imports {
+    imports: Vec<WeakFile>,
+    unused_imports: Vec<WeakFile>,
 }

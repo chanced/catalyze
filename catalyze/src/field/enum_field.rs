@@ -1,22 +1,21 @@
-use std::sync::{Arc, Weak};
-
 use inherent::inherent;
 
 use crate::fqn::{Fqn, FullyQualifiedName};
 
-pub struct WeakEnum(Weak<Inner>);
+use super::Inner as FieldInner;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Inner {
-    fqn: FullyQualifiedName,
+struct Inner {
+    field: FieldInner,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Enum(Arc<Inner>);
+pub struct EnumField(Arc<Inner>);
 
 #[inherent]
-impl Fqn for Enum {
+impl Fqn for EnumField {
     pub fn fully_qualified_name(&self) -> &FullyQualifiedName {
-        &self.0.fqn
+        &self.0.field.fqn
     }
 }
