@@ -29,15 +29,15 @@ impl Default for Syntax {
 
 impl Syntax {
     #[must_use]
-    pub fn supports_required_prefix(&self) -> bool {
+    pub const fn supports_required_prefix(&self) -> bool {
         self.is_proto2()
     }
     #[must_use]
-    pub fn is_proto2(&self) -> bool {
+    pub const fn is_proto2(&self) -> bool {
         matches!(self, Self::Proto2)
     }
     #[must_use]
-    pub fn is_proto3(&self) -> bool {
+    pub const fn is_proto3(&self) -> bool {
         matches!(self, Self::Proto3)
     }
 }
@@ -47,8 +47,8 @@ impl FromStr for Syntax {
 
     fn from_str(v: &str) -> Result<Self, Self::Err> {
         match &*v.to_lowercase() {
-            "proto2" | "" => Ok(Syntax::Proto2),
-            "proto3" => Ok(Syntax::Proto3),
+            "proto2" | "" => Ok(Self::Proto2),
+            "proto3" => Ok(Self::Proto3),
             _ => Err(Error::invalid_syntax(v.to_string())),
         }
     }
@@ -89,7 +89,7 @@ impl OptimizeMode {
     ///
     /// [`Speed`]: OptimizeMode::Speed
     #[must_use]
-    pub fn is_speed(&self) -> bool {
+    pub const fn is_speed(&self) -> bool {
         matches!(self, Self::Speed)
     }
 
@@ -97,7 +97,7 @@ impl OptimizeMode {
     ///
     /// [`CodeSize`]: OptimizeMode::CodeSize
     #[must_use]
-    pub fn is_code_size(&self) -> bool {
+    pub const fn is_code_size(&self) -> bool {
         matches!(self, Self::CodeSize)
     }
 
@@ -105,7 +105,7 @@ impl OptimizeMode {
     ///
     /// [`LiteRuntime`]: OptimizeMode::LiteRuntime
     #[must_use]
-    pub fn is_lite_runtime(&self) -> bool {
+    pub const fn is_lite_runtime(&self) -> bool {
         matches!(self, Self::LiteRuntime)
     }
 
@@ -113,7 +113,7 @@ impl OptimizeMode {
     ///
     /// [`Unknown`]: OptimizeMode::Unknown
     #[must_use]
-    pub fn is_unknown(&self) -> bool {
+    pub const fn is_unknown(&self) -> bool {
         matches!(self, Self::Unknown(..))
     }
 }
@@ -457,7 +457,7 @@ impl Downgrade for File {
 pub(crate) struct WeakFile(Weak<Inner>);
 impl From<File> for WeakFile {
     fn from(value: File) -> Self {
-        WeakFile(Arc::downgrade(&value.0))
+        Self(Arc::downgrade(&value.0))
     }
 }
 

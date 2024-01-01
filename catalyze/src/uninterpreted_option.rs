@@ -19,17 +19,17 @@ impl UninterpretedOption {
     }
 
     #[must_use]
-    pub fn identifier_value(&self) -> Option<&String> {
+    pub const fn identifier_value(&self) -> Option<&String> {
         self.identifier_value.as_ref()
     }
 
     #[must_use]
-    pub fn negative_int_value(&self) -> Option<i64> {
+    pub const fn negative_int_value(&self) -> Option<i64> {
         self.negative_int_value
     }
 
     #[must_use]
-    pub fn double_value(&self) -> Option<f64> {
+    pub const fn double_value(&self) -> Option<f64> {
         self.double_value
     }
 
@@ -63,7 +63,7 @@ impl NamePart {
     /// true if a segment represents an extension (denoted with parentheses in
     ///  options specs in .proto files).
     #[must_use]
-    pub fn is_extension(&self) -> bool {
+    pub const fn is_extension(&self) -> bool {
         self.is_extension
     }
 

@@ -4,11 +4,11 @@ use crate::{
     field::Field,
     file::File,
     fqn::{Fqn, FullyQualifiedName},
-    message::Message,
+    message::{Message, WellKnownMessage},
     method::Method,
     oneof::Oneof,
     package::Package,
-    r#enum::Enum,
+    r#enum::{Enum, WellKnownEnum},
     service::Service,
     HashMap,
 };
@@ -53,6 +53,15 @@ impl fmt::Display for Kind {
             Self::Extension => write!(fmt, "Extension"),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WellKnownType {
+    Enum(WellKnownEnum),
+    Message(WellKnownMessage),
+}
+impl WellKnownType {
+    pub const PACKAGE: &'static str = "google.protobuf";
 }
 
 #[derive(Debug, Clone)]

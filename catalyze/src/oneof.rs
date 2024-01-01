@@ -1,5 +1,5 @@
 use inherent::inherent;
-use slotmap::new_key_type;
+
 use std::sync::{Arc, Weak};
 
 use crate::fqn::{Fqn, FullyQualifiedName};

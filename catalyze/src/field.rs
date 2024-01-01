@@ -51,9 +51,9 @@ impl From<protobuf::EnumOrUnknown<protobuf::descriptor::field_options::CType>> f
 impl From<&protobuf::descriptor::field_options::CType> for CType {
     fn from(value: &protobuf::descriptor::field_options::CType) -> Self {
         match value {
-            protobuf::descriptor::field_options::CType::STRING => CType::String,
-            protobuf::descriptor::field_options::CType::CORD => CType::Cord,
-            protobuf::descriptor::field_options::CType::STRING_PIECE => CType::StringPiece,
+            protobuf::descriptor::field_options::CType::STRING => Self::String,
+            protobuf::descriptor::field_options::CType::CORD => Self::Cord,
+            protobuf::descriptor::field_options::CType::STRING_PIECE => Self::StringPiece,
         }
     }
 }

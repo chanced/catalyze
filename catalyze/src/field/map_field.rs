@@ -40,9 +40,9 @@ pub enum MapField {
 impl Fqn for MapField {
     pub fn fully_qualified_name(&self) -> &crate::fqn::FullyQualifiedName {
         match self {
-            MapField::Scalar(f) => f.fully_qualified_name(),
-            MapField::Enum(f) => f.fully_qualified_name(),
-            MapField::Embed(f) => f.fully_qualified_name(),
+            Self::Scalar(f) => f.fully_qualified_name(),
+            Self::Enum(f) => f.fully_qualified_name(),
+            Self::Embed(f) => f.fully_qualified_name(),
         }
     }
 }
