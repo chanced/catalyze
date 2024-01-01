@@ -83,19 +83,19 @@ where
             _ => panic!("state is not Final: {self:?}"),
         }
     }
-    fn transition_hydrating(self) -> Self {
+    fn to_hydrating(self) -> Self {
         match self {
             Self::Init(h) => Self::Hydrating(h),
             _ => panic!("state is not Init: {self:?}"),
         }
     }
-    fn transition_finalizing(self) -> Self {
+    fn to_finalizing(self) -> Self {
         match self {
             Self::Hydrating(h) => Self::Finalizing(h),
             _ => panic!("state is not Hydrating: {self:?}"),
         }
     }
-    fn transition_final(self, t: T) -> Self {
+    fn to_final(self, t: T) -> Self {
         match self {
             Self::Finalizing(_) => Self::Final(t),
             _ => panic!("state is not Finalizing: {self:?}"),
