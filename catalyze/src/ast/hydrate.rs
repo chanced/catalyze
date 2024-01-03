@@ -20,7 +20,7 @@ pub fn hydrate(
     files: &[protobuf::descriptor::FileDescriptorProto],
     targets: &HashSet<PathBuf>,
 ) -> Result<Ast, Error> {
-    HydrateAst::new(files, targets).run()
+    Hydrate::new(files, targets).run()
 }
 
 slotmap::new_key_type! {
@@ -36,27 +36,17 @@ slotmap::new_key_type! {
     struct OneofKey;
 }
 
-trait Hydrate {
-    fn hydrate(&mut self, hydrate: &mut HydrateAst, stack: &mut Vec<Key>) -> Result<(), Error>;
-    fn progress(&self) -> Progress;
-}
-
-trait Finalize: Default {
-    type Target;
-    fn finalize(self, hydrate: &mut HydrateAst) -> Result<Self::Target, Error>;
-}
-
-#[derive(Debug, Clone, Copy)]
-enum Progress {
-    Init,
-    Hydrating,
-    Finalizing,
-}
-impl Default for Progress {
-    fn default() -> Self {
-        Self::Init
-    }
-}
+// #[derive(Debug, Clone, Copy)]
+// enum Progress {
+//     Init,
+//     Hydrating,
+//     Finalizing,
+// }
+// impl Default for Progress {
+//     fn default() -> Self {
+//         Self::Init
+//     }
+// }
 
 #[derive(Debug)]
 enum State<H, T> {
@@ -64,23 +54,7 @@ enum State<H, T> {
     Final(T),
 }
 
-impl<H, T> State<H, T>
-where
-    H: Debug + Finalize<Target = T>,
-    T: Debug,
-{
-    fn finalize(&mut self, hydrate: &mut HydrateAst) -> Result<(), Error> {
-        match self {
-            Self::Hydrating(node) => {
-                let node = mem::replace(node, H::default());
-                let finalized = node.finalize(hydrate)?;
-                mem::replace(self, State::Final(finalized));
-                Ok(())
-            }
-            Self::Final(_) => Ok(()),
-        }
-    }
-
+impl<H, T> State<H, T> {
     #[must_use]
     fn is_hydrating(&self) -> bool {
         matches!(self, Self::Hydrating(..))
@@ -89,21 +63,6 @@ where
     #[must_use]
     fn is_final(&self) -> bool {
         matches!(self, Self::Final(..))
-    }
-}
-
-impl<H, T> State<H, T>
-where
-    H: Debug + Hydrate,
-{
-    fn hydrate(&mut self, hydrate: &mut HydrateAst, stack: &mut Vec<Key>) -> Result<(), Error> {
-        match self {
-            Self::Hydrating(p) => {
-                p.hydrate(hydrate, stack)?;
-                Ok(())
-            }
-            Self::Final(_) => Ok(()),
-        }
     }
 }
 
@@ -236,7 +195,7 @@ impl HydrateContainer<'_, '_> {
 
 #[derive(Debug, Default, Clone)]
 struct HydrateMessage<'i> {
-    progress: Progress,
+    // progress: Progress,
     descriptor: &'i DescriptorProto,
     fqn: FullyQualifiedName,
     container: ContainerKey,
@@ -252,26 +211,9 @@ impl<'i> HydrateMessage<'i> {
     }
 }
 
-impl Hydrate for HydrateMessage<'_> {
-    fn hydrate(&mut self, hydrate: &mut HydrateAst, stack: &mut Vec<Key>) -> Result<(), Error> {
-        todo!()
-    }
-
-    fn progress(&self) -> Progress {
-        self.progress
-    }
-}
-
-impl Finalize for HydrateMessage<'_> {
-    type Target = Message;
-    fn finalize(self, hydrate: &mut HydrateAst) -> Result<Self::Target, Error> {
-        todo!()
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 struct HydratePackage<'i> {
-    progress: Progress,
+    // progress: Progress,
     name: String,
     fqn: FullyQualifiedName,
     messages: Vec<MessageKey>,
@@ -284,25 +226,9 @@ struct HydratePackage<'i> {
 
 impl<'i> HydratePackage<'i> {}
 
-impl<'i> Hydrate for HydratePackage<'i> {
-    fn progress(&self) -> Progress {
-        self.progress
-    }
-    fn hydrate(&mut self, hydrate: &mut HydrateAst, stack: &mut Vec<Key>) -> Result<(), Error> {
-        todo!()
-    }
-}
-
-impl<'i> Finalize for HydratePackage<'i> {
-    type Target = Package;
-    fn finalize(self, hydrate: &mut HydrateAst) -> Result<Self::Target, Error> {
-        todo!()
-    }
-}
-
 #[derive(Debug, Default, Clone)]
 struct HydrateEnum<'i> {
-    progress: Progress,
+    // progress: Progress,
     fqn: Option<FullyQualifiedName>,
     descriptor: Option<&'i EnumDescriptorProto>,
     values: Vec<EnumValueKey>,
@@ -319,190 +245,55 @@ impl<'i> HydrateEnum<'i> {
     }
 }
 
-impl<'i> Hydrate for HydrateEnum<'i> {
-    fn hydrate(&mut self, hydrate: &mut HydrateAst, stack: &mut Vec<Key>) -> Result<(), Error> {
-        todo!()
-    }
-
-    fn progress(&self) -> Progress {
-        self.progress
-    }
-}
-
-impl<'i> Finalize for HydrateEnum<'i> {
-    type Target = Enum;
-    fn finalize(mut self, hydrate: &mut HydrateAst) -> Result<Self::Target, Error> {
-        todo!()
-    }
-}
-
 #[derive(Debug, Default)]
 struct HydrateService<'i> {
-    progress: Progress,
+    // progress: Progress,
     fqn: Option<FullyQualifiedName>,
     descriptor: Option<&'i ServiceDescriptorProto>,
     file: FileKey,
 }
 
-impl Hydrate for HydrateService<'_> {
-    fn hydrate(&mut self, hydrate: &mut HydrateAst, stack: &mut Vec<Key>) -> Result<(), Error> {
-        todo!()
-    }
-
-    fn progress(&self) -> Progress {
-        self.progress
-    }
-}
-
-impl Finalize for HydrateService<'_> {
-    type Target = Service;
-    fn finalize(mut self, _hydrate: &mut HydrateAst) -> Result<Self::Target, Error> {
-        todo!()
-    }
-}
-
 #[derive(Debug, Default)]
 struct HydrateField<'i> {
-    progress: Progress,
+    // progress: Progress,
     descriptor: Option<&'i FieldDescriptorProto>,
     msg: MessageKey,
 }
 
-impl Hydrate for HydrateField<'_> {
-    fn hydrate(&mut self, hydrate: &mut HydrateAst, stack: &mut Vec<Key>) -> Result<(), Error> {
-        todo!()
-    }
-
-    fn progress(&self) -> Progress {
-        self.progress
-    }
-}
-
-impl Finalize for HydrateField<'_> {
-    type Target = Field;
-    fn finalize(mut self, _hydrate: &mut HydrateAst) -> Result<Self::Target, Error> {
-        todo!()
-    }
-}
 #[derive(Debug, Default)]
 struct HydrateEnumValue<'i> {
-    progress: Progress,
+    // progress: Progress,
     descriptor: Option<&'i EnumDescriptorProto>,
     enum_: EnumKey,
 }
 
-impl Hydrate for HydrateEnumValue<'_> {
-    fn hydrate(&mut self, hydrate: &mut HydrateAst, stack: &mut Vec<Key>) -> Result<(), Error> {
-        todo!()
-    }
-
-    fn progress(&self) -> Progress {
-        self.progress
-    }
-}
-impl Finalize for HydrateEnumValue<'_> {
-    type Target = EnumValue;
-
-    fn finalize(mut self, hydrate: &mut HydrateAst) -> Result<Self::Target, Error> {
-        todo!()
-    }
-}
-
 #[derive(Debug, Default)]
 struct HydrateMethod<'i> {
-    progress: Progress,
+    // progress: Progress,
     descriptor: Option<&'i MethodDescriptorProto>,
-}
-
-impl Hydrate for HydrateMethod<'_> {
-    fn hydrate(&mut self, hydrate: &mut HydrateAst, stack: &mut Vec<Key>) -> Result<(), Error> {
-        todo!()
-    }
-
-    fn progress(&self) -> Progress {
-        self.progress
-    }
-}
-impl Finalize for HydrateMethod<'_> {
-    type Target = Method;
-
-    fn finalize(self, hydrate: &mut HydrateAst) -> Result<Self::Target, Error> {
-        todo!()
-    }
 }
 
 #[derive(Debug, Default)]
 struct HydrateOneof<'i> {
-    progress: Progress,
+    // progress: Progress,
     descriptor: Option<&'i OneofDescriptorProto>,
-}
-impl Hydrate for HydrateOneof<'_> {
-    fn hydrate(&mut self, hydrate: &mut HydrateAst, stack: &mut Vec<Key>) -> Result<(), Error> {
-        todo!()
-    }
-
-    fn progress(&self) -> Progress {
-        self.progress
-    }
-}
-impl Finalize for HydrateOneof<'_> {
-    type Target = Oneof;
-
-    fn finalize(self, hydrate: &mut HydrateAst) -> Result<Self::Target, Error> {
-        todo!()
-    }
 }
 
 #[derive(Debug, Default)]
 struct HydrateExtension<'i> {
-    progress: Progress,
+    // progress: Progress,
     descriptor: Option<&'i FieldDescriptorProto>,
-}
-
-impl Hydrate for HydrateExtension<'_> {
-    fn hydrate(&mut self, hydrate: &mut HydrateAst, stack: &mut Vec<Key>) -> Result<(), Error> {
-        todo!()
-    }
-
-    fn progress(&self) -> Progress {
-        self.progress
-    }
-}
-
-impl Finalize for HydrateExtension<'_> {
-    type Target = Extension;
-
-    fn finalize(self, hydrate: &mut HydrateAst) -> Result<Self::Target, Error> {
-        todo!()
-    }
 }
 
 #[derive(Debug, Default)]
 struct HydrateFile<'i> {
-    progress: Progress,
+    // progress: Progress,
     fqn: FullyQualifiedName,
     descriptor: &'i FileDescriptorProto,
     msgs: Vec<MessageKey>,
     enums: Vec<EnumKey>,
     services: Vec<ServiceKey>,
     pkg: Option<PackageKey>,
-}
-
-impl Hydrate for HydrateFile<'_> {
-    fn hydrate(&mut self, hydrate: &mut HydrateAst, stack: &mut Vec<Key>) -> Result<(), Error> {
-        todo!()
-    }
-
-    fn progress(&self) -> Progress {
-        self.progress
-    }
-}
-impl Finalize for HydrateFile<'_> {
-    type Target = File;
-
-    fn finalize(self, hydrate: &mut HydrateAst) -> Result<Self::Target, Error> {
-        todo!()
-    }
 }
 
 impl<'i> HydrateFile<'i> {
@@ -514,7 +305,7 @@ impl<'i> HydrateFile<'i> {
     }
 }
 
-pub struct HydrateAst<'i> {
+pub struct Hydrate<'i> {
     packages: SlotMap<PackageKey, PackageState<'i>>,
     files: SlotMap<FileKey, FileState<'i>>,
     messages: SlotMap<MessageKey, MessageState<'i>>,
@@ -529,7 +320,7 @@ pub struct HydrateAst<'i> {
     input: Vec<FileKey>,
 }
 
-impl<'i> HydrateAst<'i> {
+impl<'i> Hydrate<'i> {
     fn new(
         files: &'i [protobuf::descriptor::FileDescriptorProto],
         targets: &'i HashSet<PathBuf>,
@@ -557,33 +348,59 @@ impl<'i> HydrateAst<'i> {
         }
     }
 
-    fn init_file(&mut self, key: FileKey) -> Result<FileState, Error> {
-        let _state = self.files.get_mut(key).unwrap();
-        // let mut file = state.hydrate_mut();
-
-        // for msg in file.descriptor.message_type {}
-        todo!()
-    }
-
-    fn hydrate(&mut self, key: Key, stack: &mut Vec<Key>) -> Result<(), Error> {
-        match key {
-            Key::Package(key) => self.packages.get_mut(key).unwrap().hydrate(self, stack),
-            Key::File(key) => self.files.get_mut(key).unwrap().hydrate(self, stack),
-            Key::Message(key) => self.messages.get_mut(key).unwrap().hydrate(self, stack),
-            Key::Enum(key) => self.enums.get_mut(key).unwrap().hydrate(self, stack),
-            Key::Service(key) => self.services.get_mut(key).unwrap().hydrate(self, stack),
-            Key::Field(key) => self.fields.get_mut(key).unwrap().hydrate(self, stack),
-            Key::Extension(key) => self.extensions.get_mut(key).unwrap().hydrate(self, stack),
-            Key::EnumValue(key) => self.enum_values.get_mut(key).unwrap().hydrate(self, stack),
-            Key::Method(key) => self.methods.get_mut(key).unwrap().hydrate(self, stack),
-            Key::Oneof(key) => self.oneofs.get_mut(key).unwrap().hydrate(self, stack),
-        }
-    }
     fn run(mut self) -> Result<Ast, Error> {
         let mut stack: Vec<Key> = self.input.clone().into_iter().map(Into::into).collect();
         while let Some(next) = stack.pop() {
             self.hydrate(next, &mut stack)?;
         }
+        todo!()
+    }
+
+    fn init_file(&mut self, descriptor: &'i FileDescriptorProto) -> Result<Key, Error> {}
+
+    fn hydrate(&mut self, key: Key, stack: &mut Vec<Key>) -> Result<(), Error> {
+        match key {
+            Key::Package(key) => self.hydrate_package(key, stack),
+            Key::File(key) => self.hydrate_file(key, stack),
+            Key::Message(key) => self.hydrate_message(key, stack),
+            Key::Enum(key) => self.hydrate_enum(key, stack),
+            Key::Service(key) => self.hydrate_service(key, stack),
+            Key::Field(key) => self.hydrate_field(key, stack),
+            Key::Extension(key) => self.hydrate_extension(key, stack),
+            Key::EnumValue(key) => self.hydrate_enum_value(key, stack),
+            Key::Method(key) => self.hydrate_method(key, stack),
+            Key::Oneof(key) => self.hydrate_oneof(key, stack),
+        }
+    }
+    fn hydrate_package(&mut self, key: PackageKey, stack: &mut Vec<Key>) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn hydrate_file(&mut self, key: FileKey, stack: &mut Vec<Key>) -> Result<(), Error> {
+        todo!()
+    }
+    fn hydrate_message(&mut self, key: MessageKey, stack: &mut Vec<Key>) -> Result<(), Error> {
+        todo!()
+    }
+    fn hydrate_enum(&mut self, key: EnumKey, stack: &mut Vec<Key>) -> Result<(), Error> {
+        todo!()
+    }
+    fn hydrate_service(&mut self, key: ServiceKey, stack: &mut Vec<Key>) -> Result<(), Error> {
+        todo!()
+    }
+    fn hydrate_field(&mut self, key: FieldKey, stack: &mut Vec<Key>) -> Result<(), Error> {
+        todo!()
+    }
+    fn hydrate_extension(&mut self, key: ExtensionKey, stack: &mut Vec<Key>) -> Result<(), Error> {
+        todo!()
+    }
+    fn hydrate_enum_value(&mut self, key: EnumValueKey, stack: &mut Vec<Key>) -> Result<(), Error> {
+        todo!()
+    }
+    fn hydrate_method(&mut self, key: MethodKey, stack: &mut Vec<Key>) -> Result<(), Error> {
+        todo!()
+    }
+    fn hydrate_oneof(&mut self, key: OneofKey, stack: &mut Vec<Key>) -> Result<(), Error> {
         todo!()
     }
 }
