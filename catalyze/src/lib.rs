@@ -22,6 +22,10 @@
 )]
 #![cfg_attr(test, allow(clippy::too_many_lines))]
 
+use std::hash::BuildHasherDefault;
+
+use ahash::AHasher;
+
 pub mod ast;
 pub mod container;
 pub mod r#enum;
@@ -43,3 +47,5 @@ pub mod uninterpreted_option;
 
 pub(crate) type HashMap<K, V> = ahash::HashMap<K, V>;
 pub(crate) type HashSet<V> = ahash::HashSet<V>;
+
+pub(crate) type IndexSet<T> = indexmap::IndexSet<T, BuildHasherDefault<AHasher>>;

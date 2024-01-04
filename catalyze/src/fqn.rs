@@ -16,10 +16,13 @@ pub trait Fqn {
 pub struct FullyQualifiedName(String);
 
 impl FullyQualifiedName {
-    pub fn new(value: impl AsRef<str>, container: Option<&str>) -> Self {
+    pub fn new(value: impl AsRef<str>, container: Option<FullyQualifiedName>) -> Self {
         let value = value.as_ref();
         if value.is_empty() {
-            return Self(container.unwrap_or_default().to_string());
+            if let Some(fqn) = container {
+                return fqn;
+            }
+            return Self::default();
         }
         Self(format!("{}.{}", container.unwrap_or_default(), &value))
     }
@@ -36,7 +39,6 @@ impl FullyQualifiedName {
         self.0.push_str(value);
     }
 }
-
 impl AsRef<str> for FullyQualifiedName {
     fn as_ref(&self) -> &str {
         &self.0

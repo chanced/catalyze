@@ -16,6 +16,7 @@ pub use repeated_field::*;
 pub use scalar_field::*;
 
 use crate::{
+    error::Error,
     fqn::{Fqn, FullyQualifiedName},
     uninterpreted_option::UninterpretedOption,
 };
@@ -124,7 +125,7 @@ pub enum Type {
     Enum(String),    // 14,
     Message(String), // 11,
     /// not supported
-    Group, //  = 10,
+    // Group, //  = 10,
     Unknown(i32),
 }
 impl Type {
@@ -136,10 +137,6 @@ impl Type {
         matches!(self, Self::Unknown(..))
     }
 
-    #[must_use]
-    pub const fn is_group(&self) -> bool {
-        matches!(self, Self::Group)
-    }
     #[must_use]
     pub const fn is_scalar(&self) -> bool {
         matches!(self, Self::Scalar(_))
@@ -190,27 +187,31 @@ impl Type {
     }
 }
 impl Type {
-    pub(crate) fn new(typ: field_descriptor_proto::Type, enum_: &str, msg: &str) -> Self {
+    pub(crate) fn new(
+        typ: field_descriptor_proto::Type,
+        enum_: &str,
+        msg: &str,
+    ) -> Result<Self, Error> {
         use field_descriptor_proto::Type::*;
         match typ {
-            TYPE_DOUBLE => Self::Scalar(Scalar::Double),
-            TYPE_FLOAT => Self::Scalar(Scalar::Float),
-            TYPE_INT64 => Self::Scalar(Scalar::Int64),
-            TYPE_UINT64 => Self::Scalar(Scalar::Uint64),
-            TYPE_INT32 => Self::Scalar(Scalar::Int32),
-            TYPE_FIXED64 => Self::Scalar(Scalar::Fixed64),
-            TYPE_FIXED32 => Self::Scalar(Scalar::Fixed32),
-            TYPE_BOOL => Self::Scalar(Scalar::Bool),
-            TYPE_STRING => Self::Scalar(Scalar::String),
-            TYPE_BYTES => Self::Scalar(Scalar::Bytes),
-            TYPE_UINT32 => Self::Scalar(Scalar::Uint32),
-            TYPE_SFIXED32 => Self::Scalar(Scalar::Sfixed32),
-            TYPE_SFIXED64 => Self::Scalar(Scalar::Sfixed64),
-            TYPE_SINT32 => Self::Scalar(Scalar::Sint32),
-            TYPE_SINT64 => Self::Scalar(Scalar::Sint64),
-            TYPE_ENUM => Self::Enum(enum_.to_string()),
-            TYPE_MESSAGE => Self::Message(msg.to_string()),
-            TYPE_GROUP => Self::Group,
+            TYPE_DOUBLE => Ok(Self::Scalar(Scalar::Double)),
+            TYPE_FLOAT => Ok(Self::Scalar(Scalar::Float)),
+            TYPE_INT64 => Ok(Self::Scalar(Scalar::Int64)),
+            TYPE_UINT64 => Ok(Self::Scalar(Scalar::Uint64)),
+            TYPE_INT32 => Ok(Self::Scalar(Scalar::Int32)),
+            TYPE_FIXED64 => Ok(Self::Scalar(Scalar::Fixed64)),
+            TYPE_FIXED32 => Ok(Self::Scalar(Scalar::Fixed32)),
+            TYPE_BOOL => Ok(Self::Scalar(Scalar::Bool)),
+            TYPE_STRING => Ok(Self::Scalar(Scalar::String)),
+            TYPE_BYTES => Ok(Self::Scalar(Scalar::Bytes)),
+            TYPE_UINT32 => Ok(Self::Scalar(Scalar::Uint32)),
+            TYPE_SFIXED32 => Ok(Self::Scalar(Scalar::Sfixed32)),
+            TYPE_SFIXED64 => Ok(Self::Scalar(Scalar::Sfixed64)),
+            TYPE_SINT32 => Ok(Self::Scalar(Scalar::Sint32)),
+            TYPE_SINT64 => Ok(Self::Scalar(Scalar::Sint64)),
+            TYPE_ENUM => Ok(Self::Enum(enum_.to_string())),
+            TYPE_MESSAGE => Ok(Self::Message(msg.to_string())),
+            TYPE_GROUP => Err(Error::GroupNotSupported),
         }
     }
 }

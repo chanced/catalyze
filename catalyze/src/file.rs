@@ -177,6 +177,7 @@ pub struct File(Arc<Inner>);
 
 #[derive(Debug, Clone, PartialEq)]
 struct Inner {
+    name: String,
     path: PathBuf,
     pkg_name: String,
     pkg: Option<WeakPackage>,
@@ -288,6 +289,10 @@ impl Fqn for File {
 }
 
 impl File {
+    #[must_use]
+    pub fn name(&self) -> &str {
+        self.0.name.as_ref()
+    }
     #[must_use]
     pub fn path(&self) -> &Path {
         self.0.path.as_ref()
