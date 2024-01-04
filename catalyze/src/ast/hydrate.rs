@@ -1,14 +1,15 @@
-use std::{fmt::Debug, path::PathBuf, sync::Arc};
+use std::{
+    fmt::Debug,
+    path::PathBuf,
+    sync::{Arc, Weak},
+};
 
 use ahash::HashMapExt;
 use indexmap::IndexSet;
 use itertools::Itertools;
-use protobuf::{
-    descriptor::{
-        DescriptorProto, EnumDescriptorProto, FieldDescriptorProto, FileDescriptorProto,
-        MethodDescriptorProto, OneofDescriptorProto, ServiceDescriptorProto,
-    },
-    reflect::FieldDescriptor,
+use protobuf::descriptor::{
+    DescriptorProto, EnumDescriptorProto, FieldDescriptorProto, FileDescriptorProto,
+    MethodDescriptorProto, OneofDescriptorProto, ServiceDescriptorProto,
 };
 use slotmap::SlotMap;
 
@@ -35,7 +36,12 @@ pub fn hydrate(
     files: &[protobuf::descriptor::FileDescriptorProto],
     targets: &HashSet<PathBuf>,
 ) -> Result<Ast, Error> {
-    Hydrate::new(files, targets).run()
+    let mut hydrate = Hydrate::new(files, targets);
+    let mut stack: Vec<Key> = hydrate.input.clone().into_iter().map(Into::into).collect();
+    while let Some(next) = stack.pop() {
+        hydrate.hydrate_node(next, &mut stack)?;
+    }
+    let mut weak = Weak::new();
 }
 
 pub struct Hydrate<'i> {
@@ -88,15 +94,7 @@ impl<'i> Hydrate<'i> {
         }
     }
 
-    fn run(mut self) -> Result<Ast, Error> {
-        let mut stack: Vec<Key> = self.input.clone().into_iter().map(Into::into).collect();
-        while let Some(next) = stack.pop() {
-            self.hydrate(next, &mut stack)?;
-        }
-        todo!()
-    }
-
-    fn hydrate(&mut self, key: Key, stack: &mut Vec<Key>) -> Result<(), Error> {
+    fn hydrate_node(&mut self, key: Key, stack: &mut Vec<Key>) -> Result<(), Error> {
         match key {
             Key::Package(key) => self.hydrate_package(key, stack),
             Key::File(key) => self.hydrate_file(key, stack),
