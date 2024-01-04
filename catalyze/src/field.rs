@@ -18,6 +18,8 @@ pub use scalar_field::*;
 use crate::{
     error::Error,
     fqn::{Fqn, FullyQualifiedName},
+    message::{Message, WeakMessage},
+    r#enum::{Enum, WeakEnum},
     uninterpreted_option::UninterpretedOption,
 };
 
@@ -118,17 +120,41 @@ impl fmt::Display for Scalar {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(i32)]
-pub enum Type {
+enum InternalFieldType {
+    Single(FieldValue),
+    Repeated(FieldValue),
+    Map { key: Key, value: InternalFieldValue },
+    Unknown(i32),
+}
+
+enum InternalFieldValue {
     Scalar(Scalar),
-    Enum(String),    // 14,
-    Message(String), // 11,
+    Enum(WeakEnum),       // 14,
+    Message(WeakMessage), // 11,
     /// not supported
     // Group, //  = 10,
     Unknown(i32),
 }
-impl Type {
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FieldType {
+    Single(FieldValue),
+    Repeated(FieldValue),
+    Map { key: Key, value: FieldValue },
+    Unknown(i32),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FieldValue {
+    Scalar(Scalar),
+    Enum(Enum),       // 14,
+    Message(Message), // 11,
+    /// not supported
+    // Group, //  = 10,
+    Unknown(i32),
+}
+
+impl FieldValue {
     /// Returns `true` if the type is [`Unknown`].
     ///
     /// [`Unknown`]: Type::Unknown
@@ -151,9 +177,9 @@ impl Type {
     }
 
     #[must_use]
-    pub const fn as_enum(&self) -> Option<&String> {
+    pub const fn as_enum(&self) -> Option<Enum> {
         if let Self::Enum(v) = self {
-            Some(v)
+            Some(v.clone())
         } else {
             None
         }
@@ -169,9 +195,9 @@ impl Type {
     }
 
     #[must_use]
-    pub fn as_message(&self) -> Option<&str> {
+    pub fn as_message(&self) -> Option<Message> {
         if let Self::Message(v) = self {
-            Some(v)
+            Some(v.clone())
         } else {
             None
         }
@@ -186,11 +212,11 @@ impl Type {
         }
     }
 }
-impl Type {
+impl FieldValue {
     pub(crate) fn new(
         typ: field_descriptor_proto::Type,
-        enum_: &str,
-        msg: &str,
+        enum_: Option<Enum>,
+        msg: Option<Message>,
     ) -> Result<Self, Error> {
         use field_descriptor_proto::Type::*;
         match typ {
@@ -209,8 +235,8 @@ impl Type {
             TYPE_SFIXED64 => Ok(Self::Scalar(Scalar::Sfixed64)),
             TYPE_SINT32 => Ok(Self::Scalar(Scalar::Sint32)),
             TYPE_SINT64 => Ok(Self::Scalar(Scalar::Sint64)),
-            TYPE_ENUM => Ok(Self::Enum(enum_.to_string())),
-            TYPE_MESSAGE => Ok(Self::Message(msg.to_string())),
+            TYPE_ENUM => Ok(Self::Enum(enum_.unwrap())),
+            TYPE_MESSAGE => Ok(Self::Message(msg.unwrap())),
             TYPE_GROUP => Err(Error::GroupNotSupported),
         }
     }
@@ -254,7 +280,7 @@ struct Inner {
     label: Option<Label>,
     ///  If type_name is set, this need not be set.  If both this and type_name
     ///  are set, this must be one of TYPE_ENUM, TYPE_MESSAGE or TYPE_GROUP.
-    type_: Type,
+    type_: FieldValue,
     ///  For message and enum types, this is the name of the type.  If the name
     ///  starts with a '.', it is fully-qualified.  Otherwise, C++-like scoping
     ///  rules are used to find the type (i.e. first the nested types within this

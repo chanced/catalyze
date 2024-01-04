@@ -22,9 +22,10 @@
 )]
 #![cfg_attr(test, allow(clippy::too_many_lines))]
 
-use std::hash::BuildHasherDefault;
+use std::{hash::BuildHasherDefault, ops::Deref, rc::Weak};
 
 use ahash::AHasher;
+use node::{Downgrade, Upgrade};
 
 pub mod ast;
 pub mod container;
