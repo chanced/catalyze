@@ -1,11 +1,6 @@
+use crate::{file::File, message::Message};
 
-
-use crate::{
-    file::{File},
-    message::Message,
-};
-
-pub enum Container {
-    Message(Message),
-    File(File),
+pub enum Container<'ast> {
+    Message(Message<'ast>),
+    File(File<'ast>),
 }

@@ -1,24 +1,19 @@
-use std::sync::{Arc, Weak};
+use crate::{
+    ast::{Accessor, Ast},
+    fqn::FullyQualifiedName,
+    impl_traits,
+};
 
-use inherent::inherent;
-
-use crate::fqn::{Fqn, FullyQualifiedName};
+slotmap::new_key_type! {
+    pub(crate) struct Key;
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Inner {
+pub(crate) struct Inner {
     fqn: FullyQualifiedName,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Service(Arc<Inner>);
+#[derive(Debug)]
+pub struct Service<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
 
-#[inherent]
-impl Fqn for Service {
-    pub fn fully_qualified_name(&self) -> &FullyQualifiedName {
-        &self.0.fqn
-    }
-}
-
-pub(crate) struct WeakService(Weak<Inner>);
-
-pub(crate) struct Hydrate {}
+impl_traits!(Service, Inner);

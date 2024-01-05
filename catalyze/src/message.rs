@@ -1,47 +1,34 @@
-use std::{
-    fmt,
-    sync::{Arc, Weak},
+use crate::{
+    ast::{Accessor, Ast, Nodes},
+    field::{self, Field},
+    file,
+    fqn::FullyQualifiedName,
+    impl_traits, message,
+    oneof::{self, Oneof},
 };
-
 use inherent::inherent;
 
-use crate::{
-    extension::Extension,
-    field::Field,
-    file::WeakFile,
-    fqn::{Fqn, FullyQualifiedName},
-    node::{Downgrade, Nodes, Upgrade},
-    oneof::Oneof,
-};
+use std::{fmt, sync::Weak};
+
+slotmap::new_key_type! {
+    pub(crate) struct Key;
+}
 
 #[derive(Debug, PartialEq)]
-struct Inner {
+pub(crate) struct Inner {
     fqn: FullyQualifiedName,
-    fields: Nodes<Field>,
-    messages: Nodes<Message>,
-    oneofs: Nodes<Oneof>,
-    real_oneofs: Nodes<Oneof>,
-    synthetic_oneofs: Nodes<Oneof>,
-    dependents: Nodes<WeakFile>,
-    applied_extensions: Nodes<Extension>,
+    fields: Nodes<field::Key>,
+    messages: Nodes<message::Key>,
+    oneofs: Nodes<oneof::Key>,
+    real_oneofs: Nodes<oneof::Key>,
+    synthetic_oneofs: Nodes<oneof::Key>,
+    dependents: Nodes<file::Key>,
+    applied_extensions: Nodes<oneof::Key>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Message(Arc<Inner>);
-
-#[inherent]
-impl Fqn for Message {
-    pub fn fully_qualified_name(&self) -> &FullyQualifiedName {
-        &self.0.fqn
-    }
-}
-impl Downgrade for Message {
-    type Target = WeakMessage;
-
-    fn downgrade(&self) -> Self::Target {
-        WeakMessage(Arc::downgrade(&self.0))
-    }
-}
+#[derive(Debug)]
+pub struct Message<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
+impl_traits!(Message, Inner);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WellKnownMessage {
@@ -319,28 +306,5 @@ impl std::str::FromStr for WellKnownMessage {
             Self::VALUE => Ok(WellKnownMessage::Value),
             _ => Err(()),
         }
-    }
-}
-#[derive(Clone, Debug)]
-pub(crate) struct WeakMessage(Weak<Inner>);
-impl Upgrade for WeakMessage {
-    type Target = Message;
-    fn upgrade(&self) -> Self::Target {
-        Message(self.0.upgrade().unwrap())
-    }
-}
-impl PartialEq<Message> for WeakMessage {
-    fn eq(&self, other: &Message) -> bool {
-        self.upgrade() == *other
-    }
-}
-impl PartialEq<WeakMessage> for Message {
-    fn eq(&self, other: &WeakMessage) -> bool {
-        *self == other.upgrade()
-    }
-}
-impl PartialEq for WeakMessage {
-    fn eq(&self, other: &Self) -> bool {
-        self.upgrade() == other.upgrade()
     }
 }

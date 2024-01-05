@@ -1,20 +1,19 @@
-use std::sync::Arc;
+use crate::{
+    ast::{Accessor, Ast},
+    fqn::{Fqn, FullyQualifiedName},
+    impl_traits,
+};
 
-use inherent::inherent;
-
-use crate::fqn::{Fqn, FullyQualifiedName};
+slotmap::new_key_type! {
+    pub(crate) struct Key;
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Inner {
+pub(super) struct Inner {
     fqn: FullyQualifiedName,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Method(Arc<Inner>);
+#[derive(Debug)]
+pub struct Method<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
 
-#[inherent]
-impl Fqn for Method {
-    pub fn fully_qualified_name(&self) -> &FullyQualifiedName {
-        &self.0.fqn
-    }
-}
+impl_traits!(Method, Inner);

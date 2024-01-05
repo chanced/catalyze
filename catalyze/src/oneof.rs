@@ -1,22 +1,17 @@
-use inherent::inherent;
+use crate::{
+    ast::{Accessor, Ast},
+    fqn::FullyQualifiedName,
+};
 
-use std::sync::{Arc, Weak};
+#[derive(Debug)]
+pub struct Oneof<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
 
-use crate::fqn::{Fqn, FullyQualifiedName};
+crate::impl_traits!(Oneof, Inner);
 
+slotmap::new_key_type! {
+    pub(crate) struct Key;
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Inner {
+pub(crate) struct Inner {
     fqn: FullyQualifiedName,
 }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Oneof(Arc<Inner>);
-#[inherent]
-impl Fqn for Oneof {
-    pub fn fully_qualified_name(&self) -> &FullyQualifiedName {
-        &self.0.fqn
-    }
-}
-pub(crate) struct WeakOneof(Weak<Inner>);
-
-pub(crate) struct Hydrate {}

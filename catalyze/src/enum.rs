@@ -1,69 +1,24 @@
-use std::{
-    fmt,
-    path::Display,
-    sync::{Arc, Weak},
-};
-
-use inherent::inherent;
-
 use crate::{
+    ast::{Accessor, Ast},
     fqn::{Fqn, FullyQualifiedName},
-    node::{Downgrade, Upgrade},
+    impl_traits,
 };
+
+use std::fmt;
+
+slotmap::new_key_type! {
+    pub(crate) struct Key;
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Inner {
+pub(crate) struct Inner {
     fqn: FullyQualifiedName,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Enum(Arc<Inner>);
+#[derive(Debug)]
+pub struct Enum<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
+impl_traits!(Enum, Inner);
 
-#[inherent]
-impl Fqn for Enum {
-    pub fn fully_qualified_name(&self) -> &FullyQualifiedName {
-        &self.0.fqn
-    }
-}
-impl Downgrade for Enum {
-    type Target = WeakEnum;
-
-    fn downgrade(&self) -> Self::Target {
-        self.clone().into()
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct WeakEnum(Weak<Inner>);
-
-impl From<Enum> for WeakEnum {
-    fn from(value: Enum) -> Self {
-        Self(Arc::downgrade(&value.0))
-    }
-}
-
-impl PartialEq<Enum> for WeakEnum {
-    fn eq(&self, other: &Enum) -> bool {
-        self.upgrade() == *other
-    }
-}
-impl PartialEq<WeakEnum> for Enum {
-    fn eq(&self, other: &WeakEnum) -> bool {
-        *self == other.upgrade()
-    }
-}
-impl PartialEq for WeakEnum {
-    fn eq(&self, other: &Self) -> bool {
-        self.upgrade() == other.upgrade()
-    }
-}
-impl Upgrade for WeakEnum {
-    type Target = Enum;
-
-    fn upgrade(&self) -> Self::Target {
-        Enum(self.0.upgrade().unwrap())
-    }
-}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WellKnownEnum {
     /// Whether a field is optional, required, or repeated.

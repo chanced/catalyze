@@ -1,20 +1,193 @@
-use inherent::inherent;
-
-use crate::{
-    error::Error,
-    fqn::{Fqn, FullyQualifiedName},
-    message::Message,
-    node::{Downgrade, Upgrade},
-    package::WeakPackage,
-    uninterpreted_option::UninterpretedOption,
-    HashMap, HashSet,
-};
 use std::{
     path::{Path, PathBuf},
     str::FromStr,
-    sync::{Arc, Weak},
 };
 
+use crate::{
+    ast::{Accessor, Ast, Get, Nodes, UninterpretedOption},
+    error::Error,
+    fqn::FullyQualifiedName,
+    impl_traits,
+    message::{self},
+    package::{self},
+    HashMap, HashSet,
+};
+slotmap::new_key_type! {
+    pub(crate) struct Key;
+}
+
+#[derive(Debug)]
+pub struct File<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
+impl_traits!(File, Inner);
+
+impl<'ast, A> File<'ast, A>
+where
+    A: Get<'ast, Key, Inner>,
+{
+    #[must_use]
+    pub fn name(&self) -> &str {
+        self.0.name.as_ref()
+    }
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        self.0.path.as_ref()
+    }
+
+    #[must_use]
+    pub fn package(&self) -> &str {
+        self.0.pkg_name.as_ref()
+    }
+
+    // #[must_use]
+    // pub fn used_imports(&self) -> &HashSet<String> {
+    //     &self.0.used_imports
+    // }
+
+    #[must_use]
+    pub fn is_build_target(&self) -> bool {
+        self.0.is_build_target
+    }
+
+    #[must_use]
+    pub fn syntax(&self) -> Syntax {
+        self.0.syntax
+    }
+
+    #[must_use]
+    pub fn java_multiple_files(&self) -> bool {
+        self.0.java_multiple_files
+    }
+
+    #[must_use]
+    pub fn java_package(&self) -> Option<&str> {
+        self.0.java_package.as_deref()
+    }
+
+    #[must_use]
+    pub fn java_outer_classname(&self) -> Option<&str> {
+        self.0.java_outer_classname.as_deref()
+    }
+
+    #[must_use]
+    pub fn java_generate_equals_and_hash(&self) -> bool {
+        self.0.java_generate_equals_and_hash
+    }
+
+    #[must_use]
+    pub fn java_string_check_utf8(&self) -> bool {
+        self.0.java_string_check_utf8
+    }
+
+    #[must_use]
+    pub fn optimize_for(&self) -> Option<OptimizeMode> {
+        self.0.optimize_for
+    }
+
+    #[must_use]
+    pub fn go_package(&self) -> Option<&str> {
+        self.0.go_package.as_deref()
+    }
+
+    #[must_use]
+    pub fn cc_generic_services(&self) -> bool {
+        self.0.cc_generic_services
+    }
+
+    #[must_use]
+    pub fn java_generic_services(&self) -> bool {
+        self.0.java_generic_services
+    }
+
+    #[must_use]
+    pub fn py_generic_services(&self) -> bool {
+        self.0.py_generic_services
+    }
+
+    #[must_use]
+    pub fn php_generic_services(&self) -> bool {
+        self.0.php_generic_services
+    }
+
+    ///  Is this file deprecated?
+    ///  Depending on the target platform, this can emit Deprecated annotations
+    ///  for everything in the file, or it will be completely ignored; in the
+    /// very  least, this is a formalization for deprecating files.
+    #[must_use]
+    pub fn deprecated(&self) -> bool {
+        self.0.deprecated
+    }
+
+    ///  Enables the use of arenas for the proto messages in this file. This
+    /// applies  only to generated classes for C++.
+    #[must_use]
+    pub fn cc_enable_arenas(&self) -> bool {
+        self.0.cc_enable_arenas
+    }
+
+    ///  Sets the objective c class prefix which is prepended to all objective c
+    ///  generated classes from this .proto. There is no default.
+    #[must_use]
+    pub fn objc_class_prefix(&self) -> Option<&str> {
+        self.0.objc_class_prefix.as_deref()
+    }
+
+    ///  Namespace for generated classes; defaults to the package.
+    #[must_use]
+    pub fn csharp_namespace(&self) -> Option<&str> {
+        self.0.csharp_namespace.as_deref()
+    }
+
+    ///  By default Swift generators will take the proto package and CamelCase
+    /// it  replacing '.' with underscore and use that to prefix the
+    /// types/symbols  defined. When this options is provided, they will use
+    /// this value instead  to prefix the types/symbols defined.
+    #[must_use]
+    pub fn swift_prefix(&self) -> Option<&str> {
+        self.0.swift_prefix.as_deref()
+    }
+
+    ///  Sets the php class prefix which is prepended to all php generated
+    /// classes  from this .proto. Default is empty.
+    #[must_use]
+    pub fn php_class_prefix(&self) -> Option<&str> {
+        self.0.php_class_prefix.as_deref()
+    }
+
+    ///  Use this option to change the namespace of php generated classes.
+    /// Default  is empty. When this option is empty, the package name will
+    /// be used for  determining the namespace.
+    #[must_use]
+    pub fn php_namespace(&self) -> Option<&str> {
+        self.0.php_namespace.as_deref()
+    }
+
+    ///  Use this option to change the namespace of php generated metadata
+    /// classes.  Default is empty. When this option is empty, the proto
+    /// file name will be  used for determining the namespace.
+    #[must_use]
+    pub fn php_metadata_namespace(&self) -> Option<&str> {
+        self.0.php_metadata_namespace.as_deref()
+    }
+
+    ///  Use this option to change the package of ruby generated classes.
+    /// Default  is empty. When this option is not set, the package name
+    /// will be used for  determining the ruby package.
+    #[must_use]
+    pub fn ruby_package(&self) -> Option<&str> {
+        self.0.ruby_package.as_deref()
+    }
+
+    ///  The parser stores options it doesn't recognize here.
+    ///  See the documentation for the "Options" section above.
+    #[must_use]
+    pub fn uninterpreted_option(&self) -> &[UninterpretedOption] {
+        &self.0.uninterpreted_option
+    }
+}
+
+/// Syntax of the proto file. Lorem ipsum dolor sit amet, consectetur adipiscing
+/// elit. Sed non risus. Suspendisse lectus tortor, dignissim sit amet,
+/// adipiscing nec, ultricies sed, dolor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Syntax {
     Proto2,
@@ -118,72 +291,15 @@ impl OptimizeMode {
     }
 }
 
-#[derive(Debug, Default)]
-pub(crate) struct Imports(Files);
-
-#[derive(Debug, Default)]
-pub(crate) struct Files {
-    files: Vec<WeakFile>,
-    fqn_lookup: HashMap<FullyQualifiedName, usize>,
-    path_lookup: HashMap<PathBuf, usize>,
-}
-
-impl Files {
-    pub(crate) fn new() -> Self {
-        Self {
-            files: Vec::new(),
-            fqn_lookup: HashMap::default(),
-            path_lookup: HashMap::default(),
-        }
-    }
-    pub(crate) fn files(&self) -> &[WeakFile] {
-        &self.files
-    }
-    pub(crate) fn contains_fqn(&self, fqn: &FullyQualifiedName) -> bool {
-        self.fqn_lookup.contains_key(fqn)
-    }
-    pub(crate) fn contains_path(&self, path: &Path) -> bool {
-        self.path_lookup.contains_key(path)
-    }
-    pub(crate) fn get_by_fqn(&self, fqn: &FullyQualifiedName) -> Option<&WeakFile> {
-        self.fqn_lookup.get(fqn).map(|idx| &self.files[*idx])
-    }
-    pub(crate) fn get_by_path(&self, path: impl AsRef<Path>) -> Option<&WeakFile> {
-        self.path_lookup
-            .get(path.as_ref())
-            .map(|idx| &self.files[*idx])
-    }
-    pub(crate) fn push(&mut self, weak_file: WeakFile) {
-        let file = weak_file.upgrade();
-        let fqn = file.fully_qualified_name().clone();
-        if self.fqn_lookup.contains_key(&fqn) {
-            return;
-        }
-        let idx = self.files.len();
-        self.fqn_lookup.insert(fqn, self.files.len());
-        self.path_lookup.insert(file.path().to_owned(), idx);
-        self.files.push(weak_file);
-    }
-}
-
-impl AsRef<[WeakFile]> for Files {
-    fn as_ref(&self) -> &[WeakFile] {
-        &self.files
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
-pub struct File(Arc<Inner>);
-
-#[derive(Debug, Clone, PartialEq)]
-struct Inner {
+pub(crate) struct Inner {
     name: String,
     path: PathBuf,
     pkg_name: String,
-    pkg: Option<WeakPackage>,
+    pkg: Option<package::Key>,
     // file_path: PathBuf,
     fqn: FullyQualifiedName,
-    messages: Vec<Message>,
+    messages: Nodes<message::Key>,
     // enums: RefCell<Vec<Enum>>,
     // services: RefCell<Vec<Service>>,
     // defined_extensions: RefCell<Vec<Extension>>,
@@ -193,25 +309,26 @@ struct Inner {
     // pkg: WeakPackage,
     // dependents: RefCell<Vec<WeakFile>>,
     // imports: RefCell<Vec<WeakFile>>,
-    used_imports: HashSet<String>,
+    used_imports: HashSet<Key>,
     syntax: Syntax,
     ///  Sets the Java package where classes generated from this .proto will be
     ///  placed.  By default, the proto package is used, but this is often
-    ///  inappropriate because proto packages do not normally start with backwards
-    ///  domain names.
+    ///  inappropriate because proto packages do not normally start with
+    /// backwards  domain names.
     java_package: Option<String>,
-    ///  Controls the name of the wrapper Java class generated for the .proto file.
-    ///  That class will always contain the .proto file's getDescriptor() method as
-    ///  well as any top-level extensions defined in the .proto file.
-    ///  If java_multiple_files is disabled, then all the other classes from the
-    ///  .proto file will be nested inside the single wrapper outer class.
+    ///  Controls the name of the wrapper Java class generated for the .proto
+    /// file.  That class will always contain the .proto file's
+    /// getDescriptor() method as  well as any top-level extensions defined
+    /// in the .proto file.  If java_multiple_files is disabled, then all
+    /// the other classes from the  .proto file will be nested inside the
+    /// single wrapper outer class.
     java_outer_classname: Option<String>,
     ///  If enabled, then the Java code generator will generate a separate .java
-    ///  file for each top-level message, enum, and service defined in the .proto
-    ///  file.  Thus, these types will *not* be nested inside the wrapper class
-    ///  named by java_outer_classname.  However, the wrapper class will still be
-    ///  generated to contain the file's getDescriptor() method as well as any
-    ///  top-level extensions defined in the file.
+    ///  file for each top-level message, enum, and service defined in the
+    /// .proto  file.  Thus, these types will *not* be nested inside the
+    /// wrapper class  named by java_outer_classname.  However, the wrapper
+    /// class will still be  generated to contain the file's getDescriptor()
+    /// method as well as any  top-level extensions defined in the file.
     java_multiple_files: bool,
     ///  This option does nothing.
     java_generate_equals_and_hash: bool,
@@ -229,262 +346,98 @@ struct Inner {
     ///    - Otherwise, the package statement in the .proto file, if present.
     ///    - Otherwise, the basename of the .proto file, without extension.
     go_package: Option<String>,
-    ///  Should generic services be generated in each language?  "Generic" services
-    ///  are not specific to any particular RPC system.  They are generated by the
-    ///  main code generators in each language (without additional plugins).
-    ///  Generic services were the only kind of service generation supported by
-    ///  early versions of google.protobuf.
+    ///  Should generic services be generated in each language?  "Generic"
+    /// services  are not specific to any particular RPC system.  They are
+    /// generated by the  main code generators in each language (without
+    /// additional plugins).  Generic services were the only kind of service
+    /// generation supported by  early versions of google.protobuf.
     ///
-    ///  Generic services are now considered deprecated in favor of using plugins
-    ///  that generate code specific to your particular RPC system.  Therefore,
-    ///  these default to false.  Old code which depends on generic services should
-    ///  explicitly set them to true.
+    ///  Generic services are now considered deprecated in favor of using
+    /// plugins  that generate code specific to your particular RPC system.
+    /// Therefore,  these default to false.  Old code which depends on
+    /// generic services should  explicitly set them to true.
     cc_generic_services: bool,
     java_generic_services: bool,
     py_generic_services: bool,
     php_generic_services: bool,
     ///  Is this file deprecated?
     ///  Depending on the target platform, this can emit Deprecated annotations
-    ///  for everything in the file, or it will be completely ignored; in the very
-    ///  least, this is a formalization for deprecating files.
+    ///  for everything in the file, or it will be completely ignored; in the
+    /// very  least, this is a formalization for deprecating files.
     deprecated: bool,
-    ///  Enables the use of arenas for the proto messages in this file. This applies
-    ///  only to generated classes for C++.
+    ///  Enables the use of arenas for the proto messages in this file. This
+    /// applies  only to generated classes for C++.
     cc_enable_arenas: bool,
     ///  Sets the objective c class prefix which is prepended to all objective c
     ///  generated classes from this .proto. There is no default.
     objc_class_prefix: Option<String>,
     ///  Namespace for generated classes; defaults to the package.
     csharp_namespace: Option<String>,
-    ///  By default Swift generators will take the proto package and CamelCase it
-    ///  replacing '.' with underscore and use that to prefix the types/symbols
-    ///  defined. When this options is provided, they will use this value instead
-    ///  to prefix the types/symbols defined.
+    ///  By default Swift generators will take the proto package and CamelCase
+    /// it  replacing '.' with underscore and use that to prefix the
+    /// types/symbols  defined. When this options is provided, they will use
+    /// this value instead  to prefix the types/symbols defined.
     swift_prefix: Option<String>,
-    ///  Sets the php class prefix which is prepended to all php generated classes
-    ///  from this .proto. Default is empty.
+    ///  Sets the php class prefix which is prepended to all php generated
+    /// classes  from this .proto. Default is empty.
     php_class_prefix: Option<String>,
-    ///  Use this option to change the namespace of php generated classes. Default
-    ///  is empty. When this option is empty, the package name will be used for
-    ///  determining the namespace.
+    ///  Use this option to change the namespace of php generated classes.
+    /// Default  is empty. When this option is empty, the package name will
+    /// be used for  determining the namespace.
     php_namespace: Option<String>,
-    ///  Use this option to change the namespace of php generated metadata classes.
-    ///  Default is empty. When this option is empty, the proto file name will be
-    ///  used for determining the namespace.
+    ///  Use this option to change the namespace of php generated metadata
+    /// classes.  Default is empty. When this option is empty, the proto
+    /// file name will be  used for determining the namespace.
     php_metadata_namespace: Option<String>,
-    ///  Use this option to change the package of ruby generated classes. Default
-    ///  is empty. When this option is not set, the package name will be used for
-    ///  determining the ruby package.
+    ///  Use this option to change the package of ruby generated classes.
+    /// Default  is empty. When this option is not set, the package name
+    /// will be used for  determining the ruby package.
     ruby_package: Option<String>,
     ///  The parser stores options it doesn't recognize here.
     ///  See the documentation for the "Options" section above.
     uninterpreted_option: Vec<UninterpretedOption>,
 }
 
-#[inherent]
-impl Fqn for File {
-    pub fn fully_qualified_name(&self) -> &FullyQualifiedName {
-        &self.0.fqn
-    }
+#[derive(Debug, Default)]
+pub(crate) struct Files {
+    files: Vec<Key>,
+    fqn_lookup: HashMap<FullyQualifiedName, usize>,
+    path_lookup: HashMap<PathBuf, usize>,
 }
 
-impl File {
-    #[must_use]
-    pub fn name(&self) -> &str {
-        self.0.name.as_ref()
+impl Files {
+    pub(crate) fn new() -> Self {
+        Self {
+            files: Vec::new(),
+            fqn_lookup: HashMap::default(),
+            path_lookup: HashMap::default(),
+        }
     }
-    #[must_use]
-    pub fn path(&self) -> &Path {
-        self.0.path.as_ref()
+    pub(crate) fn files(&self) -> &[File] {
+        &self.files
     }
-
-    #[must_use]
-    pub fn package(&self) -> &str {
-        self.0.pkg_name.as_ref()
+    pub(crate) fn contains_fqn(&self, fqn: &FullyQualifiedName) -> bool {
+        self.fqn_lookup.contains_key(fqn)
     }
-
-    #[must_use]
-    pub fn used_imports(&self) -> &HashSet<String> {
-        &self.0.used_imports
+    pub(crate) fn contains_path(&self, path: &Path) -> bool {
+        self.path_lookup.contains_key(path)
     }
-
-    #[must_use]
-    pub fn is_build_target(&self) -> bool {
-        self.0.is_build_target
+    pub(crate) fn get_by_fqn(&self, fqn: &FullyQualifiedName) -> Option<&File> {
+        self.fqn_lookup.get(fqn).map(|idx| &self.files[*idx])
     }
-
-    #[must_use]
-    pub fn syntax(&self) -> Syntax {
-        self.0.syntax
+    pub(crate) fn get_by_path(&self, path: impl AsRef<Path>) -> Option<Key> {
+        self.path_lookup
+            .get(path.as_ref())
+            .map(|idx| &self.files[*idx])
     }
 
-    #[must_use]
-    pub fn java_multiple_files(&self) -> bool {
-        self.0.java_multiple_files
-    }
-
-    #[must_use]
-    pub fn java_package(&self) -> Option<&str> {
-        self.0.java_package.as_deref()
-    }
-
-    #[must_use]
-    pub fn java_outer_classname(&self) -> Option<&str> {
-        self.0.java_outer_classname.as_deref()
-    }
-
-    #[must_use]
-    pub fn java_generate_equals_and_hash(&self) -> bool {
-        self.0.java_generate_equals_and_hash
-    }
-
-    #[must_use]
-    pub fn java_string_check_utf8(&self) -> bool {
-        self.0.java_string_check_utf8
-    }
-
-    #[must_use]
-    pub fn optimize_for(&self) -> Option<OptimizeMode> {
-        self.0.optimize_for
-    }
-
-    #[must_use]
-    pub fn go_package(&self) -> Option<&str> {
-        self.0.go_package.as_deref()
-    }
-
-    #[must_use]
-    pub fn cc_generic_services(&self) -> bool {
-        self.0.cc_generic_services
-    }
-
-    #[must_use]
-    pub fn java_generic_services(&self) -> bool {
-        self.0.java_generic_services
-    }
-
-    #[must_use]
-    pub fn py_generic_services(&self) -> bool {
-        self.0.py_generic_services
-    }
-
-    #[must_use]
-    pub fn php_generic_services(&self) -> bool {
-        self.0.php_generic_services
-    }
-
-    ///  Is this file deprecated?
-    ///  Depending on the target platform, this can emit Deprecated annotations
-    ///  for everything in the file, or it will be completely ignored; in the very
-    ///  least, this is a formalization for deprecating files.
-    #[must_use]
-    pub fn deprecated(&self) -> bool {
-        self.0.deprecated
-    }
-
-    ///  Enables the use of arenas for the proto messages in this file. This applies
-    ///  only to generated classes for C++.
-    #[must_use]
-    pub fn cc_enable_arenas(&self) -> bool {
-        self.0.cc_enable_arenas
-    }
-
-    ///  Sets the objective c class prefix which is prepended to all objective c
-    ///  generated classes from this .proto. There is no default.
-    #[must_use]
-    pub fn objc_class_prefix(&self) -> Option<&str> {
-        self.0.objc_class_prefix.as_deref()
-    }
-
-    ///  Namespace for generated classes; defaults to the package.
-    #[must_use]
-    pub fn csharp_namespace(&self) -> Option<&str> {
-        self.0.csharp_namespace.as_deref()
-    }
-
-    ///  By default Swift generators will take the proto package and CamelCase it
-    ///  replacing '.' with underscore and use that to prefix the types/symbols
-    ///  defined. When this options is provided, they will use this value instead
-    ///  to prefix the types/symbols defined.
-    #[must_use]
-    pub fn swift_prefix(&self) -> Option<&str> {
-        self.0.swift_prefix.as_deref()
-    }
-
-    ///  Sets the php class prefix which is prepended to all php generated classes
-    ///  from this .proto. Default is empty.
-    #[must_use]
-    pub fn php_class_prefix(&self) -> Option<&str> {
-        self.0.php_class_prefix.as_deref()
-    }
-
-    ///  Use this option to change the namespace of php generated classes. Default
-    ///  is empty. When this option is empty, the package name will be used for
-    ///  determining the namespace.
-    #[must_use]
-    pub fn php_namespace(&self) -> Option<&str> {
-        self.0.php_namespace.as_deref()
-    }
-
-    ///  Use this option to change the namespace of php generated metadata classes.
-    ///  Default is empty. When this option is empty, the proto file name will be
-    ///  used for determining the namespace.
-    #[must_use]
-    pub fn php_metadata_namespace(&self) -> Option<&str> {
-        self.0.php_metadata_namespace.as_deref()
-    }
-
-    ///  Use this option to change the package of ruby generated classes. Default
-    ///  is empty. When this option is not set, the package name will be used for
-    ///  determining the ruby package.
-    #[must_use]
-    pub fn ruby_package(&self) -> Option<&str> {
-        self.0.ruby_package.as_deref()
-    }
-
-    ///  The parser stores options it doesn't recognize here.
-    ///  See the documentation for the "Options" section above.
-    #[must_use]
-    pub fn uninterpreted_option(&self) -> &[UninterpretedOption] {
-        &self.0.uninterpreted_option
-    }
-}
-
-impl Downgrade for File {
-    type Target = WeakFile;
-
-    fn downgrade(&self) -> Self::Target {
-        WeakFile(Arc::downgrade(&self.0))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct WeakFile(Weak<Inner>);
-impl From<File> for WeakFile {
-    fn from(value: File) -> Self {
-        Self(Arc::downgrade(&value.0))
-    }
-}
-
-impl PartialEq<File> for WeakFile {
-    fn eq(&self, other: &File) -> bool {
-        self.upgrade() == *other
-    }
-}
-impl PartialEq<WeakFile> for File {
-    fn eq(&self, other: &WeakFile) -> bool {
-        *self == other.upgrade()
-    }
-}
-impl PartialEq for WeakFile {
-    fn eq(&self, other: &Self) -> bool {
-        self.upgrade() == other.upgrade()
-    }
-}
-impl Upgrade for WeakFile {
-    type Target = File;
-
-    fn upgrade(&self) -> Self::Target {
-        File(self.0.upgrade().unwrap())
+    pub(crate) fn push(&mut self, path: PathBuf, fqn: FullyQualifiedName, key: Key) {
+        if self.fqn_lookup.contains_key(&fqn) {
+            return;
+        }
+        let idx = self.files.len();
+        self.fqn_lookup.insert(fqn, self.files.len());
+        self.path_lookup.insert(path, idx);
+        self.files.push(key);
     }
 }

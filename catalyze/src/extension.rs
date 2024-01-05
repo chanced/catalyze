@@ -1,9 +1,15 @@
-use std::sync::{Arc, Weak};
+use crate::{
+    ast::{Accessor, Ast},
+    impl_traits,
+};
+
+slotmap::new_key_type! {
+    pub(crate) struct Key;
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Inner {}
+pub(crate) struct Inner {}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Extension(Arc<Inner>);
-
-pub(crate) struct WeakExtension(Weak<Inner>);
+#[derive(Debug)]
+pub struct Extension<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
+impl_traits!(Extension, Inner);
