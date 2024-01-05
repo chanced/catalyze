@@ -36,12 +36,7 @@ pub fn hydrate(
     files: &[protobuf::descriptor::FileDescriptorProto],
     targets: &HashSet<PathBuf>,
 ) -> Result<Ast, Error> {
-    let mut hydrate = Hydrate::new(files, targets);
-    let mut stack: Vec<Key> = hydrate.input.clone().into_iter().map(Into::into).collect();
-    while let Some(next) = stack.pop() {
-        hydrate.hydrate_node(next, &mut stack)?;
-    }
-    let mut weak = Weak::new();
+    Hydrate::new(files, targets).run()
 }
 
 pub struct Hydrate<'i> {
@@ -220,6 +215,12 @@ impl<'i> Hydrate<'i> {
         }
         let state = HydrateFile::new(descriptor).into();
         self.files.insert(state)
+    }
+
+    fn run(mut self) -> Result<Ast, Error> {
+        let mut hydrate_stack: Vec<Key> = self.input.iter().copied().map(Into::into).collect();
+        let mut final_stack = hydrate_stack.clone();
+        self.hydrate_stack(hydrate_stack)?;
     }
 }
 

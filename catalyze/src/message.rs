@@ -321,7 +321,7 @@ impl std::str::FromStr for WellKnownMessage {
         }
     }
 }
-
+#[derive(Clone, Debug)]
 pub(crate) struct WeakMessage(Weak<Inner>);
 impl Upgrade for WeakMessage {
     type Target = Message;

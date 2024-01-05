@@ -1,30 +1,19 @@
-mod embed_field;
-mod enum_field;
-mod map_field;
-mod oneof_field;
-mod repeated_field;
-mod scalar_field;
-
+use ::std::vec::Vec;
 use std::fmt;
 
-pub use embed_field::*;
-pub use enum_field::*;
 use inherent::inherent;
-pub use map_field::*;
-pub use oneof_field::*;
-pub use repeated_field::*;
-pub use scalar_field::*;
 
 use crate::{
     error::Error,
     fqn::{Fqn, FullyQualifiedName},
     message::{Message, WeakMessage},
+    node::Upgrade,
     r#enum::{Enum, WeakEnum},
     uninterpreted_option::UninterpretedOption,
 };
 
 use protobuf::descriptor::field_descriptor_proto;
-
+use protobuf::descriptor::field_options::CType as ProtobufCType;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(i32)]
 pub enum Label {
@@ -54,9 +43,9 @@ impl From<protobuf::EnumOrUnknown<protobuf::descriptor::field_options::CType>> f
 impl From<&protobuf::descriptor::field_options::CType> for CType {
     fn from(value: &protobuf::descriptor::field_options::CType) -> Self {
         match value {
-            protobuf::descriptor::field_options::CType::STRING => Self::String,
-            protobuf::descriptor::field_options::CType::CORD => Self::Cord,
-            protobuf::descriptor::field_options::CType::STRING_PIECE => Self::StringPiece,
+            ProtobufCType::STRING => Self::String,
+            ProtobufCType::CORD => Self::Cord,
+            ProtobufCType::STRING_PIECE => Self::StringPiece,
         }
     }
 }
@@ -120,38 +109,108 @@ impl fmt::Display for Scalar {
     }
 }
 
-enum InternalFieldType {
-    Single(FieldValue),
-    Repeated(FieldValue),
-    Map { key: Key, value: InternalFieldValue },
-    Unknown(i32),
-}
-
-enum InternalFieldValue {
-    Scalar(Scalar),
-    Enum(WeakEnum),       // 14,
-    Message(WeakMessage), // 11,
-    /// not supported
-    // Group, //  = 10,
-    Unknown(i32),
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MapKey {
+    Int64 = 3,
+    Uint64 = 4,
+    Int32 = 5,
+    Fixed64 = 6,
+    Fixed32 = 7,
+    String = 9,
+    Uint32 = 13,
+    Sfixed32 = 15,
+    Sfixed64 = 16,
+    Sint32 = 17,
+    Sint64 = 18,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Map {
+    pub key: MapKey,
+    pub value: FieldValue,
+}
+struct WeakMap {
+    key: MapKey,
+    value: WeakFieldValue,
+}
+
+impl Map {
+    pub fn new(key: MapKey, value: FieldValue) -> Self {
+        Self { key, value }
+    }
+    pub fn key(&self) -> MapKey {
+        self.key
+    }
+    pub fn value(&self) -> &FieldValue {
+        &self.value
+    }
+}
+
+#[derive(Debug, Clone)]
+enum WeakFieldType {
+    Single(WeakFieldValue),
+    Repeated(WeakFieldValue),
+    Map(Map),
+    Unknown(i32),
+}
+impl Upgrade for WeakFieldType {
+    type Target = FieldType;
+    fn upgrade(&self) -> Self::Target {
+        match self {
+            Self::Single(v) => Self::Target::Single(v.upgrade()),
+            Self::Repeated(v) => Self::Target::Repeated(v.upgrade()),
+            Self::Map(v) => Self::Target::Map {
+                key: v.key,
+                value: v.value.clone(),
+            },
+            Self::Unknown(v) => Self::Target::Unknown(*v),
+        }
+    }
+}
+impl Default for WeakFieldType {
+    fn default() -> Self {
+        Self::Unknown(0)
+    }
+}
+
+#[derive(Clone, Debug)]
+enum WeakFieldValue {
+    Scalar(Scalar),
+    Enum(WeakEnum),       // 14,
+    Message(WeakMessage), // 11,
+    Unknown(i32),
+}
+impl Upgrade for WeakFieldValue {
+    type Target = FieldValue;
+    fn upgrade(&self) -> Self::Target {
+        match self {
+            Self::Scalar(v) => Self::Target::Scalar(*v),
+            Self::Enum(v) => Self::Target::Enum(v.upgrade()),
+            Self::Message(v) => Self::Target::Message(v.upgrade()),
+            Self::Unknown(v) => Self::Target::Unknown(*v),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub enum FieldType {
     Single(FieldValue),
     Repeated(FieldValue),
-    Map { key: Key, value: FieldValue },
+    Map { key: MapKey, value: FieldValue },
     Unknown(i32),
 }
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldValue {
     Scalar(Scalar),
     Enum(Enum),       // 14,
     Message(Message), // 11,
-    /// not supported
-    // Group, //  = 10,
+    // Group = 10, not supported
     Unknown(i32),
+}
+impl Default for FieldValue {
+    fn default() -> Self {
+        Self::Unknown(0)
+    }
 }
 
 impl FieldValue {
@@ -272,7 +331,7 @@ impl From<protobuf::descriptor::field_options::JSType> for JsType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 struct Inner {
     fqn: FullyQualifiedName,
     name: String,
@@ -280,7 +339,7 @@ struct Inner {
     label: Option<Label>,
     ///  If type_name is set, this need not be set.  If both this and type_name
     ///  are set, this must be one of TYPE_ENUM, TYPE_MESSAGE or TYPE_GROUP.
-    type_: FieldValue,
+    field_type: WeakFieldType,
     ///  For message and enum types, this is the name of the type.  If the name
     ///  starts with a '.', it is fully-qualified.  Otherwise, C++-like scoping
     ///  rules are used to find the type (i.e. first the nested types within this
@@ -365,7 +424,7 @@ struct Inner {
     ///  For Google-internal migration only. Do not use.
     weak: bool,
     ///  The parser stores options it doesn't recognize here. See above.
-    uninterpreted_option: ::std::vec::Vec<UninterpretedOption>,
+    uninterpreted_option: Vec<UninterpretedOption>,
     ///  If true, this is a proto3 "optional". When a proto3 field is optional, it
     ///  tracks presence regardless of field type.
     ///
@@ -391,26 +450,30 @@ struct Inner {
     pub proto3_optional: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Field {
-    Embed(EmbedField),
-    Enum(EnumField),
-    Map(MapField),
-    Oneof(OneofField),
-    Repeated(RepeatedField),
-    Scalar(ScalarField),
+impl Inner {
+    fn name(&self) -> &str {
+        self.name.as_ref()
+    }
+
+    fn default_value(&self) -> Option<&String> {
+        self.default_value.as_ref()
+    }
+
+    fn type_name(&self) -> Option<&String> {
+        self.type_name.as_ref()
+    }
+
+    fn field_type(&self) -> FieldType {
+        self.field_type.upgrade()
+    }
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Field(Inner);
 
 #[inherent]
 impl Fqn for Field {
     pub fn fully_qualified_name(&self) -> &FullyQualifiedName {
-        match self {
-            Self::Embed(v) => v.fully_qualified_name(),
-            Self::Enum(v) => v.fully_qualified_name(),
-            Self::Map(v) => v.fully_qualified_name(),
-            Self::Oneof(v) => v.fully_qualified_name(),
-            Self::Repeated(v) => v.fully_qualified_name(),
-            Self::Scalar(v) => v.fully_qualified_name(),
-        }
+        &self.0.fqn
     }
 }

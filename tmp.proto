@@ -1,1 +1,0 @@
-message Person { required Person person = 1; }

@@ -33,7 +33,7 @@ impl Downgrade for Enum {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct WeakEnum(Weak<Inner>);
 
 impl From<Enum> for WeakEnum {

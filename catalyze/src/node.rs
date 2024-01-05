@@ -14,13 +14,12 @@ use crate::{
 };
 use std::{fmt, ops::Deref};
 
-pub trait Upgrade {
+pub(crate) trait Upgrade {
     type Target;
     fn upgrade(&self) -> Self::Target;
-    fn upgrade_target(target: &Self::Target) -> Self;
 }
 
-pub trait Downgrade {
+pub(crate) trait Downgrade {
     type Target;
     fn downgrade(&self) -> Self::Target;
 }
