@@ -1,13 +1,12 @@
 use crate::{
-    ast::{Access, Accessor, Ast, UninterpretedOption},
+    ast::{Accessor, Ast, UninterpretedOption},
     r#enum::{self, Enum},
     error::Error,
-    fqn::{Fqn, FullyQualifiedName},
+    fqn::FullyQualifiedName,
     impl_traits,
     message::{self, Message},
 };
 use ::std::vec::Vec;
-use inherent::inherent;
 use protobuf::{
     descriptor::{field_descriptor_proto, field_options::CType as ProtobufCType},
     EnumOrUnknown,
@@ -129,6 +128,7 @@ pub enum MapKey {
     Sint64 = 18,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct MapInner {
     key: MapKey,
     value: ValueInner,
@@ -162,6 +162,7 @@ pub enum Type<'ast> {
 }
 impl Copy for Type<'_> {}
 
+#[derive(Debug, Clone, Copy)]
 enum TypeInner {
     Single(ValueInner),
     Repeated(ValueInner),
@@ -169,6 +170,7 @@ enum TypeInner {
     Unknown(i32),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ValueInner {
     Scalar(Scalar),
     Enum(r#enum::Key),
@@ -244,7 +246,7 @@ impl Value<'_> {
         }
     }
 }
-impl<'ast> Value<'ast> {
+impl ValueInner {
     pub(crate) fn new(
         typ: field_descriptor_proto::Type,
         enum_: Option<r#enum::Key>,
@@ -425,24 +427,6 @@ pub(crate) struct Inner {
     /// indicate  optional with `LABEL_OPTIONAL`.
     // @@protoc_insertion_point(field:google.protobuf.FieldDescriptorProto.proto3_optional)
     pub proto3_optional: Option<bool>,
-}
-
-impl Inner {
-    fn name(&self) -> &str {
-        self.name.as_ref()
-    }
-
-    fn default_value(&self) -> Option<&String> {
-        self.default_value.as_ref()
-    }
-
-    fn type_name(&self) -> Option<&String> {
-        self.type_name.as_ref()
-    }
-
-    fn field_type(&self) -> Type {
-        self.field_type.upgrade()
-    }
 }
 
 #[derive(Debug)]

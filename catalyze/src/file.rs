@@ -10,7 +10,7 @@ use crate::{
     impl_traits,
     message::{self},
     package::{self},
-    HashMap, HashSet,
+    HashSet,
 };
 slotmap::new_key_type! {
     pub(crate) struct Key;
@@ -398,46 +398,46 @@ pub(crate) struct Inner {
     uninterpreted_option: Vec<UninterpretedOption>,
 }
 
-#[derive(Debug, Default)]
-pub(crate) struct Files {
-    files: Vec<Key>,
-    fqn_lookup: HashMap<FullyQualifiedName, usize>,
-    path_lookup: HashMap<PathBuf, usize>,
-}
+// #[derive(Debug, Default)]
+// pub(crate) struct Files {
+//     files: Vec<Key>,
+//     fqn_lookup: HashMap<FullyQualifiedName, usize>,
+//     path_lookup: HashMap<PathBuf, usize>,
+// }
 
-impl Files {
-    pub(crate) fn new() -> Self {
-        Self {
-            files: Vec::new(),
-            fqn_lookup: HashMap::default(),
-            path_lookup: HashMap::default(),
-        }
-    }
-    pub(crate) fn files(&self) -> &[File] {
-        &self.files
-    }
-    pub(crate) fn contains_fqn(&self, fqn: &FullyQualifiedName) -> bool {
-        self.fqn_lookup.contains_key(fqn)
-    }
-    pub(crate) fn contains_path(&self, path: &Path) -> bool {
-        self.path_lookup.contains_key(path)
-    }
-    pub(crate) fn get_by_fqn(&self, fqn: &FullyQualifiedName) -> Option<&File> {
-        self.fqn_lookup.get(fqn).map(|idx| &self.files[*idx])
-    }
-    pub(crate) fn get_by_path(&self, path: impl AsRef<Path>) -> Option<Key> {
-        self.path_lookup
-            .get(path.as_ref())
-            .map(|idx| &self.files[*idx])
-    }
+// impl Files {
+//     pub(crate) fn new() -> Self {
+//         Self {
+//             files: Vec::new(),
+//             fqn_lookup: HashMap::default(),
+//             path_lookup: HashMap::default(),
+//         }
+//     }
+//     pub(crate) fn files(&self) -> &[File] {
+//         &self.files
+//     }
+//     pub(crate) fn contains_fqn(&self, fqn: &FullyQualifiedName) -> bool {
+//         self.fqn_lookup.contains_key(fqn)
+//     }
+//     pub(crate) fn contains_path(&self, path: &Path) -> bool {
+//         self.path_lookup.contains_key(path)
+//     }
+//     pub(crate) fn get_by_fqn(&self, fqn: &FullyQualifiedName) ->
+// Option<&File> {         self.fqn_lookup.get(fqn).map(|idx| &self.files[*idx])
+//     }
+//     pub(crate) fn get_by_path(&self, path: impl AsRef<Path>) -> Option<Key> {
+//         self.path_lookup
+//             .get(path.as_ref())
+//             .map(|idx| &self.files[*idx])
+//     }
 
-    pub(crate) fn push(&mut self, path: PathBuf, fqn: FullyQualifiedName, key: Key) {
-        if self.fqn_lookup.contains_key(&fqn) {
-            return;
-        }
-        let idx = self.files.len();
-        self.fqn_lookup.insert(fqn, self.files.len());
-        self.path_lookup.insert(path, idx);
-        self.files.push(key);
-    }
-}
+//     pub(crate) fn push(&mut self, path: PathBuf, fqn: FullyQualifiedName,
+// key: Key) {         if self.fqn_lookup.contains_key(&fqn) {
+//             return;
+//         }
+//         let idx = self.files.len();
+//         self.fqn_lookup.insert(fqn, self.files.len());
+//         self.path_lookup.insert(path, idx);
+//         self.files.push(key);
+//     }
+// }
