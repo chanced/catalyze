@@ -1,7 +1,4 @@
-use crate::{
-    ast::{Accessor, Ast, FullyQualifiedName},
-    impl_traits,
-};
+use crate::ast::{impl_traits, Accessor, Ast, FullyQualifiedName};
 
 slotmap::new_key_type! {
     pub(crate) struct Key;

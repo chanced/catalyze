@@ -1,9 +1,7 @@
 use crate::{
-    ast::{Access, Accessor, Ast, Fqn, FullyQualifiedName, Nodes},
+    ast::{impl_traits, Accessor, Ast, Fqn, FullyQualifiedName, Nodes},
     file::{self},
-    impl_access, impl_traits,
 };
-use inherent::inherent;
 
 use std::fmt::Debug;
 

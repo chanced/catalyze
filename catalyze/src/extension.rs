@@ -1,15 +1,13 @@
-use crate::{
-    ast::{Accessor, Ast},
-    impl_traits,
-};
+use crate::ast::{impl_traits, Accessor, Ast, FullyQualifiedName};
 
 slotmap::new_key_type! {
     pub(crate) struct Key;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Inner {}
+pub(crate) struct Inner {
+    fqn: FullyQualifiedName,
+}
 
-#[derive(Debug)]
 pub struct Extension<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
 impl_traits!(Extension, Key, Inner);

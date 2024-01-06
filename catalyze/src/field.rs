@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Access, Accessor, Ast, FullyQualifiedName, Get, UninterpretedOption},
+    ast::{impl_traits, Access, Accessor, Ast, FullyQualifiedName, Get, UninterpretedOption},
     r#enum::{self, Enum},
     error::Error,
     message::{self, Message},
@@ -491,7 +491,6 @@ pub(crate) struct Inner {
     pub proto3_optional: Option<bool>,
 }
 
-#[derive(Debug)]
 pub struct Field<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
 
 impl_traits!(Field, Key, Inner);
