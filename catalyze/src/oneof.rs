@@ -1,12 +1,12 @@
 use crate::{
-    ast::{Accessor, Ast},
+    ast::{impl_traits, Accessor, Ast},
     fqn::FullyQualifiedName,
 };
 
 #[derive(Debug)]
 pub struct Oneof<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
 
-crate::impl_traits!(Oneof, Inner);
+impl_traits!(Oneof, Key, Inner);
 
 slotmap::new_key_type! {
     pub(crate) struct Key;

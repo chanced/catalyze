@@ -1,6 +1,5 @@
 use crate::{
-    ast::{Accessor, Ast},
-    fqn::FullyQualifiedName,
+    ast::{Accessor, Ast, FullyQualifiedName},
     impl_traits,
 };
 
@@ -15,9 +14,8 @@ pub(crate) struct Inner {
     fqn: FullyQualifiedName,
 }
 
-#[derive(Debug)]
 pub struct Enum<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
-impl_traits!(Enum, Inner);
+impl_traits!(Enum, Key, Inner);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WellKnownEnum {

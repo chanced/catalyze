@@ -12,4 +12,4 @@ pub(crate) struct Inner {}
 
 #[derive(Debug)]
 pub struct Extension<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
-impl_traits!(Extension, Inner);
+impl_traits!(Extension, Key, Inner);

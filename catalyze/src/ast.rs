@@ -57,12 +57,22 @@ pub struct Ast {
     nodes: HashMap<FullyQualifiedName, Key>,
 }
 
-#[derive(Debug)]
 pub(crate) struct Accessor<'ast, K, I, A> {
     ast: &'ast A,
     key: K,
     marker: std::marker::PhantomData<I>,
 }
+
+impl<'ast, K, I, A> Accessor<'ast, K, I, A> {
+    pub(crate) fn new(key: K, ast: &'ast A) -> Self {
+        Self {
+            ast,
+            key,
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
 impl<'ast, K, I, A> Clone for Accessor<'ast, K, I, A>
 where
     K: Clone,
@@ -83,6 +93,30 @@ where
     type Target = I;
     fn deref(&self) -> &Self::Target {
         self.access()
+    }
+}
+
+impl<'ast, K, I, A> fmt::Display for Accessor<'ast, K, I, A>
+where
+    A: Get<'ast, K, I>,
+    I: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.access().fmt(f)
+    }
+}
+
+impl<'ast, K, I, A> fmt::Debug for Accessor<'ast, K, I, A>
+where
+    A: Get<'ast, K, I>,
+    I: fmt::Debug,
+    K: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Accessor")
+            .field(&self.key)
+            .field(self.access())
+            .finish()
     }
 }
 
@@ -181,7 +215,7 @@ impl WellKnownType {
     pub const PACKAGE: &'static str = "google.protobuf";
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Node<'ast> {
     Package(Package<'ast>),
     File(File<'ast>),
@@ -193,6 +227,23 @@ pub enum Node<'ast> {
     Method(Method<'ast>),
     Field(Field<'ast>),
     Extension(Extension<'ast>),
+}
+
+impl fmt::Debug for Node<'_> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Package(p) => p.fmt(fmt),
+            Self::File(f) => f.fmt(fmt),
+            Self::Message(m) => m.fmt(fmt),
+            Self::Oneof(o) => o.fmt(fmt),
+            Self::Enum(e) => e.fmt(fmt),
+            Self::EnumValue(e) => e.fmt(fmt),
+            Self::Service(s) => s.fmt(fmt),
+            Self::Method(m) => m.fmt(fmt),
+            Self::Field(f) => f.fmt(fmt),
+            Self::Extension(e) => e.fmt(fmt),
+        }
+    }
 }
 
 impl Node<'_> {
@@ -283,6 +334,15 @@ pub trait Fqn {
     /// the node.
     fn fqn(&self) -> &FullyQualifiedName {
         self.fully_qualified_name()
+    }
+}
+
+impl<T> std::fmt::Display for T
+where
+    T: Fqn,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.fqn().fmt(f)
     }
 }
 
@@ -483,5 +543,125 @@ impl NameParts {
     #[must_use]
     pub fn formatted(&self) -> String {
         itertools::join(self.iter().map(|v| v.formatted_value()), ".")
+    }
+}
+
+macro_rules! impl_access {
+    ($typ: ident, $key: ident,$inner: ident) => {
+        impl<'ast, A> crate::ast::Access<'ast, $inner> for $typ<'ast, A>
+        where
+            A: crate::ast::Get<'ast, $key, $inner>,
+        {
+            fn access(&self) -> &$inner {
+                self.0.access()
+            }
+        }
+    };
+}
+macro_rules! impl_copy_clone {
+    ($typ:ident) => {
+        impl<'ast, A> Clone for $typ<'ast, A> {
+            fn clone(&self) -> Self {
+                Self(self.0.clone())
+            }
+        }
+        impl<'ast, A> Copy for $typ<'ast, A> {}
+    };
+}
+macro_rules! impl_fqn {
+    ($typ:ident, $key:ident, $inner: ident) => {
+        #[inherent::inherent]
+        impl<'ast, A> crate::ast::Fqn for $typ<'ast, A>
+        where
+            A: crate::ast::Get<'ast, $key, $inner>,
+        {
+            #[doc = "Returns the [`FullyQualifiedName`] of the Message."]
+            pub fn fully_qualified_name(&self) -> &crate::ast::FullyQualifiedName {
+                &self.0.fqn
+            }
+            /// Alias for `fully_qualified_name` - returns the [`FullyQualifiedName`] of
+            /// the Package.
+            pub fn fqn(&self) -> &crate::ast::FullyQualifiedName {
+                self.fully_qualified_name()
+            }
+        }
+    };
+}
+
+macro_rules! impl_eq {
+    ($typ:ident) => {
+        impl<'ast, A> PartialEq for $typ<'ast, A> {
+            fn eq(&self, other: &Self) -> bool {
+                self.0 == other.0
+            }
+        }
+        impl<'ast, A> Eq for $typ<'ast, A> {}
+    };
+    () => {};
+}
+
+macro_rules! impl_from_key_and_ast {
+    ($typ:ident, $key:ident, $inner:ident) => {
+        impl<'ast, A> From<($key, &A)> for $typ<'ast, A>
+        where
+            A: crate::ast::Get<'ast, $key, $inner>,
+        {
+            fn from((key, ast): ($key, &A)) -> Self {
+                Self(crate::ast::Accessor::new(key, ast))
+            }
+        }
+        impl<'ast, A> From<crate::ast::Accessor<'ast, $key, $inner, A>> for $typ<'ast, A> {
+            fn from(accessor: crate::ast::Accessor<'ast, $key, $inner, A>) -> Self {
+                Self(accessor)
+            }
+        }
+    };
+}
+macro_rules! impl_fmt {
+    ($typ: ident, $key: ident, $inner: ident) => {
+        impl<'ast, A> ::std::fmt::Display for $typ<'ast, A>
+        where
+            A: crate::ast::Get<'ast, $key, $inner>,
+        {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                self.access().fmt(f)
+            }
+        }
+    };
+}
+
+macro_rules! impl_traits {
+    ($typ: ident, $key: ident, $inner: ident) => {
+        crate::ast::impl_copy_clone!($typ);
+        crate::ast::impl_eq!($typ);
+        crate::ast::impl_access!($typ, $key, $inner);
+        crate::ast::impl_fqn!($typ, $key, $inner);
+        crate::ast::impl_from_key_and_ast!($typ, $key, $inner);
+        crate::ast::impl_fmt!($typ, $key, $inner);
+    };
+}
+
+pub(crate) use impl_access;
+pub(crate) use impl_copy_clone;
+pub(crate) use impl_eq;
+pub(crate) use impl_fmt;
+pub(crate) use impl_fqn;
+pub(crate) use impl_from_key_and_ast;
+pub(crate) use impl_traits;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_fully_qualified_name() {
+        let fqn = FullyQualifiedName::new("foo", None);
+        assert_eq!(fqn.as_str(), ".foo");
+
+        let fqn = FullyQualifiedName::new("foo", Some("bar"));
+        assert_eq!(fqn.as_str(), "bar.foo");
+
+        let fqn = FullyQualifiedName::new("foo", Some(".bar"));
+        assert_eq!(fqn.as_str(), ".bar.foo");
     }
 }

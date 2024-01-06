@@ -13,7 +13,6 @@ pub(crate) struct Inner {
     fqn: FullyQualifiedName,
 }
 
-#[derive(Debug)]
 pub struct Service<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
 
-impl_traits!(Service, Inner);
+impl_traits!(Service, Key, Inner);

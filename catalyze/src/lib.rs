@@ -33,7 +33,6 @@ pub mod error;
 pub mod extension;
 pub mod field;
 pub mod file;
-pub mod fqn;
 pub mod generator;
 pub mod location;
 pub mod message;
@@ -45,65 +44,3 @@ pub mod service;
 pub(crate) type HashMap<K, V> = ahash::HashMap<K, V>;
 pub(crate) type HashSet<V> = ahash::HashSet<V>;
 pub(crate) type IndexSet<T> = indexmap::IndexSet<T, BuildHasherDefault<AHasher>>;
-
-macro_rules! impl_access {
-    ($typ: ident, $inner: ident) => {
-        impl<'ast> crate::ast::Access<'ast, $inner> for $typ<'ast> {
-            fn access(&self) -> &$inner {
-                self.0.access()
-            }
-        }
-    };
-}
-macro_rules! impl_copy_clone {
-    ($typ:ident) => {
-        impl<'ast, A> Clone for $typ<'ast, A> {
-            fn clone(&self) -> Self {
-                Self(self.0.clone())
-            }
-        }
-        impl<'ast, A> Copy for $typ<'ast, A> {}
-    };
-}
-macro_rules! impl_fqn {
-    ($typ:ident) => {
-        #[inherent::inherent]
-        impl<'ast, A> crate::ast::Fqn for $typ<'ast, A> {
-            #[doc = "Returns the [`FullyQualifiedName`] of the Message."]
-            pub fn fully_qualified_name(&self) -> &crate::ast::FullyQualifiedName {
-                &self.0.fqn
-            }
-            /// Alias for `fully_qualified_name` - returns the [`FullyQualifiedName`] of
-            /// the Package.
-            pub fn fqn(&self) -> &crate::ast::FullyQualifiedName {
-                self.fully_qualified_name()
-            }
-        }
-    };
-}
-macro_rules! impl_traits {
-    ($typ: ident, $inner: ident) => {
-        crate::impl_copy_clone!($typ);
-        crate::impl_eq!($typ);
-        crate::impl_access!($typ, $inner);
-        crate::impl_fqn!($typ);
-    };
-}
-
-macro_rules! impl_eq {
-    ($typ:ident) => {
-        impl<'ast, A> PartialEq for $typ<'ast, A> {
-            fn eq(&self, other: &Self) -> bool {
-                self.0 == other.0
-            }
-        }
-        impl<'ast, A> Eq for $typ<'ast, A> {}
-    };
-    () => {};
-}
-
-pub(crate) use impl_access;
-pub(crate) use impl_copy_clone;
-pub(crate) use impl_eq;
-pub(crate) use impl_fqn;
-pub(crate) use impl_traits;

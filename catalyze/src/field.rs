@@ -1,9 +1,8 @@
 use crate::{
-    ast::{Accessor, Ast, UninterpretedOption, Get},
+    ast::{Accessor, Ast, Get, UninterpretedOption},
     r#enum::{self, Enum},
     error::Error,
     fqn::FullyQualifiedName,
-    impl_traits,
     message::{self, Message},
 };
 use ::std::vec::Vec;
@@ -152,19 +151,16 @@ struct MapInner {
     key: MapKey,
     value: ValueInner,
 }
-impl MapInner {
-    fn access_with<'ast,G>(
-        &self,
-        ast: G,
-    ) -> Map<'ast>
-    where G: Get<'ast, 
-    {
-        Ok(Map {
-            key: self.key,
-            value: self.value.access_with(&mut get)?,
-        })
-    }
-}
+// impl MapInner {
+//     fn access_with<'ast,G>(
+//         &self,
+//         ast: G,
+//     ) -> Map<'ast>
+//     where G: Get<'ast,
+//     {
+
+//     }
+// }
 
 #[derive(Clone, Debug)]
 pub enum Type<'ast> {
@@ -191,33 +187,39 @@ enum ValueInner {
     Unknown(i32),
 }
 impl ValueInner {
-
-    fn access_with<'ast,G>(
-        &self,
-        ast: G,
-    ) -> Map<'ast>
-    where G: Get<'ast, r#enum::Key, r#enum::Inner>
-        + Get<'ast, message::Key, message::Inner>
+    fn access_with<'ast, G>(&self, ast: G) -> Map<'ast>
+    where
+        G: Get<'ast, r#enum::Key, r#enum::Inner> + Get<'ast, message::Key, message::Inner>,
     {
         match self {
             ValueInner::Scalar(s) => Value::Scalar(s),
-            ValueInner::Enum(e) => Value::Enum((e, ast.get(*e))),
+            ValueInner::Enum(e) => Value::Enum((e, ast).into()),
             ValueInner::Message(_) => todo!(),
             ValueInner::Unknown(_) => todo!(),
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Value<'ast> {
+#[derive(Debug, PartialEq)]
+pub enum Value<'ast, A = Ast> {
     Scalar(Scalar),
-    Enum(Enum<'ast>),       // 14,
-    Message(Message<'ast>), // 11,
+    Enum(Enum<'ast, A>),       // 14,
+    Message(Message<'ast, A>), // 11,
     // Group = 10, not supported
     Unknown(i32),
 }
-impl Copy for Value<'_> {}
+impl<'ast, A> Copy for Value<'ast, A> {}
 
+impl Clone for Value<'_> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Scalar(s) => Self::Scalar(*s),
+            Self::Enum(e) => Self::Enum(*e),
+            Self::Message(m) => Self::Message(*m),
+            Self::Unknown(i) => Self::Unknown(*i),
+        }
+    }
+}
 impl Value<'_> {
     /// Returns `true` if the type is [`Unknown`].
     ///
@@ -462,4 +464,4 @@ pub(crate) struct Inner {
 #[derive(Debug)]
 pub struct Field<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
 
-impl_traits!(Field, Inner);
+impl_traits!(Field, Key, Inner);

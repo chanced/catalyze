@@ -1,14 +1,9 @@
 use crate::{
-    ast::{Accessor, Ast, Nodes},
+    ast::{impl_traits, Access, Accessor, Ast, FullyQualifiedName, Nodes},
     field::{self, Field},
-    file,
-    fqn::FullyQualifiedName,
-    impl_traits, message,
+    file, message,
     oneof::{self, Oneof},
 };
-use inherent::inherent;
-
-use std::{fmt, sync::Weak};
 
 slotmap::new_key_type! {
     pub(crate) struct Key;
@@ -26,9 +21,8 @@ pub(crate) struct Inner {
     applied_extensions: Nodes<oneof::Key>,
 }
 
-#[derive(Debug)]
 pub struct Message<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
-impl_traits!(Message, Inner);
+impl_traits!(Message, Key, Inner);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WellKnownMessage {
@@ -267,7 +261,7 @@ impl WellKnownMessage {
         }
     }
 }
-impl fmt::Display for WellKnownMessage {
+impl std::fmt::Display for WellKnownMessage {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt.write_str(self.as_str())
     }

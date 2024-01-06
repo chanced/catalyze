@@ -19,10 +19,9 @@ pub(crate) struct Inner {
     fqn: FullyQualifiedName,
 }
 
-#[derive(Debug)]
 pub struct Package<'ast, A = Ast>(pub(super) Accessor<'ast, Key, Inner, A>);
 
-impl_traits!(Package, Inner);
+impl_traits!(Package, Key, Inner);
 
 // impl Debug for Package {
 //     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

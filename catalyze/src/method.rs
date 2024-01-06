@@ -1,6 +1,5 @@
 use crate::{
-    ast::{Accessor, Ast},
-    fqn::{Fqn, FullyQualifiedName},
+    ast::{Accessor, Ast, FullyQualifiedName},
     impl_traits,
 };
 
@@ -13,7 +12,6 @@ pub(super) struct Inner {
     fqn: FullyQualifiedName,
 }
 
-#[derive(Debug)]
 pub struct Method<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
 
-impl_traits!(Method, Inner);
+impl_traits!(Method, Key, Inner);

@@ -4,10 +4,8 @@ use std::{
 };
 
 use crate::{
-    ast::{Accessor, Ast, Get, Nodes, UninterpretedOption},
+    ast::{impl_traits, Accessor, Ast, FullyQualifiedName, Get, Nodes, UninterpretedOption},
     error::Error,
-    fqn::FullyQualifiedName,
-    impl_traits,
     message::{self},
     package::{self},
     HashSet,
@@ -16,9 +14,8 @@ slotmap::new_key_type! {
     pub(crate) struct Key;
 }
 
-#[derive(Debug)]
 pub struct File<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
-impl_traits!(File, Inner);
+impl_traits!(File, Key, Inner);
 
 impl<'ast, A> File<'ast, A>
 where
