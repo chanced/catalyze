@@ -337,15 +337,6 @@ pub trait Fqn {
     }
 }
 
-impl<T> std::fmt::Display for T
-where
-    T: Fqn,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.fqn().fmt(f)
-    }
-}
-
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FullyQualifiedName(String);
 
@@ -624,7 +615,16 @@ macro_rules! impl_fmt {
             A: crate::ast::Get<'ast, $key, $inner>,
         {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                self.access().fmt(f)
+                ::std::fmt::Display::display(self.access().fqn(), f)
+            }
+        }
+
+        impl<'ast, A> ::std::fmt::Debug for $typ<'ast, A>
+        where
+            A: crate::ast::Get<'ast, $key, $inner>,
+        {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                ::std::fmt::Debug::display(self.access(), f)
             }
         }
     };

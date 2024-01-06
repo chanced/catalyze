@@ -1,9 +1,5 @@
-use crate::{
-    ast::{impl_traits, Accessor, Ast},
-    fqn::FullyQualifiedName,
-};
+use crate::ast::{impl_traits, Accessor, Ast, FullyQualifiedName};
 
-#[derive(Debug)]
 pub struct Oneof<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
 
 impl_traits!(Oneof, Key, Inner);
