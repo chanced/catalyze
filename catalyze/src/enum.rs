@@ -1,6 +1,6 @@
 use crate::{
     ast::{Accessor, Ast},
-    fqn::{Fqn, FullyQualifiedName},
+    fqn::FullyQualifiedName,
     impl_traits,
 };
 

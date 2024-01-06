@@ -86,6 +86,16 @@ where
     }
 }
 
+impl<'ast, K, I, A> From<(K, &'ast A)> for Accessor<'ast, K, I, A> {
+    fn from((key, ast): (K, &'ast A)) -> Self {
+        Self {
+            ast,
+            key,
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
 impl<'ast, K, I, A> Copy for Accessor<'ast, K, I, A> where K: Copy {}
 
 impl<'ast, K, I, A> PartialEq for Accessor<'ast, K, I, A>

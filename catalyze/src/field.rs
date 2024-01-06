@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Accessor, Ast, UninterpretedOption},
+    ast::{Accessor, Ast, UninterpretedOption, Get},
     r#enum::{self, Enum},
     error::Error,
     fqn::FullyQualifiedName,
@@ -128,12 +128,6 @@ pub enum MapKey {
     Sint64 = 18,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct MapInner {
-    key: MapKey,
-    value: ValueInner,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Map<'ast> {
     pub key: MapKey,
@@ -150,6 +144,25 @@ impl<'ast> Map<'ast> {
     }
     pub fn value(&self) -> &Value {
         &self.value
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MapInner {
+    key: MapKey,
+    value: ValueInner,
+}
+impl MapInner {
+    fn access_with<'ast,G>(
+        &self,
+        ast: G,
+    ) -> Map<'ast>
+    where G: Get<'ast, 
+    {
+        Ok(Map {
+            key: self.key,
+            value: self.value.access_with(&mut get)?,
+        })
     }
 }
 
@@ -176,6 +189,23 @@ enum ValueInner {
     Enum(r#enum::Key),
     Message(message::Key),
     Unknown(i32),
+}
+impl ValueInner {
+
+    fn access_with<'ast,G>(
+        &self,
+        ast: G,
+    ) -> Map<'ast>
+    where G: Get<'ast, r#enum::Key, r#enum::Inner>
+        + Get<'ast, message::Key, message::Inner>
+    {
+        match self {
+            ValueInner::Scalar(s) => Value::Scalar(s),
+            ValueInner::Enum(e) => Value::Enum((e, ast.get(*e))),
+            ValueInner::Message(_) => todo!(),
+            ValueInner::Unknown(_) => todo!(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

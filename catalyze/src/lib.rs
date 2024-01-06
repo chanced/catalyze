@@ -71,7 +71,7 @@ macro_rules! impl_fqn {
         impl<'ast, A> crate::ast::Fqn for $typ<'ast, A> {
             #[doc = "Returns the [`FullyQualifiedName`] of the Message."]
             pub fn fully_qualified_name(&self) -> &crate::ast::FullyQualifiedName {
-                &self.0.access().fqn
+                &self.0.fqn
             }
             /// Alias for `fully_qualified_name` - returns the [`FullyQualifiedName`] of
             /// the Package.
