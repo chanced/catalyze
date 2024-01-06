@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Accessor, Ast, Get, UninterpretedOption},
+    ast::{Access, Accessor, Ast, Get, UninterpretedOption},
     r#enum::{self, Enum},
     error::Error,
     fqn::FullyQualifiedName,
@@ -127,12 +127,20 @@ pub enum MapKey {
     Sint64 = 18,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Map<'ast> {
+#[derive(Debug, PartialEq)]
+pub struct Map<'ast, A = Ast> {
     pub key: MapKey,
-    pub value: Value<'ast>,
+    pub value: Value<'ast, A>,
 }
-impl Copy for Map<'_> {}
+impl Clone for Map<'_, Ast> {
+    fn clone(&self) -> Self {
+        Self {
+            key: self.key,
+            value: self.value.clone(),
+        }
+    }
+}
+impl Copy for Map<'_, Ast> {}
 
 impl<'ast> Map<'ast> {
     pub fn new(key: MapKey, value: Value) -> Self {
@@ -186,13 +194,14 @@ enum ValueInner {
     Message(message::Key),
     Unknown(i32),
 }
+
 impl ValueInner {
-    fn access_with<'ast, G>(&self, ast: G) -> Map<'ast>
+    fn access_with<'ast, A>(&self, ast: A) -> Value<'ast, A>
     where
-        G: Get<'ast, r#enum::Key, r#enum::Inner> + Get<'ast, message::Key, message::Inner>,
+        A: Get<'ast, r#enum::Key, r#enum::Inner> + Get<'ast, message::Key, message::Inner>,
     {
         match self {
-            ValueInner::Scalar(s) => Value::Scalar(s),
+            ValueInner::Scalar(s) => Value::Scalar(*s),
             ValueInner::Enum(e) => Value::Enum((e, ast).into()),
             ValueInner::Message(_) => todo!(),
             ValueInner::Unknown(_) => todo!(),
@@ -200,7 +209,7 @@ impl ValueInner {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 pub enum Value<'ast, A = Ast> {
     Scalar(Scalar),
     Enum(Enum<'ast, A>),       // 14,
@@ -208,9 +217,7 @@ pub enum Value<'ast, A = Ast> {
     // Group = 10, not supported
     Unknown(i32),
 }
-impl<'ast, A> Copy for Value<'ast, A> {}
-
-impl Clone for Value<'_> {
+impl<'ast, A> Clone for Value<'ast, A> {
     fn clone(&self) -> Self {
         match self {
             Self::Scalar(s) => Self::Scalar(*s),
@@ -220,6 +227,19 @@ impl Clone for Value<'_> {
         }
     }
 }
+impl<'ast, A> Copy for Value<'ast, A> {}
+
+impl fmt::Debug for Value<'_, Ast> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Scalar(s) => fmt::Debug::fmt(s, f),
+            Self::Enum(e) => fmt::Debug::fmt(e, f),
+            Self::Message(m) => fmt::Debug::fmt(m, f),
+            Self::Unknown(i) => fmt::Debug::fmt(i, f),
+        }
+    }
+}
+
 impl Value<'_> {
     /// Returns `true` if the type is [`Unknown`].
     ///
