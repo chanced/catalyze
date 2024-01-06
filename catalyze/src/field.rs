@@ -1,8 +1,7 @@
 use crate::{
-    ast::{Access, Accessor, Ast, Get, UninterpretedOption},
+    ast::{Access, Accessor, Ast, FullyQualifiedName, Get, UninterpretedOption},
     r#enum::{self, Enum},
     error::Error,
-    fqn::FullyQualifiedName,
     message::{self, Message},
 };
 use ::std::vec::Vec;
@@ -127,10 +126,18 @@ pub enum MapKey {
     Sint64 = 18,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 pub struct Map<'ast, A = Ast> {
     pub key: MapKey,
     pub value: Value<'ast, A>,
+}
+impl fmt::Debug for Map<'_, Ast> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Map")
+            .field("key", &self.key)
+            .field("value", &self.value)
+            .finish()
+    }
 }
 impl Clone for Map<'_, Ast> {
     fn clone(&self) -> Self {
@@ -229,7 +236,10 @@ impl<'ast, A> Clone for Value<'ast, A> {
 }
 impl<'ast, A> Copy for Value<'ast, A> {}
 
-impl fmt::Debug for Value<'_, Ast> {
+impl<'ast, A> fmt::Debug for Value<'ast, A>
+where
+    A: Get<'ast, r#enum::Key, r#enum::Inner> + Get<'ast, message::Key, message::Inner>,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Scalar(s) => fmt::Debug::fmt(s, f),
