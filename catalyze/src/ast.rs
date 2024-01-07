@@ -19,12 +19,13 @@ use crate::{
 
 mod hydrate;
 
-pub(crate) trait Get<'ast, K, T> {
-    fn get(&'ast self, key: K) -> &'ast T;
+#[doc(hidden)]
+pub trait Get<K, T> {
+    fn get(&self, key: K) -> &T;
 }
 
-pub(crate) trait Access<'ast, T> {
-    fn access(&'ast self) -> &'ast T;
+pub(crate) trait Access<T> {
+    fn access(&self) -> &T;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,7 +89,8 @@ where
 
 impl<'ast, K, I, A> Deref for Accessor<'ast, K, I, A>
 where
-    A: Get<'ast, K, I>,
+    A: Get<K, I>,
+    K: Copy,
 {
     type Target = I;
     fn deref(&self) -> &Self::Target {
@@ -98,8 +100,9 @@ where
 
 impl<'ast, K, I, A> fmt::Display for Accessor<'ast, K, I, A>
 where
-    A: Get<'ast, K, I>,
+    A: Get<K, I>,
     I: fmt::Display,
+    K: Copy,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.access().fmt(f)
@@ -108,9 +111,9 @@ where
 
 impl<'ast, K, I, A> fmt::Debug for Accessor<'ast, K, I, A>
 where
-    A: Get<'ast, K, I>,
+    A: Get<K, I>,
     I: fmt::Debug,
-    K: fmt::Debug,
+    K: fmt::Debug + Copy,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Accessor")
@@ -142,11 +145,12 @@ where
 }
 impl<'ast, K, I, A> Eq for Accessor<'ast, K, I, A> where K: Eq {}
 
-impl<'ast, K, I, A> Access<'ast, I> for Accessor<'ast, K, I, A>
+impl<'ast, K, I, A> Access<I> for Accessor<'ast, K, I, A>
 where
-    A: Get<'ast, K, I>,
+    A: Get<K, I>,
+    K: Copy,
 {
-    fn access(&'ast self) -> &'ast I {
+    fn access(&self) -> &I {
         self.ast.get(self.key)
     }
 }
@@ -154,8 +158,8 @@ where
 macro_rules! impl_get {
     ($($col: ident -> $mod: ident,)+) => {
         $(
-            impl<'ast> Get<'ast, $mod::Key, $mod::Inner> for Ast {
-                fn get(&'ast self, key: $mod::Key) -> &'ast $mod::Inner {
+            impl Get<$mod::Key, $mod::Inner> for Ast {
+                fn get(& self, key: $mod::Key) -> &$mod::Inner {
                     &self.$col[key]
                 }
             }
@@ -231,18 +235,19 @@ pub enum Node<'ast> {
 
 impl fmt::Debug for Node<'_> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Package(p) => p.fmt(fmt),
-            Self::File(f) => f.fmt(fmt),
-            Self::Message(m) => m.fmt(fmt),
-            Self::Oneof(o) => o.fmt(fmt),
-            Self::Enum(e) => e.fmt(fmt),
-            Self::EnumValue(e) => e.fmt(fmt),
-            Self::Service(s) => s.fmt(fmt),
-            Self::Method(m) => m.fmt(fmt),
-            Self::Field(f) => f.fmt(fmt),
-            Self::Extension(e) => e.fmt(fmt),
-        }
+        todo!()
+        // match self {
+        //     Self::Package(p) => p.fmt(fmt),
+        //     Self::File(f) => f.fmt(fmt),
+        //     Self::Message(m) => m.fmt(fmt),
+        //     Self::Oneof(o) => o.fmt(fmt),
+        //     Self::Enum(e) => e.fmt(fmt),
+        //     Self::EnumValue(e) => e.fmt(fmt),
+        //     Self::Service(s) => s.fmt(fmt),
+        //     Self::Method(m) => m.fmt(fmt),
+        //     Self::Field(f) => f.fmt(fmt),
+        //     Self::Extension(e) => e.fmt(fmt),
+        // }
     }
 }
 
@@ -269,7 +274,7 @@ pub(crate) struct Nodes<K> {
     name_lookup: HashMap<String, usize>,
     list: Vec<K>,
 }
-impl<'ast> Default for Nodes<ast::Key> {
+impl Default for Nodes<ast::Key> {
     fn default() -> Self {
         Self {
             fqn_lookup: HashMap::default(),
@@ -539,9 +544,9 @@ impl NameParts {
 
 macro_rules! impl_access {
     ($typ: ident, $key: ident,$inner: ident) => {
-        impl<'ast, A> crate::ast::Access<'ast, $inner> for $typ<'ast, A>
+        impl<'ast, A> crate::ast::Access<$inner> for $typ<'ast, A>
         where
-            A: crate::ast::Get<'ast, $key, $inner>,
+            A: crate::ast::Get<$key, $inner>,
         {
             fn access(&self) -> &$inner {
                 self.0.access()
@@ -553,7 +558,7 @@ macro_rules! impl_copy_clone {
     ($typ:ident) => {
         impl<'ast, A> Clone for $typ<'ast, A> {
             fn clone(&self) -> Self {
-                Self(self.0.clone())
+                *self
             }
         }
         impl<'ast, A> Copy for $typ<'ast, A> {}
@@ -564,7 +569,7 @@ macro_rules! impl_fqn {
         #[inherent::inherent]
         impl<'ast, A> crate::ast::Fqn for $typ<'ast, A>
         where
-            A: crate::ast::Get<'ast, $key, $inner>,
+            A: crate::ast::Get<$key, $inner>,
         {
             #[doc = "Returns the [`FullyQualifiedName`] of the Message."]
             pub fn fully_qualified_name(&self) -> &crate::ast::FullyQualifiedName {
@@ -593,11 +598,11 @@ macro_rules! impl_eq {
 
 macro_rules! impl_from_key_and_ast {
     ($typ:ident, $key:ident, $inner:ident) => {
-        impl<'ast, A> From<($key, &A)> for $typ<'ast, A>
+        impl<'ast, A> From<($key, &'ast A)> for $typ<'ast, A>
         where
-            A: crate::ast::Get<'ast, $key, $inner>,
+            A: crate::ast::Get<$key, $inner>,
         {
-            fn from((key, ast): ($key, &A)) -> Self {
+            fn from((key, ast): ($key, &'ast A)) -> Self {
                 Self(crate::ast::Accessor::new(key, ast))
             }
         }
@@ -612,7 +617,7 @@ macro_rules! impl_fmt {
     ($typ: ident, $key: ident, $inner: ident) => {
         impl<'ast, A> ::std::fmt::Display for $typ<'ast, A>
         where
-            A: crate::ast::Get<'ast, $key, $inner>,
+            A: crate::ast::Get<$key, $inner>,
         {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 use crate::ast::Access;
@@ -622,7 +627,7 @@ macro_rules! impl_fmt {
 
         impl<'ast, A> ::std::fmt::Debug for $typ<'ast, A>
         where
-            A: crate::ast::Get<'ast, $key, $inner>,
+            A: crate::ast::Get<$key, $inner>,
         {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 use crate::ast::Access;
@@ -637,7 +642,7 @@ macro_rules! impl_traits {
         crate::ast::impl_copy_clone!($typ);
         crate::ast::impl_eq!($typ);
         crate::ast::impl_access!($typ, $key, $inner);
-        crate::ast::impl_fqn!($typ, $key, $inner);
+        // crate::ast::impl_fqn!($typ, $key, $inner);
         crate::ast::impl_from_key_and_ast!($typ, $key, $inner);
         crate::ast::impl_fmt!($typ, $key, $inner);
     };

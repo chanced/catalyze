@@ -11,7 +11,8 @@ use crate::{
     HashSet,
 };
 slotmap::new_key_type! {
-    pub(crate) struct Key;
+    #[doc(hidden)]
+    pub struct Key;
 }
 
 pub struct File<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
@@ -19,7 +20,7 @@ impl_traits!(File, Key, Inner);
 
 impl<'ast, A> File<'ast, A>
 where
-    A: Get<'ast, Key, Inner>,
+    A: Get<Key, Inner>,
 {
     #[must_use]
     pub fn name(&self) -> &str {
@@ -289,7 +290,8 @@ impl OptimizeMode {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Inner {
+#[doc(hidden)]
+pub struct Inner {
     name: String,
     path: PathBuf,
     pkg_name: String,

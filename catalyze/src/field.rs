@@ -141,22 +141,19 @@ impl fmt::Debug for Map<'_, Ast> {
 }
 impl Clone for Map<'_, Ast> {
     fn clone(&self) -> Self {
-        Self {
-            key: self.key,
-            value: self.value.clone(),
-        }
+        *self
     }
 }
 impl Copy for Map<'_, Ast> {}
 
-impl<'ast> Map<'ast> {
-    pub fn new(key: MapKey, value: Value) -> Self {
+impl<'ast, A> Map<'ast, A> {
+    pub const fn new(key: MapKey, value: Value<'ast, A>) -> Self {
         Self { key, value }
     }
-    pub fn key(&self) -> MapKey {
+    pub const fn key(&self) -> MapKey {
         self.key
     }
-    pub fn value(&self) -> &Value {
+    pub const fn value(&self) -> &Value<'ast, A> {
         &self.value
     }
 }
@@ -205,18 +202,19 @@ enum ValueInner {
 impl ValueInner {
     fn access_with<'ast, A>(&self, ast: A) -> Value<'ast, A>
     where
-        A: Get<'ast, r#enum::Key, r#enum::Inner> + Get<'ast, message::Key, message::Inner>,
+        A: Get<r#enum::Key, r#enum::Inner> + Get<message::Key, message::Inner>,
     {
-        match self {
-            ValueInner::Scalar(s) => Value::Scalar(*s),
-            ValueInner::Enum(e) => Value::Enum((e, ast).into()),
-            ValueInner::Message(_) => todo!(),
-            ValueInner::Unknown(_) => todo!(),
-        }
+        todo!()
+        // match self {
+        //     ValueInner::Scalar(s) => Value::Scalar(*s),
+        //     ValueInner::Enum(e) => Value::Enum(Enum::from((e, ast))),
+        //     ValueInner::Message(_) => todo!(),
+        //     ValueInner::Unknown(_) => todo!(),
+        // }
     }
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub enum Value<'ast, A = Ast> {
     Scalar(Scalar),
     Enum(Enum<'ast, A>),       // 14,
@@ -226,19 +224,14 @@ pub enum Value<'ast, A = Ast> {
 }
 impl<'ast, A> Clone for Value<'ast, A> {
     fn clone(&self) -> Self {
-        match self {
-            Self::Scalar(s) => Self::Scalar(*s),
-            Self::Enum(e) => Self::Enum(*e),
-            Self::Message(m) => Self::Message(*m),
-            Self::Unknown(i) => Self::Unknown(*i),
-        }
+        *self
     }
 }
 impl<'ast, A> Copy for Value<'ast, A> {}
 
 impl<'ast, A> fmt::Debug for Value<'ast, A>
 where
-    A: Get<'ast, r#enum::Key, r#enum::Inner> + Get<'ast, message::Key, message::Inner>,
+    A: Get<r#enum::Key, r#enum::Inner> + Get<message::Key, message::Inner>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -291,9 +284,9 @@ impl Value<'_> {
     }
 
     #[must_use]
-    pub fn as_message(&self) -> Option<Message> {
+    pub const fn as_message(&self) -> Option<Message> {
         if let Self::Message(v) = self {
-            Some(v.clone())
+            Some(*v)
         } else {
             None
         }
