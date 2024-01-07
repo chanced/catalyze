@@ -15,13 +15,10 @@ slotmap::new_key_type! {
     pub struct Key;
 }
 
-pub struct File<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
+pub struct File<'ast>(Accessor<'ast, Key, Inner>);
 impl_traits!(File, Key, Inner);
 
-impl<'ast, A> File<'ast, A>
-where
-    A: Get<Key, Inner>,
-{
+impl<'ast> File<'ast> {
     #[must_use]
     pub fn name(&self) -> &str {
         self.0.name.as_ref()
@@ -291,7 +288,7 @@ impl OptimizeMode {
 
 #[derive(Debug, Clone, PartialEq)]
 #[doc(hidden)]
-pub struct Inner {
+pub(crate) struct Inner {
     name: String,
     path: PathBuf,
     pkg_name: String,

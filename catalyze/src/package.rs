@@ -17,7 +17,7 @@ pub(crate) struct Inner {
     fqn: FullyQualifiedName,
 }
 
-pub struct Package<'ast, A = Ast>(pub(super) Accessor<'ast, Key, Inner, A>);
+pub struct Package<'ast>(Accessor<'ast, Key, Inner>);
 
 impl_traits!(Package, Key, Inner);
 

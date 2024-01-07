@@ -20,7 +20,7 @@ use crate::{
 mod hydrate;
 
 #[doc(hidden)]
-pub trait Get<K, T> {
+pub(crate) trait Get<K, T> {
     fn get(&self, key: K) -> &T;
 }
 
@@ -58,14 +58,14 @@ pub struct Ast {
     nodes: HashMap<FullyQualifiedName, Key>,
 }
 
-pub(crate) struct Accessor<'ast, K, I, A> {
-    ast: &'ast A,
+pub(crate) struct Accessor<'ast, K, I> {
+    ast: &'ast Ast,
     key: K,
     marker: std::marker::PhantomData<I>,
 }
 
-impl<'ast, K, I, A> Accessor<'ast, K, I, A> {
-    pub(crate) fn new(key: K, ast: &'ast A) -> Self {
+impl<'ast, K, I> Accessor<'ast, K, I> {
+    pub(crate) fn new(key: K, ast: &'ast Ast) -> Self {
         Self {
             ast,
             key,
@@ -74,7 +74,7 @@ impl<'ast, K, I, A> Accessor<'ast, K, I, A> {
     }
 }
 
-impl<'ast, K, I, A> Clone for Accessor<'ast, K, I, A>
+impl<'ast, K, I> Clone for Accessor<'ast, K, I>
 where
     K: Clone,
 {
@@ -87,44 +87,8 @@ where
     }
 }
 
-impl<'ast, K, I, A> Deref for Accessor<'ast, K, I, A>
-where
-    A: Get<K, I>,
-    K: Copy,
-{
-    type Target = I;
-    fn deref(&self) -> &Self::Target {
-        self.access()
-    }
-}
-
-impl<'ast, K, I, A> fmt::Display for Accessor<'ast, K, I, A>
-where
-    A: Get<K, I>,
-    I: fmt::Display,
-    K: Copy,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.access().fmt(f)
-    }
-}
-
-impl<'ast, K, I, A> fmt::Debug for Accessor<'ast, K, I, A>
-where
-    A: Get<K, I>,
-    I: fmt::Debug,
-    K: fmt::Debug + Copy,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("Accessor")
-            .field(&self.key)
-            .field(self.access())
-            .finish()
-    }
-}
-
-impl<'ast, K, I, A> From<(K, &'ast A)> for Accessor<'ast, K, I, A> {
-    fn from((key, ast): (K, &'ast A)) -> Self {
+impl<'ast, K, I> From<(K, &'ast Ast)> for Accessor<'ast, K, I> {
+    fn from((key, ast): (K, &'ast Ast)) -> Self {
         Self {
             ast,
             key,
@@ -133,9 +97,9 @@ impl<'ast, K, I, A> From<(K, &'ast A)> for Accessor<'ast, K, I, A> {
     }
 }
 
-impl<'ast, K, I, A> Copy for Accessor<'ast, K, I, A> where K: Copy {}
+impl<'ast, K, I> Copy for Accessor<'ast, K, I> where K: Copy {}
 
-impl<'ast, K, I, A> PartialEq for Accessor<'ast, K, I, A>
+impl<'ast, K, I> PartialEq for Accessor<'ast, K, I>
 where
     K: PartialEq,
 {
@@ -143,19 +107,10 @@ where
         self.key == other.key
     }
 }
-impl<'ast, K, I, A> Eq for Accessor<'ast, K, I, A> where K: Eq {}
+impl<'ast, K, I> Eq for Accessor<'ast, K, I> where K: Eq {}
 
-impl<'ast, K, I, A> Access<I> for Accessor<'ast, K, I, A>
-where
-    A: Get<K, I>,
-    K: Copy,
-{
-    fn access(&self) -> &I {
-        self.ast.get(self.key)
-    }
-}
+macro_rules! impl_get_access {
 
-macro_rules! impl_get {
     ($($col: ident -> $mod: ident,)+) => {
         $(
             impl Get<$mod::Key, $mod::Inner> for Ast {
@@ -163,15 +118,40 @@ macro_rules! impl_get {
                     &self.$col[key]
                 }
             }
+            impl<'ast> Access<$mod::Inner> for Accessor<'ast, $mod::Key, $mod::Inner>
+            {
+                fn access(&self) -> &$mod::Inner {
+                    self.ast.get(self.key.clone())
+                }
+            }
+            impl<'ast> Deref for Accessor<'ast, $mod::Key, $mod::Inner>{
+                type Target = $mod::Inner;
+                fn deref(&self) -> &Self::Target {
+                    self.access()
+                }
+            }
+            impl<'ast> fmt::Debug for Accessor<'ast, $mod::Key, $mod::Inner>
+            {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    f.debug_tuple("Accessor")
+                        .field(&self.key)
+                        .field(self.access())
+                        .finish()
+                }
+            }
+
+
+
         )+
     };
 }
 
-impl_get!(
+impl_get_access!(
     packages -> package,
     files -> file,
     messages -> message,
     enums -> r#enum,
+    enum_values -> enum_value,
     oneofs -> oneof,
     services -> service,
     methods -> method,
@@ -543,40 +523,34 @@ impl NameParts {
 }
 
 macro_rules! impl_access {
-    ($typ: ident, $key: ident,$inner: ident) => {
-        impl<'ast, A> crate::ast::Access<$inner> for $typ<'ast, A>
-        where
-            A: crate::ast::Get<$key, $inner>,
-        {
+    ($typ: ident, $key: ident, $inner: ident) => {
+        impl<'ast> crate::ast::Access<$inner> for $typ<'ast> {
             fn access(&self) -> &$inner {
-                self.0.access()
+                crate::ast::Access::access(&self.0)
             }
         }
     };
 }
 macro_rules! impl_copy_clone {
     ($typ:ident) => {
-        impl<'ast, A> Clone for $typ<'ast, A> {
+        impl<'ast> Clone for $typ<'ast> {
             fn clone(&self) -> Self {
                 *self
             }
         }
-        impl<'ast, A> Copy for $typ<'ast, A> {}
+        impl<'ast> Copy for $typ<'ast> {}
     };
 }
 macro_rules! impl_fqn {
     ($typ:ident, $key:ident, $inner: ident) => {
         #[inherent::inherent]
-        impl<'ast, A> crate::ast::Fqn for $typ<'ast, A>
-        where
-            A: crate::ast::Get<$key, $inner>,
-        {
+        impl<'ast> crate::ast::Fqn for $typ<'ast> {
             #[doc = "Returns the [`FullyQualifiedName`] of the Message."]
             pub fn fully_qualified_name(&self) -> &crate::ast::FullyQualifiedName {
-                &self.0.fqn
+                use crate::ast::Access;
+                &self.access().fqn
             }
-            /// Alias for `fully_qualified_name` - returns the [`FullyQualifiedName`] of
-            /// the Package.
+            #[doc = "Alias for `fully_qualified_name` - returns the [`FullyQualifiedName`] of the Package."]
             pub fn fqn(&self) -> &crate::ast::FullyQualifiedName {
                 self.fully_qualified_name()
             }
@@ -586,28 +560,25 @@ macro_rules! impl_fqn {
 
 macro_rules! impl_eq {
     ($typ:ident) => {
-        impl<'ast, A> PartialEq for $typ<'ast, A> {
+        impl<'ast> PartialEq for $typ<'ast> {
             fn eq(&self, other: &Self) -> bool {
                 self.0 == other.0
             }
         }
-        impl<'ast, A> Eq for $typ<'ast, A> {}
+        impl<'ast> Eq for $typ<'ast> {}
     };
     () => {};
 }
 
 macro_rules! impl_from_key_and_ast {
     ($typ:ident, $key:ident, $inner:ident) => {
-        impl<'ast, A> From<($key, &'ast A)> for $typ<'ast, A>
-        where
-            A: crate::ast::Get<$key, $inner>,
-        {
-            fn from((key, ast): ($key, &'ast A)) -> Self {
+        impl<'ast> From<($key, &'ast Ast)> for $typ<'ast> {
+            fn from((key, ast): ($key, &'ast Ast)) -> Self {
                 Self(crate::ast::Accessor::new(key, ast))
             }
         }
-        impl<'ast, A> From<crate::ast::Accessor<'ast, $key, $inner, A>> for $typ<'ast, A> {
-            fn from(accessor: crate::ast::Accessor<'ast, $key, $inner, A>) -> Self {
+        impl<'ast> From<crate::ast::Accessor<'ast, $key, $inner>> for $typ<'ast> {
+            fn from(accessor: crate::ast::Accessor<'ast, $key, $inner>) -> Self {
                 Self(accessor)
             }
         }
@@ -615,20 +586,14 @@ macro_rules! impl_from_key_and_ast {
 }
 macro_rules! impl_fmt {
     ($typ: ident, $key: ident, $inner: ident) => {
-        impl<'ast, A> ::std::fmt::Display for $typ<'ast, A>
-        where
-            A: crate::ast::Get<$key, $inner>,
-        {
+        impl<'ast> ::std::fmt::Display for $typ<'ast> {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 use crate::ast::Access;
                 ::std::fmt::Display::fmt(&self.access().fqn, f)
             }
         }
 
-        impl<'ast, A> ::std::fmt::Debug for $typ<'ast, A>
-        where
-            A: crate::ast::Get<$key, $inner>,
-        {
+        impl<'ast> ::std::fmt::Debug for $typ<'ast> {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 use crate::ast::Access;
                 ::std::fmt::Debug::fmt(self.access(), f)
@@ -642,7 +607,7 @@ macro_rules! impl_traits {
         crate::ast::impl_copy_clone!($typ);
         crate::ast::impl_eq!($typ);
         crate::ast::impl_access!($typ, $key, $inner);
-        // crate::ast::impl_fqn!($typ, $key, $inner);
+        crate::ast::impl_fqn!($typ, $key, $inner);
         crate::ast::impl_from_key_and_ast!($typ, $key, $inner);
         crate::ast::impl_fmt!($typ, $key, $inner);
     };

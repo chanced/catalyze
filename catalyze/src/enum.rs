@@ -1,4 +1,4 @@
-use crate::ast::{impl_traits, Accessor, Ast, FullyQualifiedName};
+use crate::ast::{impl_traits, Access, Accessor, Ast, FullyQualifiedName};
 
 use std::fmt;
 
@@ -11,8 +11,14 @@ pub(crate) struct Inner {
     fqn: FullyQualifiedName,
 }
 
-pub struct Enum<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
+pub struct Enum<'ast>(Accessor<'ast, Key, Inner>);
 impl_traits!(Enum, Key, Inner);
+
+// impl Access<Inner> for Enum<'_> {
+//     fn access(&self) -> &Inner {
+//         self.0.access()
+//     }
+// }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WellKnownEnum {

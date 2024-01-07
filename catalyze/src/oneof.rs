@@ -1,6 +1,6 @@
 use crate::ast::{impl_traits, Accessor, Ast, FullyQualifiedName};
 
-pub struct Oneof<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
+pub struct Oneof<'ast>(Accessor<'ast, Key, Inner>);
 
 impl_traits!(Oneof, Key, Inner);
 

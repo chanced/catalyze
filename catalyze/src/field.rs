@@ -127,11 +127,11 @@ pub enum MapKey {
 }
 
 #[derive(PartialEq)]
-pub struct Map<'ast, A = Ast> {
+pub struct Map<'ast> {
     pub key: MapKey,
-    pub value: Value<'ast, A>,
+    pub value: Value<'ast>,
 }
-impl fmt::Debug for Map<'_, Ast> {
+impl fmt::Debug for Map<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Map")
             .field("key", &self.key)
@@ -139,21 +139,22 @@ impl fmt::Debug for Map<'_, Ast> {
             .finish()
     }
 }
-impl Clone for Map<'_, Ast> {
+#[allow(clippy::expl_impl_clone_on_copy)]
+impl Clone for Map<'_> {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl Copy for Map<'_, Ast> {}
+impl Copy for Map<'_> {}
 
-impl<'ast, A> Map<'ast, A> {
-    pub const fn new(key: MapKey, value: Value<'ast, A>) -> Self {
+impl<'ast> Map<'ast> {
+    pub const fn new(key: MapKey, value: Value<'ast>) -> Self {
         Self { key, value }
     }
     pub const fn key(&self) -> MapKey {
         self.key
     }
-    pub const fn value(&self) -> &Value<'ast, A> {
+    pub const fn value(&self) -> &Value<'ast> {
         &self.value
     }
 }
@@ -200,39 +201,44 @@ enum ValueInner {
 }
 
 impl ValueInner {
-    fn access_with<'ast, A>(&self, ast: A) -> Value<'ast, A>
-    where
-        A: Get<r#enum::Key, r#enum::Inner> + Get<message::Key, message::Inner>,
-    {
-        todo!()
-        // match self {
-        //     ValueInner::Scalar(s) => Value::Scalar(*s),
-        //     ValueInner::Enum(e) => Value::Enum(Enum::from((e, ast))),
-        //     ValueInner::Message(_) => todo!(),
-        //     ValueInner::Unknown(_) => todo!(),
-        // }
+    fn access_with<'ast>(&self, ast: &'ast Ast) -> Value<'ast> {
+        match *self {
+            ValueInner::Scalar(s) => Value::Scalar(s),
+            ValueInner::Enum(key) => (key, ast).into(),
+            ValueInner::Message(key) => (key, ast).into(),
+            ValueInner::Unknown(u) => Value::Unknown(u),
+        }
     }
 }
 
 #[derive(PartialEq, Eq)]
-pub enum Value<'ast, A = Ast> {
+pub enum Value<'ast> {
     Scalar(Scalar),
-    Enum(Enum<'ast, A>),       // 14,
-    Message(Message<'ast, A>), // 11,
+    Enum(Enum<'ast>),       // 14,
+    Message(Message<'ast>), // 11,
     // Group = 10, not supported
     Unknown(i32),
 }
-impl<'ast, A> Clone for Value<'ast, A> {
+
+impl<'ast> From<(message::Key, &'ast Ast)> for Value<'ast> {
+    fn from((key, ast): (message::Key, &'ast Ast)) -> Self {
+        Self::from((key, ast))
+    }
+}
+impl<'ast> From<(r#enum::Key, &'ast Ast)> for Value<'ast> {
+    fn from((key, ast): (r#enum::Key, &'ast Ast)) -> Self {
+        Self::from((key, ast))
+    }
+}
+
+impl<'ast> Clone for Value<'ast> {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl<'ast, A> Copy for Value<'ast, A> {}
+impl<'ast> Copy for Value<'ast> {}
 
-impl<'ast, A> fmt::Debug for Value<'ast, A>
-where
-    A: Get<r#enum::Key, r#enum::Inner> + Get<message::Key, message::Inner>,
-{
+impl<'ast> fmt::Debug for Value<'ast> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Scalar(s) => fmt::Debug::fmt(s, f),
@@ -484,6 +490,6 @@ pub(crate) struct Inner {
     pub proto3_optional: Option<bool>,
 }
 
-pub struct Field<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
+pub struct Field<'ast>(Accessor<'ast, Key, Inner>);
 
 impl_traits!(Field, Key, Inner);

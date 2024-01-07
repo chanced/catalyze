@@ -9,5 +9,5 @@ pub(crate) struct Inner {
     fqn: FullyQualifiedName,
 }
 
-pub struct Extension<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
+pub struct Extension<'ast>(Accessor<'ast, Key, Inner>);
 impl_traits!(Extension, Key, Inner);

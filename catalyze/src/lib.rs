@@ -17,8 +17,8 @@
 	clippy::must_use_candidate, // TODO: remove once the API is settled
     clippy::wildcard_imports,
     clippy::module_inception,
-	clippy::struct_excessive_bools
-
+	clippy::struct_excessive_bools,
+    clippy::expl_impl_clone_on_copy
 )]
 #![cfg_attr(test, allow(clippy::too_many_lines))]
 

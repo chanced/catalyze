@@ -21,7 +21,7 @@ pub(crate) struct Inner {
     applied_extensions: Nodes<oneof::Key>,
 }
 
-pub struct Message<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
+pub struct Message<'ast>(Accessor<'ast, Key, Inner>);
 impl_traits!(Message, Key, Inner);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

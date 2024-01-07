@@ -1,4 +1,4 @@
-use crate::ast::{impl_traits, Accessor, Ast, FullyQualifiedName};
+use crate::ast::{impl_traits, Access, Accessor, Ast, FullyQualifiedName};
 
 slotmap::new_key_type! {
     pub(crate) struct Key;
@@ -9,5 +9,5 @@ pub(crate) struct Inner {
     fqn: FullyQualifiedName,
 }
 
-pub struct EnumValue<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
+pub struct EnumValue<'ast>(Accessor<'ast, Key, Inner>);
 impl_traits!(EnumValue, Key, Inner);

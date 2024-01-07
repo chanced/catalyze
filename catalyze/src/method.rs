@@ -9,6 +9,6 @@ pub(super) struct Inner {
     fqn: FullyQualifiedName,
 }
 
-pub struct Method<'ast, A = Ast>(Accessor<'ast, Key, Inner, A>);
+pub struct Method<'ast>(Accessor<'ast, Key, Inner>);
 
 impl_traits!(Method, Key, Inner);
