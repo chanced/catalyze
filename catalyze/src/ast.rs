@@ -1,11 +1,17 @@
-use std::{borrow::Cow, fmt, ops::Deref};
+use std::{
+    borrow::Cow,
+    fmt,
+    ops::{Deref, Index, IndexMut},
+    path::PathBuf,
+};
 
+use ahash::HashMapExt;
 use slotmap::SlotMap;
 
 use crate::{
-    ast,
     r#enum::{self, Enum, WellKnownEnum},
     enum_value::{self, EnumValue},
+    error::Error,
     extension::{self, Extension},
     field::{self, Field},
     file::{self, File},
@@ -17,8 +23,19 @@ use crate::{
     HashMap,
 };
 
-mod hydrate;
-
+pub(crate) mod node_path {
+    pub(crate) const PACKAGE: i32 = 2;
+    pub(crate) const MESSAGE_TYPE: i32 = 4;
+    pub(crate) const ENUM_TYPE: i32 = 5;
+    pub(crate) const SERVICE: i32 = 6;
+    pub(crate) const SYNTAX: i32 = 12;
+    pub(crate) const MESSAGE_TYPE_FIELD: i32 = 2;
+    pub(crate) const MESSAGE_TYPE_NESTED_TYPE: i32 = 3;
+    pub(crate) const MESSAGE_TYPE_ENUM_TYPE: i32 = 4;
+    pub(crate) const MESSAGE_TYPE_ONEOF_DECL: i32 = 8;
+    pub(crate) const ENUM_TYPE_VALUE: i32 = 2;
+    pub(crate) const SERVICE_TYPE_METHOD: i32 = 2;
+}
 #[doc(hidden)]
 pub(crate) trait Get<K, T> {
     fn get(&self, key: K) -> &T;
@@ -41,31 +58,497 @@ pub(crate) enum Key {
     Oneof(oneof::Key),
     Extension(extension::Key),
 }
+impl From<package::Key> for Key {
+    fn from(key: package::Key) -> Self {
+        Self::Package(key)
+    }
+}
+impl From<file::Key> for Key {
+    fn from(key: file::Key) -> Self {
+        Self::File(key)
+    }
+}
+impl From<message::Key> for Key {
+    fn from(key: message::Key) -> Self {
+        Self::Message(key)
+    }
+}
+impl From<r#enum::Key> for Key {
+    fn from(key: r#enum::Key) -> Self {
+        Self::Enum(key)
+    }
+}
+impl From<enum_value::Key> for Key {
+    fn from(key: enum_value::Key) -> Self {
+        Self::EnumValue(key)
+    }
+}
+impl From<service::Key> for Key {
+    fn from(key: service::Key) -> Self {
+        Self::Service(key)
+    }
+}
+impl From<method::Key> for Key {
+    fn from(key: method::Key) -> Self {
+        Self::Method(key)
+    }
+}
+impl From<field::Key> for Key {
+    fn from(key: field::Key) -> Self {
+        Self::Field(key)
+    }
+}
+impl From<oneof::Key> for Key {
+    fn from(key: oneof::Key) -> Self {
+        Self::Oneof(key)
+    }
+}
+impl From<extension::Key> for Key {
+    fn from(key: extension::Key) -> Self {
+        Self::Extension(key)
+    }
+}
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum ContainerKey {
+    Message(message::Key),
+    File(file::Key),
+}
+
+impl ContainerKey {
+    /// Returns `true` if the container key is [`Message`].
+    ///
+    /// [`Message`]: ContainerKey::Message
+    #[must_use]
+    pub(crate) fn is_message(&self) -> bool {
+        matches!(self, Self::Message(..))
+    }
+
+    #[must_use]
+    pub(crate) fn as_message(self) -> Option<message::Key> {
+        if let Self::Message(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn try_into_message(self) -> Result<message::Key, Self> {
+        if let Self::Message(v) = self {
+            Ok(v)
+        } else {
+            Err(self)
+        }
+    }
+
+    /// Returns `true` if the container key is [`File`].
+    ///
+    /// [`File`]: ContainerKey::File
+    #[must_use]
+    pub(crate) fn is_file(self) -> bool {
+        matches!(self, Self::File(..))
+    }
+
+    #[must_use]
+    pub(crate) fn as_file(self) -> Option<file::Key> {
+        if let Self::File(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn try_into_file(self) -> Result<file::Key, Self> {
+        if let Self::File(v) = self {
+            Ok(v)
+        } else {
+            Err(self)
+        }
+    }
+}
+
+impl From<message::Key> for ContainerKey {
+    fn from(key: message::Key) -> Self {
+        Self::Message(key)
+    }
+}
+impl From<file::Key> for ContainerKey {
+    fn from(key: file::Key) -> Self {
+        Self::File(key)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Container<'ast> {
+    Message(Message<'ast>),
+    File(File<'ast>),
+}
+
+impl<'ast> From<File<'ast>> for Container<'ast> {
+    fn from(v: File<'ast>) -> Self {
+        Self::File(v)
+    }
+}
+
+impl<'ast> From<Message<'ast>> for Container<'ast> {
+    fn from(v: Message<'ast>) -> Self {
+        Self::Message(v)
+    }
+}
+
+impl<'ast> Container<'ast> {
+    /// Returns `true` if the container is [`Message`].
+    ///
+    /// [`Message`]: Container::Message
+    #[must_use]
+    pub fn is_message(self) -> bool {
+        matches!(self, Self::Message(..))
+    }
+
+    #[must_use]
+    pub fn as_message(self) -> Option<Message<'ast>> {
+        if let Self::Message(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub fn try_into_message(self) -> Result<Message<'ast>, Self> {
+        if let Self::Message(v) = self {
+            Ok(v)
+        } else {
+            Err(self)
+        }
+    }
+
+    /// Returns `true` if the container is [`File`].
+    ///
+    /// [`File`]: Container::File
+    #[must_use]
+    pub fn is_file(self) -> bool {
+        matches!(self, Self::File(..))
+    }
+
+    #[must_use]
+    pub fn as_file(self) -> Option<File<'ast>> {
+        if let Self::File(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub fn try_into_file(self) -> Result<File<'ast>, Self> {
+        if let Self::File(v) = self {
+            Ok(v)
+        } else {
+            Err(self)
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Table<K, V>
+where
+    K: slotmap::Key,
+{
+    map: SlotMap<K, V>,
+    lookup: HashMap<FullyQualifiedName, K>,
+    order: Vec<K>,
+}
+impl<K, V> Default for Table<K, V>
+where
+    K: slotmap::Key,
+{
+    fn default() -> Self {
+        Self {
+            map: SlotMap::with_key(),
+            lookup: HashMap::default(),
+            order: Vec::default(),
+        }
+    }
+}
+impl<K, V> Table<K, V>
+where
+    K: slotmap::Key,
+{
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (K, &V)> {
+        self.order.iter().map(move |key| (*key, &self.map[*key]))
+    }
+    pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = (K, &mut V)> {
+        self.map.iter_mut()
+    }
+    pub(crate) fn keys<'ast>(&'ast self) -> impl 'ast + Iterator<Item = K> {
+        self.order.iter().copied()
+    }
+    pub(crate) fn get_by_fqn(&self, fqn: &FullyQualifiedName) -> Option<&V> {
+        self.lookup.get(fqn).map(|key| &self.map[*key])
+    }
+    pub(crate) fn get_mut_by_fqn(&self, fqn: &FullyQualifiedName) -> Option<&mut V> {
+        self.lookup.get(fqn).map(|key| &mut self.map[*key])
+    }
+
+    pub(crate) fn get(&self, key: K) -> &V {
+        &self.map[key]
+    }
+    pub(crate) fn get_mut(&mut self, key: K) -> &mut V {
+        &mut self.map[key]
+    }
+}
+
+impl<K, V> Index<K> for Table<K, V>
+where
+    K: slotmap::Key,
+{
+    type Output = V;
+    fn index(&self, key: K) -> &Self::Output {
+        &self.map[key]
+    }
+}
+impl<K, V> IndexMut<K> for Table<K, V>
+where
+    K: slotmap::Key,
+{
+    fn index_mut(&mut self, key: K) -> &mut Self::Output {
+        &mut self.map[key]
+    }
+}
+
+impl<K, V> Table<K, V>
+where
+    K: slotmap::Key,
+    V: From<FullyQualifiedName>,
+{
+    pub fn new() -> Self {
+        Self {
+            map: SlotMap::with_key(),
+            lookup: HashMap::new(),
+            order: Vec::new(),
+        }
+    }
+    pub fn get_or_insert_mut_by_fqn(&mut self, fqn: FullyQualifiedName) -> (K, &mut V) {
+        let key = self
+            .lookup
+            .entry(fqn.clone())
+            .or_insert_with(|| self.map.insert(fqn.into()))
+            .clone();
+        (key, &mut self.map[key])
+    }
+    pub fn get_or_insert_by_fqn(&mut self, fqn: FullyQualifiedName) -> (K, &V) {
+        let key = self
+            .lookup
+            .entry(fqn.clone())
+            .or_insert_with(|| self.map.insert(fqn.into()))
+            .clone();
+        (key, &self.map[key])
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct Ast {
-    packages: SlotMap<package::Key, package::Inner>,
-    files: SlotMap<file::Key, file::Inner>,
-    messages: SlotMap<message::Key, message::Inner>,
-    enums: SlotMap<r#enum::Key, r#enum::Inner>,
-    enum_values: SlotMap<enum_value::Key, enum_value::Inner>,
-    services: SlotMap<service::Key, service::Inner>,
-    methods: SlotMap<method::Key, method::Inner>,
-    fields: SlotMap<field::Key, field::Inner>,
-    oneofs: SlotMap<oneof::Key, oneof::Inner>,
-    extensions: SlotMap<extension::Key, extension::Inner>,
-    // defined_extensions: Vec<Extension>,
+    packages: Table<package::Key, package::Inner>,
+    files: Table<file::Key, file::Inner>,
+    messages: Table<message::Key, message::Inner>,
+    enums: Table<r#enum::Key, r#enum::Inner>,
+    enum_values: Table<enum_value::Key, enum_value::Inner>,
+    services: Table<service::Key, service::Inner>,
+    methods: Table<method::Key, method::Inner>,
+    fields: Table<field::Key, field::Inner>,
+    oneofs: Table<oneof::Key, oneof::Inner>,
+    extensions: Table<extension::Key, extension::Inner>,
     nodes: HashMap<FullyQualifiedName, Key>,
+    pkg_lookup: HashMap<String, package::Key>,
+}
+
+impl Ast {
+    pub(crate) fn new(
+        input: &[protobuf::descriptor::FileDescriptorProto],
+        targets: &[String],
+    ) -> Result<Self, Error> {
+        let targets = targets.iter().map(PathBuf::from).collect::<Vec<_>>();
+        let mut this = Self::default();
+        for fd in input {
+            this.hydrate_file(fd, &targets)?;
+        }
+        Ok(this)
+    }
+
+    fn hydrate_file(
+        &mut self,
+        descriptor: &protobuf::descriptor::FileDescriptorProto,
+        targets: &[PathBuf],
+    ) -> Result<file::Key, Error> {
+        let pkg = descriptor.package.map(|pkg| {
+            self.packages
+                .get_or_insert_by_fqn(FullyQualifiedName::from_package_name(pkg))
+        });
+
+        let fqn = FullyQualifiedName::new(descriptor.name(), pkg.as_ref().map(|(_, pkg)| pkg.fqn));
+        let is_build_target = targets
+            .iter()
+            .any(|target| target.as_os_str() == descriptor.name());
+        let (key, file) = self.files.get_or_insert_mut_by_fqn(fqn.clone());
+
+        if file.package.is_none() {
+            pkg.map(|(pkg_key, pkg)| {
+                file.package = Some(pkg_key);
+                pkg.files.push(key);
+            });
+        }
+
+        file.hydrate_data(descriptor, is_build_target)?;
+
+        if !file.is_fully_hydrated() {
+            return Ok(());
+        }
+        for msg in &descriptor.message_type {
+            self.hydrate_message(
+                FullyQualifiedName::new(msg.name(), Some(fqn)),
+                msg,
+                key.into(),
+            )?;
+        }
+        for enm in &descriptor.enum_type {
+            self.hydrate_enum(
+                FullyQualifiedName::new(enm.name(), Some(fqn)),
+                enm,
+                key.into(),
+            )?;
+        }
+        for service in &descriptor.service {
+            self.hydrate_service(
+                FullyQualifiedName::new(service.name(), Some(fqn)),
+                service,
+                key,
+            )?;
+        }
+        for ext in &descriptor.extension {
+            self.hydrate_extension(
+                FullyQualifiedName::new(ext.name(), Some(fqn)),
+                ext,
+                key.into(),
+            )?;
+        }
+        // TODO: comments
+        todo!()
+    }
+
+    fn hydrate_message(
+        &self,
+        fqn: FullyQualifiedName,
+        descriptor: &protobuf::descriptor::DescriptorProto,
+        container_key: ContainerKey,
+    ) -> Result<message::Key, Error> {
+        let (key, msg) = self.messages.get_or_insert_mut_by_fqn(fqn.clone());
+        msg.hydrate_data(descriptor, container_key)?;
+        for nested in &descriptor.nested_type {
+            self.hydrate_message(
+                FullyQualifiedName::new(nested.name(), Some(fqn.clone())),
+                nested,
+                key.into(),
+            )?;
+        }
+        for enm in &descriptor.enum_type {
+            self.hydrate_enum(
+                FullyQualifiedName::new(enm.name(), Some(fqn.clone())),
+                enm,
+                key.into(),
+            )?;
+        }
+        for oneof in &descriptor.oneof_decl {
+            self.hydrate_oneof(
+                FullyQualifiedName::new(oneof.name(), Some(fqn.clone())),
+                oneof,
+                key.into(),
+            )?;
+        }
+        for field in &descriptor.field {
+            self.hydrate_field(
+                FullyQualifiedName::new(field.name(), Some(fqn.clone())),
+                field,
+                key.into(),
+            )?;
+        }
+        todo!()
+    }
+
+    fn hydrate_enum(
+        &self,
+        fqn: FullyQualifiedName,
+        descriptor: &protobuf::descriptor::EnumDescriptorProto,
+        file_key: ContainerKey,
+    ) -> Result<r#enum::Key, Error> {
+        todo!()
+    }
+
+    fn hydrate_extension(
+        &self,
+        fqn: FullyQualifiedName,
+        descriptor: &protobuf::descriptor::FieldDescriptorProto,
+        container_key: ContainerKey,
+    ) -> Result<extension::Key, Error> {
+        todo!()
+    }
+
+    fn hydrate_service(
+        &self,
+        fqn: FullyQualifiedName,
+        descriptor: &protobuf::descriptor::ServiceDescriptorProto,
+        file_key: file::Key,
+    ) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn hydrate_enum_value(
+        &self,
+        fqn: FullyQualifiedName,
+        descriptor: &protobuf::descriptor::EnumValueDescriptorProto,
+        enum_key: r#enum::Key,
+    ) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn hydrate_field(
+        &self,
+        fqn: FullyQualifiedName,
+        descriptor: &protobuf::descriptor::FieldDescriptorProto,
+        msg_key: message::Key,
+    ) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn hydrate_oneof(
+        &self,
+        fqn: FullyQualifiedName,
+        descriptor: &protobuf::descriptor::OneofDescriptorProto,
+        message_key: message::Key,
+    ) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn hydrate_method(
+        &self,
+        fqn: FullyQualifiedName,
+        descriptor: &protobuf::descriptor::MethodDescriptorProto,
+        service_key: service::Key,
+    ) -> Result<(), Error> {
+        todo!()
+    }
 }
 
 pub(crate) struct Accessor<'ast, K, I> {
-    ast: &'ast Ast,
-    key: K,
+    pub(crate) ast: &'ast Ast,
+    pub(crate) key: K,
     marker: std::marker::PhantomData<I>,
 }
 
 impl<'ast, K, I> Accessor<'ast, K, I> {
-    pub(crate) fn new(key: K, ast: &'ast Ast) -> Self {
+    pub(crate) const fn new(key: K, ast: &'ast Ast) -> Self {
         Self {
             ast,
             key,
@@ -248,68 +731,6 @@ impl Node<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Nodes<K> {
-    fqn_lookup: HashMap<FullyQualifiedName, usize>,
-    name_lookup: HashMap<String, usize>,
-    list: Vec<K>,
-}
-impl Default for Nodes<ast::Key> {
-    fn default() -> Self {
-        Self {
-            fqn_lookup: HashMap::default(),
-            list: Vec::new(),
-            name_lookup: HashMap::default(),
-        }
-    }
-}
-impl<T> Nodes<T>
-where
-    T: Fqn,
-{
-    pub fn insert(&mut self, node: T) {
-        if self.fqn_lookup.contains_key(node.fully_qualified_name()) {
-            return;
-        }
-        self.fqn_lookup.insert(node.fqn().clone(), self.list.len());
-        self.list.push(node);
-    }
-}
-impl<T> Nodes<T>
-where
-    T: Clone,
-{
-    pub fn get(&self, fqn: &FullyQualifiedName) -> Option<T> {
-        self.fqn_lookup.get(fqn).map(|i| self.list[*i].clone())
-    }
-}
-impl<T> Nodes<T> {
-    pub fn new() -> Self {
-        Self {
-            fqn_lookup: HashMap::default(),
-            list: Vec::new(),
-            name_lookup: HashMap::default(),
-        }
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.list.iter()
-    }
-}
-
-impl Deref for Nodes<ast::Key> {
-    type Target = [ast::Key];
-    fn deref(&self) -> &Self::Target {
-        &self.list
-    }
-}
-
-impl<'ast> AsRef<[Node<'ast>]> for Nodes<Node<'ast>> {
-    fn as_ref(&self) -> &[Node<'ast>] {
-        &self.list
-    }
-}
-
 /// A trait implemented by all nodes that have a [`FullyQualifiedName`].
 pub trait Fqn {
     /// Returns the [`FullyQualifiedName`] of the node.
@@ -326,7 +747,7 @@ pub trait Fqn {
 pub struct FullyQualifiedName(String);
 
 impl FullyQualifiedName {
-    pub fn new(value: impl AsRef<str>, container: Option<FullyQualifiedName>) -> Self {
+    pub fn new(value: impl AsRef<str>, container: Option<Self>) -> Self {
         let value = value.as_ref();
         if value.is_empty() {
             if let Some(fqn) = container {
@@ -334,9 +755,15 @@ impl FullyQualifiedName {
             }
             return Self::default();
         }
-        Self(format!("{}.{}", container.unwrap_or_default(), &value))
+        let container = container.unwrap_or_default();
+        if container.is_empty() {
+            return Self(value.into());
+        }
+        Self(format!("{container}.{value}"))
     }
-
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -345,8 +772,17 @@ impl FullyQualifiedName {
         if value.is_empty() {
             return;
         }
-        self.0.push('.');
+        if !self.0.is_empty() {
+            self.0.push('.');
+        }
         self.0.push_str(value);
+    }
+    pub(crate) fn from_package_name(package_name: impl AsRef<str>) -> Self {
+        let package_name = package_name.as_ref();
+        if package_name.is_empty() {
+            return Self::default();
+        }
+        Self(format!(".{package_name}"))
     }
 }
 impl AsRef<str> for FullyQualifiedName {
@@ -371,6 +807,24 @@ pub struct UninterpretedOption {
     double_value: Option<f64>,
     string_value: Option<Vec<u8>>,
     aggregate_value: Option<String>,
+}
+
+impl From<protobuf::descriptor::UninterpretedOption> for UninterpretedOption {
+    fn from(option: protobuf::descriptor::UninterpretedOption) -> Self {
+        Self {
+            name: option
+                .name
+                .into_iter()
+                .map(|part| part.into())
+                .collect::<Vec<_>>(),
+            identifier_value: option.identifier_value,
+            positive_int_value: option.positive_int_value,
+            negative_int_value: option.negative_int_value,
+            double_value: option.double_value,
+            string_value: option.string_value,
+            aggregate_value: option.aggregate_value,
+        }
+    }
 }
 
 impl UninterpretedOption {
@@ -558,6 +1012,17 @@ macro_rules! impl_fqn {
     };
 }
 
+macro_rules! impl_from_fqn {
+    ($inner:ident) => {
+        impl From<crate::ast::FullyQualifiedName> for $inner {
+            fn from(fqn: crate::ast::FullyQualifiedName) -> Self {
+                let mut this = Self::default();
+                this.fqn = fqn;
+                this
+            }
+        }
+    };
+}
 macro_rules! impl_eq {
     ($typ:ident) => {
         impl<'ast> PartialEq for $typ<'ast> {
@@ -610,6 +1075,7 @@ macro_rules! impl_traits {
         crate::ast::impl_fqn!($typ, $key, $inner);
         crate::ast::impl_from_key_and_ast!($typ, $key, $inner);
         crate::ast::impl_fmt!($typ, $key, $inner);
+        crate::ast::impl_from_fqn!($inner);
     };
 }
 
@@ -618,6 +1084,7 @@ pub(crate) use impl_copy_clone;
 pub(crate) use impl_eq;
 pub(crate) use impl_fmt;
 pub(crate) use impl_fqn;
+pub(crate) use impl_from_fqn;
 pub(crate) use impl_from_key_and_ast;
 pub(crate) use impl_traits;
 

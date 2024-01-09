@@ -2,8 +2,10 @@ use snafu::Snafu;
 
 #[derive(Debug, PartialEq, Eq, Hash, Snafu)]
 pub enum Error {
-    #[snafu(display("Invalid syntax: {value:?}; expected either \"proto2\" or \"proto3\""))]
-    InvalidSyntax { value: String },
+    #[snafu(display(
+        "Unsupported or invalid syntax: {value:?}; expected either \"proto2\" or \"proto3\""
+    ))]
+    UnsupportedSyntax { value: String },
 
     #[snafu(display(
         "Group field types are deprecated and not supported. Use an embedded message instead."
@@ -11,7 +13,9 @@ pub enum Error {
     GroupNotSupported,
 }
 impl Error {
-    pub(crate) fn invalid_syntax(v: String) -> Self {
-        Self::InvalidSyntax { value: v }
+    pub(crate) fn unsupported_syntax(v: impl ToString) -> Self {
+        Self::UnsupportedSyntax {
+            value: v.to_string(),
+        }
     }
 }

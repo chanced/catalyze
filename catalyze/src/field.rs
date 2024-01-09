@@ -10,7 +10,7 @@ use protobuf::{
     EnumOrUnknown,
 };
 
-use std::fmt;
+use std::{default, fmt};
 
 slotmap::new_key_type! {
     pub(crate) struct Key;
@@ -126,7 +126,7 @@ pub enum MapKey {
     Sint64 = 18,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub struct Map<'ast> {
     pub key: MapKey,
     pub value: Value<'ast>,
@@ -139,7 +139,7 @@ impl fmt::Debug for Map<'_> {
             .finish()
     }
 }
-#[allow(clippy::expl_impl_clone_on_copy)]
+
 impl Clone for Map<'_> {
     fn clone(&self) -> Self {
         *self
@@ -191,6 +191,11 @@ enum TypeInner {
     Map(MapInner),
     Unknown(i32),
 }
+impl Default for TypeInner {
+    fn default() -> Self {
+        Self::Unknown(0)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ValueInner {
@@ -203,10 +208,10 @@ enum ValueInner {
 impl ValueInner {
     fn access_with<'ast>(&self, ast: &'ast Ast) -> Value<'ast> {
         match *self {
-            ValueInner::Scalar(s) => Value::Scalar(s),
-            ValueInner::Enum(key) => (key, ast).into(),
-            ValueInner::Message(key) => (key, ast).into(),
-            ValueInner::Unknown(u) => Value::Unknown(u),
+            Self::Scalar(s) => Value::Scalar(s),
+            Self::Enum(key) => (key, ast).into(),
+            Self::Message(key) => (key, ast).into(),
+            Self::Unknown(u) => Value::Unknown(u),
         }
     }
 }
@@ -367,7 +372,7 @@ impl From<protobuf::descriptor::field_options::JSType> for JsType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct Inner {
     fqn: FullyQualifiedName,
     name: String,

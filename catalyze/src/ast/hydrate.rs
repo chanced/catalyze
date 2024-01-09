@@ -1,8 +1,4 @@
-// use std::{
-//     fmt::Debug,
-//     path::PathBuf,
-//     sync::{Arc, Weak},
-// };
+// use std::{fmt::Debug, path::PathBuf};
 
 // use ahash::HashMapExt;
 // use indexmap::IndexSet;
@@ -14,19 +10,12 @@
 // use slotmap::SlotMap;
 
 // use crate::{
-//     r#enum::Enum,
-//     enum_value::EnumValue,
+//     ast::{Fqn, FullyQualifiedName},
+//     r#enum, enum_value,
 //     error::Error,
-//     extension::Extension,
-//     field::Field,
-//     file::File,
-//     fqn::{Fqn, FullyQualifiedName},
-//     message::Message,
-//     method::Method,
-//     oneof::Oneof,
-//     package::Package,
-//     service::Service,
-//     HashMap, HashSet,
+//     extension, field,
+//     file::{self, File},
+//     message, method, oneof, package, service, HashMap, HashSet,
 // };
 
 // use super::Ast;
@@ -39,24 +28,131 @@
 //     Hydrate::new(files, targets).run()
 // }
 
+// type PackageState = State<package::Key, HydratePackage>;
+// type FileState<'i> = State<file::Key, HydrateFile<'i>>;
+// type MessageState<'i> = State<message::Key, HydrateMessage<'i>>;
+// type EnumState<'i> = State<r#enum::Key, HydrateEnum<'i>>;
+// type ServiceState<'i> = State<service::Key, HydrateService<'i>>;
+// type FieldState<'i> = State<field::Key, HydrateField<'i>>;
+// type ExtensionState<'i> = State<extension::Key, HydrateExtension<'i>>;
+// type EnumValueState<'i> = State<enum_value::Key, HydrateEnumValue<'i>>;
+// type MethodState<'i> = State<method::Key, HydrateMethod<'i>>;
+// type OneofState<'i> = State<oneof::Key, HydrateOneof<'i>>;
+
+// impl FileState<'_> {
+//     #[must_use]
+//     fn name(&self, ast: &Ast) -> &str {
+//         match self {
+//             State::Hydrating(hydrate) => hydrate.descriptor.name(),
+//             State::Final(key) => File::from((*key, ast)).name(),
+//         }
+//     }
+//     #[must_use]
+//     fn fully_qualified_name(&self, ast: &Ast) -> &FullyQualifiedName {
+//         match self {
+//             State::Hydrating(hydrate) => &hydrate.fqn,
+//             State::Final(key) => File::from((*key,
+// ast)).fully_qualified_name(),         }
+//     }
+// }
+
+// impl From<HydratePackage> for PackageState {
+//     fn from(v: HydratePackage) -> Self {
+//         Self::Hydrating(v)
+//     }
+// }
+// impl<'i> From<HydrateFile<'i>> for FileState<'i> {
+//     fn from(v: HydrateFile<'i>) -> Self {
+//         Self::Hydrating(v)
+//     }
+// }
+
+// impl<'i> From<HydrateMessage<'i>> for MessageState<'i> {
+//     fn from(v: HydrateMessage<'i>) -> Self {
+//         Self::Hydrating(v)
+//     }
+// }
+
+// impl<'i> From<HydrateEnum<'i>> for EnumState<'i> {
+//     fn from(v: HydrateEnum<'i>) -> Self {
+//         Self::Hydrating(v)
+//     }
+// }
+
+// impl<'i> From<HydrateService<'i>> for ServiceState<'i> {
+//     fn from(v: HydrateService<'i>) -> Self {
+//         Self::Hydrating(v)
+//     }
+// }
+
+// impl<'i> From<HydrateField<'i>> for FieldState<'i> {
+//     fn from(v: HydrateField<'i>) -> Self {
+//         Self::Hydrating(v)
+//     }
+// }
+
+// impl<'i> From<HydrateExtension<'i>> for ExtensionState<'i> {
+//     fn from(v: HydrateExtension<'i>) -> Self {
+//         Self::Hydrating(v)
+//     }
+// }
+
+// impl<'i> From<HydrateEnumValue<'i>> for EnumValueState<'i> {
+//     fn from(v: HydrateEnumValue<'i>) -> Self {
+//         Self::Hydrating(v)
+//     }
+// }
+
+// impl<'i> From<HydrateMethod<'i>> for MethodState<'i> {
+//     fn from(v: HydrateMethod<'i>) -> Self {
+//         Self::Hydrating(v)
+//     }
+// }
+
+// impl<'i> From<HydrateOneof<'i>> for OneofState<'i> {
+//     fn from(v: HydrateOneof<'i>) -> Self {
+//         Self::Hydrating(v)
+//     }
+// }
+
+// #[derive(Debug, Default)]
+// struct HydrateFile<'i> {
+//     key: file::Key,
+//     // progress: Progress,
+//     fqn: FullyQualifiedName,
+//     descriptor: &'i FileDescriptorProto,
+//     msgs: IndexSet<MessageKey>,
+//     enums: IndexSet<EnumKey>,
+//     services: IndexSet<ServiceKey>,
+//     pkg: Option<PackageKey>,
+//     dependents: IndexSet<FileKey>,
+// }
+// impl<'i> HydrateFile<'i> {
+//     fn new(descriptor: &'i FileDescriptorProto) -> HydrateFile<'i> {
+//         Self {
+//             descriptor,
+//             ..Default::default()
+//         }
+//     }
+// }
+
 // pub struct Hydrate<'i> {
-//     packages: SlotMap<PackageKey, State<Package<'i>, HydratePackage>>,
-//     files: SlotMap<FileKey, State<File, HydrateFile<'i>>>,
-//     messages: SlotMap<MessageKey, State<Message, HydrateMessage<'i>>>,
-//     enums: SlotMap<EnumKey, State<Enum, HydrateEnum<'i>>>,
-//     services: SlotMap<ServiceKey, State<Service, HydrateService<'i>>>,
-//     fields: SlotMap<FieldKey, State<Field<'i>, HydrateField<'i>>>,
-//     extensions: SlotMap<ExtensionKey, State<Extension,
-// HydrateExtension<'i>>>,     enum_values: SlotMap<EnumValueKey,
-// State<EnumValue, HydrateEnumValue<'i>>>,     methods: SlotMap<MethodKey,
-// State<Method, HydrateMethod<'i>>>,     oneofs: SlotMap<OneofKey, State<Oneof,
-// HydrateOneof<'i>>>,     targets: &'i HashSet<PathBuf>,
+//     packages: SlotMap<PackageKey, PackageState>,
+//     files: SlotMap<FileKey, FileState<'i>>,
+//     messages: SlotMap<MessageKey, MessageState<'i>>,
+//     enums: SlotMap<EnumKey, EnumState<'i>>,
+//     services: SlotMap<ServiceKey, ServiceState<'i>>,
+//     fields: SlotMap<FieldKey, FieldState<'i>>,
+//     extensions: SlotMap<ExtensionKey, ExtensionState<'i>>,
+//     enum_values: SlotMap<EnumValueKey, EnumValueState<'i>>,
+//     methods: SlotMap<MethodKey, MethodState<'i>>,
+//     oneofs: SlotMap<OneofKey, OneofState<'i>>,
+//     targets: &'i HashSet<PathBuf>,
 //     input: Vec<FileKey>,
 //     file_lookup: HashMap<&'i str, FileKey>,
 //     pkg_lookup: HashMap<FullyQualifiedName, HydratePackage>,
+//     ast: Ast,
 // }
-
-// crate::impl_access!(Package, Inner);
 
 // impl<'i> Hydrate<'i> {
 //     fn new(
@@ -65,16 +161,15 @@
 //     ) -> Self {
 //         let mut file_map = SlotMap::with_key();
 //         let mut file_lookup = HashMap::with_capacity(files.len());
-//         let mut file_input = Vec::with_capacity(files.len());
 //         let mut input = Vec::with_capacity(files.len());
 //         for descriptor in files {
-//             let state = HydrateFile::new(descriptor).into();
-//             let key = file_map.insert(state);
+//             let key = file_map.insert(HydrateFile::new(descriptor).into());
 //             input.push(key);
 //             file_lookup.insert(descriptor.name(), key);
 //         }
 
 //         Self {
+//             ast: Ast::default(),
 //             packages: SlotMap::with_key(),
 //             files: file_map,
 //             messages: SlotMap::with_key(),
@@ -125,7 +220,7 @@
 //         };
 
 //         let fqn = FullyQualifiedName::new(
-//             file.name(),
+//             file.descriptor.name(),
 //             pkg.map(|pkg| pkg.fully_qualified_name().clone()),
 //         );
 
@@ -173,13 +268,19 @@
 //     fn connect_file_dependency(&mut self, dependent: FileKey, dependency:
 // FileKey) {         // adding dependency link to dependent
 //         let file = self.files.get_mut(dependent).unwrap();
-//         let file = file.as_hydrating_mut().expect("File is already
-// finalized");         file.dependencies.insert(dependency);
+//         let file = file.as_hydrating_mut().expect(
+//             "File is already
+// finalized",
+//         );
+//         file.dependencies.insert(dependency);
 
 //         // adding dependent link to dependency
 //         let file = self.files.get_mut(dependency).unwrap();
-//         let file = file.as_hydrating_mut().expect("File is already
-// finalized");         file.dependents.insert(dependent);
+//         let file = file.as_hydrating_mut().expect(
+//             "File is already
+// finalized",
+//         );
+//         file.dependents.insert(dependent);
 //     }
 
 //     fn hydrate_package(&mut self, key: PackageKey, stack: &mut Vec<Key>) ->
@@ -213,7 +314,7 @@
 
 //     fn init_file(&mut self, descriptor: &'i FileDescriptorProto) -> FileKey {
 //         for (key, file) in &self.files {
-//             if file.name() == descriptor.name.as_deref().unwrap() {
+//             if file.name(&self.ast) == descriptor.name.as_deref().unwrap() {
 //                 return key;
 //             }
 //         }
@@ -225,7 +326,8 @@
 //         let mut hydrate_stack: Vec<Key> =
 // self.input.iter().copied().map(Into::into).collect();         let mut
 // final_stack = hydrate_stack.clone();         self.
-// hydrate_stack(hydrate_stack)?;     }
+// hydrate_stack(hydrate_stack)?;         todo!()
+//     }
 // }
 
 // slotmap::new_key_type! {
@@ -242,69 +344,9 @@
 // }
 
 // #[derive(Debug)]
-// enum State<T, H> {
+// enum State<K, H> {
 //     Hydrating(H),
-//     Final(Arc<T>),
-// }
-
-// impl<'i> From<HydratePackage> for State<Package, HydratePackage> {
-//     fn from(value: HydratePackage) -> Self {
-//         Self::Hydrating(value)
-//     }
-// }
-
-// impl<'i> From<HydrateFile<'i>> for State<File, HydrateFile<'i>> {
-//     fn from(value: HydrateFile<'i>) -> Self {
-//         Self::Hydrating(value)
-//     }
-// }
-
-// impl<'i> From<HydrateMessage<'i>> for State<Message, HydrateMessage<'i>> {
-//     fn from(value: HydrateMessage<'i>) -> Self {
-//         Self::Hydrating(value)
-//     }
-// }
-
-// impl<'i> From<HydrateEnum<'i>> for State<Enum, HydrateEnum<'i>> {
-//     fn from(value: HydrateEnum<'i>) -> Self {
-//         Self::Hydrating(value)
-//     }
-// }
-
-// impl<'i> From<HydrateService<'i>> for State<Service, HydrateService<'i>> {
-//     fn from(value: HydrateService<'i>) -> Self {
-//         Self::Hydrating(value)
-//     }
-// }
-
-// impl<'i> From<HydrateField<'i>> for State<Field, HydrateField<'i>> {
-//     fn from(value: HydrateField<'i>) -> Self {
-//         Self::Hydrating(value)
-//     }
-// }
-
-// impl<'i> From<HydrateExtension<'i>> for State<Extension,
-// HydrateExtension<'i>> {     fn from(value: HydrateExtension<'i>) -> Self {
-//         Self::Hydrating(value)
-//     }
-// }
-
-// impl<'i> From<HydrateEnumValue<'i>> for State<EnumValue,
-// HydrateEnumValue<'i>> {     fn from(value: HydrateEnumValue<'i>) -> Self {
-//         Self::Hydrating(value)
-//     }
-// }
-
-// impl<'i> From<HydrateMethod<'i>> for State<Method, HydrateMethod<'i>> {
-//     fn from(value: HydrateMethod<'i>) -> Self {
-//         Self::Hydrating(value)
-//     }
-// }
-
-// impl<'i> From<HydrateOneof<'i>> for State<Oneof, HydrateOneof<'i>> {
-//     fn from(value: HydrateOneof<'i>) -> Self {
-//         Self::Hydrating(value)
-//     }
+//     Final(K),
 // }
 
 // impl<T, H> State<T, H> {
@@ -334,23 +376,6 @@
 //             None
 //         }
 //     }
-
-//     fn try_into_final(self) -> Result<Arc<T>, ()> {
-//         if let Self::Final(v) = self {
-//             Ok(v)
-//         } else {
-//             Err(())
-//         }
-//     }
-// }
-// impl State<File, HydrateFile<'_>> {
-//     #[must_use]
-//     fn name(&self) -> &str {
-//         match self {
-//             Self::Hydrating(v) => v.name(),
-//             Self::Final(v) => v.name(),
-//         }
-//     }
 // }
 
 // #[derive(Debug, Clone, Copy)]
@@ -366,64 +391,54 @@
 //     Method(MethodKey),
 //     Oneof(OneofKey),
 // }
-
-// impl From<OneofKey> for Key {
-//     fn from(v: OneofKey) -> Self {
-//         Self::Oneof(v)
+// impl From<PackageKey> for Key {
+//     fn from(v: PackageKey) -> Self {
+//         Self::Package(v)
 //     }
 // }
-
-// impl From<MethodKey> for Key {
-//     fn from(v: MethodKey) -> Self {
-//         Self::Method(v)
-//     }
-// }
-
-// impl From<EnumValueKey> for Key {
-//     fn from(v: EnumValueKey) -> Self {
-//         Self::EnumValue(v)
-//     }
-// }
-
-// impl From<ExtensionKey> for Key {
-//     fn from(v: ExtensionKey) -> Self {
-//         Self::Extension(v)
-//     }
-// }
-
-// impl From<FieldKey> for Key {
-//     fn from(v: FieldKey) -> Self {
-//         Self::Field(v)
-//     }
-// }
-
-// impl From<ServiceKey> for Key {
-//     fn from(v: ServiceKey) -> Self {
-//         Self::Service(v)
-//     }
-// }
-
-// impl From<EnumKey> for Key {
-//     fn from(v: EnumKey) -> Self {
-//         Self::Enum(v)
-//     }
-// }
-
-// impl From<MessageKey> for Key {
-//     fn from(v: MessageKey) -> Self {
-//         Self::Message(v)
-//     }
-// }
-
 // impl From<FileKey> for Key {
 //     fn from(v: FileKey) -> Self {
 //         Self::File(v)
 //     }
 // }
-
-// impl From<PackageKey> for Key {
-//     fn from(v: PackageKey) -> Self {
-//         Self::Package(v)
+// impl From<MessageKey> for Key {
+//     fn from(v: MessageKey) -> Self {
+//         Self::Message(v)
+//     }
+// }
+// impl From<EnumKey> for Key {
+//     fn from(v: EnumKey) -> Self {
+//         Self::Enum(v)
+//     }
+// }
+// impl From<ServiceKey> for Key {
+//     fn from(v: ServiceKey) -> Self {
+//         Self::Service(v)
+//     }
+// }
+// impl From<FieldKey> for Key {
+//     fn from(v: FieldKey) -> Self {
+//         Self::Field(v)
+//     }
+// }
+// impl From<ExtensionKey> for Key {
+//     fn from(v: ExtensionKey) -> Self {
+//         Self::Extension(v)
+//     }
+// }
+// impl From<EnumValueKey> for Key {
+//     fn from(v: EnumValueKey) -> Self {
+//         Self::EnumValue(v)
+//     }
+// }
+// impl From<MethodKey> for Key {
+//     fn from(v: MethodKey) -> Self {
+//         Self::Method(v)
+//     }
+// }
+// impl From<OneofKey> for Key {
+//     fn from(v: OneofKey) -> Self {
+//         Self::Oneof(v)
 //     }
 // }
 
@@ -602,6 +617,7 @@
 //         }
 //     }
 // }
+
 // impl Fqn for HydrateEnumValue<'_> {
 //     fn fully_qualified_name(&self) -> &FullyQualifiedName {
 //         &self.fqn
@@ -656,31 +672,5 @@
 // impl Fqn for HydrateExtension<'_> {
 //     fn fully_qualified_name(&self) -> &FullyQualifiedName {
 //         &self.fqn
-//     }
-// }
-
-// #[derive(Debug, Default)]
-// struct HydrateFile<'i> {
-//     // progress: Progress,
-//     fqn: FullyQualifiedName,
-//     descriptor: &'i FileDescriptorProto,
-//     msgs: IndexSet<MessageKey>,
-//     enums: IndexSet<EnumKey>,
-//     services: IndexSet<ServiceKey>,
-//     pkg: Option<PackageKey>,
-//     dependents: IndexSet<FileKey>,
-//     dependencies: IndexSet<FileKey>,
-// }
-
-// impl<'i> HydrateFile<'i> {
-//     fn new(descriptor: &'i FileDescriptorProto) -> HydrateFile<'i> {
-//         Self {
-//             descriptor,
-//             ..Default::default()
-//         }
-//     }
-
-//     fn name(&self) -> &str {
-//         self.descriptor.name()
 //     }
 // }

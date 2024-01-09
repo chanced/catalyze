@@ -6,7 +6,7 @@ slotmap::new_key_type! {
     pub(crate) struct Key;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct Inner {
     fqn: FullyQualifiedName,
 }

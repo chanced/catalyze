@@ -1,24 +1,37 @@
+use std::error::Error;
+
 use crate::{
-    ast::{impl_traits, Access, Accessor, Ast, FullyQualifiedName, Nodes},
-    field::{self, Field},
+    ast::{impl_traits, Accessor, Ast, FullyQualifiedName},
+    extension,
+    field::{self},
     file, message,
-    oneof::{self, Oneof},
+    oneof::{self},
 };
 
 slotmap::new_key_type! {
     pub(crate) struct Key;
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Inner {
-    fqn: FullyQualifiedName,
-    fields: Nodes<field::Key>,
-    messages: Nodes<message::Key>,
-    oneofs: Nodes<oneof::Key>,
-    real_oneofs: Nodes<oneof::Key>,
-    synthetic_oneofs: Nodes<oneof::Key>,
-    dependents: Nodes<file::Key>,
-    applied_extensions: Nodes<oneof::Key>,
+    pub(crate) fqn: FullyQualifiedName,
+    pub(crate) fields: Vec<field::Key>,
+    pub(crate) messages: Vec<message::Key>,
+    pub(crate) oneofs: Vec<oneof::Key>,
+    pub(crate) real_oneofs: Vec<oneof::Key>,
+    pub(crate) synthetic_oneofs: Vec<oneof::Key>,
+    pub(crate) dependents: Vec<file::Key>,
+    pub(crate) applied_extensions: Vec<extension::Key>,
+}
+impl Inner {
+    pub(crate) fn hydrate_data(
+        &self,
+        descriptor: &protobuf::descriptor::DescriptorProto,
+        container_key: crate::ast::ContainerKey,
+    ) -> Result<(), Error> {
+        
+        todo!()
+    }
 }
 
 pub struct Message<'ast>(Accessor<'ast, Key, Inner>);
@@ -269,35 +282,35 @@ impl std::fmt::Display for WellKnownMessage {
 
 impl std::str::FromStr for WellKnownMessage {
     type Err = ();
-    fn from_str(s: &str) -> ::std::result::Result<WellKnownMessage, Self::Err> {
+    fn from_str(s: &str) -> ::std::result::Result<Self, Self::Err> {
         match s {
-            Self::ANY => Ok(WellKnownMessage::Any),
-            Self::API => Ok(WellKnownMessage::Api),
-            Self::BOOL_VALUE => Ok(WellKnownMessage::BoolValue),
-            Self::BYTES_VALUE => Ok(WellKnownMessage::BytesValue),
-            Self::DOUBLE_VALUE => Ok(WellKnownMessage::DoubleValue),
-            Self::DURATION => Ok(WellKnownMessage::Duration),
-            Self::EMPTY => Ok(WellKnownMessage::Empty),
-            Self::ENUM => Ok(WellKnownMessage::Enum),
-            Self::ENUM_VALUE => Ok(WellKnownMessage::EnumValue),
-            Self::FIELD => Ok(WellKnownMessage::Field),
-            Self::FIELD_KIND => Ok(WellKnownMessage::FieldKind),
-            Self::FIELD_MASK => Ok(WellKnownMessage::FieldMask),
-            Self::FLOAT_VALUE => Ok(WellKnownMessage::FloatValue),
-            Self::INT32_VALUE => Ok(WellKnownMessage::Int32Value),
-            Self::INT64_VALUE => Ok(WellKnownMessage::Int64Value),
-            Self::LIST_VALUE => Ok(WellKnownMessage::ListValue),
-            Self::METHOD => Ok(WellKnownMessage::Method),
-            Self::MIXIN => Ok(WellKnownMessage::Mixin),
-            Self::OPTION => Ok(WellKnownMessage::Option),
-            Self::SOURCE_CONTEXT => Ok(WellKnownMessage::SourceContext),
-            Self::STRING_VALUE => Ok(WellKnownMessage::StringValue),
-            Self::STRUCT => Ok(WellKnownMessage::Struct),
-            Self::TIMESTAMP => Ok(WellKnownMessage::Timestamp),
-            Self::TYPE => Ok(WellKnownMessage::Type),
-            Self::UINT32_VALUE => Ok(WellKnownMessage::UInt32Value),
-            Self::UINT64_VALUE => Ok(WellKnownMessage::UInt64Value),
-            Self::VALUE => Ok(WellKnownMessage::Value),
+            Self::ANY => Ok(Self::Any),
+            Self::API => Ok(Self::Api),
+            Self::BOOL_VALUE => Ok(Self::BoolValue),
+            Self::BYTES_VALUE => Ok(Self::BytesValue),
+            Self::DOUBLE_VALUE => Ok(Self::DoubleValue),
+            Self::DURATION => Ok(Self::Duration),
+            Self::EMPTY => Ok(Self::Empty),
+            Self::ENUM => Ok(Self::Enum),
+            Self::ENUM_VALUE => Ok(Self::EnumValue),
+            Self::FIELD => Ok(Self::Field),
+            Self::FIELD_KIND => Ok(Self::FieldKind),
+            Self::FIELD_MASK => Ok(Self::FieldMask),
+            Self::FLOAT_VALUE => Ok(Self::FloatValue),
+            Self::INT32_VALUE => Ok(Self::Int32Value),
+            Self::INT64_VALUE => Ok(Self::Int64Value),
+            Self::LIST_VALUE => Ok(Self::ListValue),
+            Self::METHOD => Ok(Self::Method),
+            Self::MIXIN => Ok(Self::Mixin),
+            Self::OPTION => Ok(Self::Option),
+            Self::SOURCE_CONTEXT => Ok(Self::SourceContext),
+            Self::STRING_VALUE => Ok(Self::StringValue),
+            Self::STRUCT => Ok(Self::Struct),
+            Self::TIMESTAMP => Ok(Self::Timestamp),
+            Self::TYPE => Ok(Self::Type),
+            Self::UINT32_VALUE => Ok(Self::UInt32Value),
+            Self::UINT64_VALUE => Ok(Self::UInt64Value),
+            Self::VALUE => Ok(Self::Value),
             _ => Err(()),
         }
     }

@@ -1,15 +1,20 @@
+use crate::{
+    ast::{impl_traits, Accessor, Ast, FullyQualifiedName, UninterpretedOption},
+    r#enum,
+    error::Error,
+    extension,
+    location::Comments,
+    message::{self},
+    package::{self, Package},
+    service, HashSet,
+};
+use protobuf::descriptor::{file_options::OptimizeMode as ProtoOptimizeMode, FileDescriptorProto};
 use std::{
+    fmt,
     path::{Path, PathBuf},
     str::FromStr,
 };
 
-use crate::{
-    ast::{impl_traits, Accessor, Ast, FullyQualifiedName, Get, Nodes, UninterpretedOption},
-    error::Error,
-    message::{self},
-    package::{self},
-    HashSet,
-};
 slotmap::new_key_type! {
     #[doc(hidden)]
     pub struct Key;
@@ -29,8 +34,8 @@ impl<'ast> File<'ast> {
     }
 
     #[must_use]
-    pub fn package(&self) -> &str {
-        self.0.pkg_name.as_ref()
+    pub fn package(&self) -> Option<Package> {
+        self.0.package.map(|k| (k, self.0.ast).into())
     }
 
     // #[must_use]
@@ -188,14 +193,9 @@ pub enum Syntax {
     Proto2,
     Proto3,
 }
-
-impl Default for Syntax {
-    fn default() -> Self {
-        Self::Proto2
-    }
-}
-
 impl Syntax {
+    const PROTO2: &'static str = "proto2";
+    const PROTO3: &'static str = "proto3";
     #[must_use]
     pub const fn supports_required_prefix(&self) -> bool {
         self.is_proto2()
@@ -208,28 +208,52 @@ impl Syntax {
     pub const fn is_proto3(&self) -> bool {
         matches!(self, Self::Proto3)
     }
-}
-
-impl FromStr for Syntax {
-    type Err = Error;
-
-    fn from_str(v: &str) -> Result<Self, Self::Err> {
-        match &*v.to_lowercase() {
-            "proto2" | "" => Ok(Self::Proto2),
-            "proto3" => Ok(Self::Proto3),
-            _ => Err(Error::invalid_syntax(v.to_string())),
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Proto2 => Self::PROTO2,
+            Self::Proto3 => Self::PROTO3,
+        }
+    }
+    pub fn parse(s: &str) -> Result<Self, Error> {
+        match s {
+            Self::PROTO2 => Ok(Self::Proto2),
+            Self::PROTO3 => Ok(Self::Proto3),
+            _ => Err(Error::unsupported_syntax(s.to_owned())),
         }
     }
 }
+impl fmt::Display for Syntax {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for Syntax {
+    type Err = ();
+
+    fn from_str(v: &str) -> Result<Self, Self::Err> {
+        match &*v.to_lowercase() {
+            Self::PROTO2 | "" => Ok(Self::Proto2),
+            Self::PROTO3 => Ok(Self::Proto3),
+            _ => Err(()),
+        }
+    }
+}
+impl Default for Syntax {
+    fn default() -> Self {
+        Self::Proto2
+    }
+}
+
 impl TryFrom<&str> for Syntax {
-    type Error = Error;
+    type Error = ();
 
     fn try_from(v: &str) -> Result<Self, Self::Error> {
         Self::from_str(v)
     }
 }
 impl TryFrom<String> for Syntax {
-    type Error = Error;
+    type Error = ();
     fn try_from(v: String) -> Result<Self, Self::Error> {
         Self::from_str(&v)
     }
@@ -285,33 +309,56 @@ impl OptimizeMode {
         matches!(self, Self::Unknown(..))
     }
 }
-
-#[derive(Debug, Clone, PartialEq)]
+impl From<protobuf::EnumOrUnknown<ProtoOptimizeMode>> for OptimizeMode {
+    fn from(value: protobuf::EnumOrUnknown<ProtoOptimizeMode>) -> Self {
+        match value.enum_value() {
+            Ok(o) => Self::from(o),
+            Err(i) => Self::Unknown(i),
+        }
+    }
+}
+impl From<protobuf::descriptor::file_options::OptimizeMode> for OptimizeMode {
+    fn from(value: protobuf::descriptor::file_options::OptimizeMode) -> Self {
+        match value {
+            ProtoOptimizeMode::SPEED => Self::Speed,
+            ProtoOptimizeMode::CODE_SIZE => Self::CodeSize,
+            ProtoOptimizeMode::LITE_RUNTIME => Self::LiteRuntime,
+        }
+    }
+}
+#[derive(Debug, Default, Clone, PartialEq)]
 #[doc(hidden)]
 pub(crate) struct Inner {
-    name: String,
-    path: PathBuf,
-    pkg_name: String,
-    pkg: Option<package::Key>,
+    pub(crate) is_hydrated: bool,
+    pub(crate) name: String,
+    pub(crate) path: PathBuf,
+    pub(crate) package: Option<package::Key>,
+
+    pub(crate) messages: Vec<message::Key>,
+    pub(crate) enums: Vec<r#enum::Key>,
+    pub(crate) services: Vec<service::Key>,
+    pub(crate) defined_extensions: Vec<extension::Key>,
+
     // file_path: PathBuf,
-    fqn: FullyQualifiedName,
-    messages: Nodes<message::Key>,
-    // enums: RefCell<Vec<Enum>>,
-    // services: RefCell<Vec<Service>>,
-    // defined_extensions: RefCell<Vec<Extension>>,
-    is_build_target: bool,
-    // pkg_comments: RefCell<Comments>,
-    // comments: RefCell<Comments>,
-    // pkg: WeakPackage,
-    // dependents: RefCell<Vec<WeakFile>>,
-    // imports: RefCell<Vec<WeakFile>>,
-    used_imports: HashSet<Key>,
-    syntax: Syntax,
+    pub(crate) fqn: FullyQualifiedName,
+
+    pub(crate) package_comments: Comments,
+    pub(crate) comments: Comments,
+    pub(crate) dependents: Vec<Key>,
+    pub(crate) imports: Vec<Key>,
+    pub(crate) transitive_dependencies: Vec<Key>,
+    pub(crate) transitive_dependents: Vec<Key>,
+    pub(crate) used_imports: HashSet<Key>,
+    pub(crate) unused_imports: HashSet<Key>,
+    pub(crate) is_build_target: bool,
+
+    pub(crate) syntax: Syntax,
     ///  Sets the Java package where classes generated from this .proto will be
     ///  placed.  By default, the proto package is used, but this is often
     ///  inappropriate because proto packages do not normally start with
     /// backwards  domain names.
     java_package: Option<String>,
+
     ///  Controls the name of the wrapper Java class generated for the .proto
     /// file.  That class will always contain the .proto file's
     /// getDescriptor() method as  well as any top-level extensions defined
@@ -319,6 +366,7 @@ pub(crate) struct Inner {
     /// the other classes from the  .proto file will be nested inside the
     /// single wrapper outer class.
     java_outer_classname: Option<String>,
+
     ///  If enabled, then the Java code generator will generate a separate .java
     ///  file for each top-level message, enum, and service defined in the
     /// .proto  file.  Thus, these types will *not* be nested inside the
@@ -326,8 +374,10 @@ pub(crate) struct Inner {
     /// class will still be  generated to contain the file's getDescriptor()
     /// method as well as any  top-level extensions defined in the file.
     java_multiple_files: bool,
+
     ///  This option does nothing.
     java_generate_equals_and_hash: bool,
+
     ///  If set true, then the Java2 code generator will generate code that
     ///  throws an exception whenever an attempt is made to assign a non-UTF-8
     ///  byte sequence to a string field.
@@ -335,6 +385,9 @@ pub(crate) struct Inner {
     ///  However, an extension field still accepts non-UTF-8 byte sequences.
     ///  This option has no effect on when used with the lite runtime.
     java_string_check_utf8: bool,
+
+    java_generic_services: bool,
+
     optimize_for: Option<OptimizeMode>,
     ///  Sets the Go package where structs generated from this .proto will be
     ///  placed. If omitted, the Go package will be derived from the following:
@@ -353,7 +406,6 @@ pub(crate) struct Inner {
     /// Therefore,  these default to false.  Old code which depends on
     /// generic services should  explicitly set them to true.
     cc_generic_services: bool,
-    java_generic_services: bool,
     py_generic_services: bool,
     php_generic_services: bool,
     ///  Is this file deprecated?
@@ -392,6 +444,80 @@ pub(crate) struct Inner {
     ///  The parser stores options it doesn't recognize here.
     ///  See the documentation for the "Options" section above.
     uninterpreted_option: Vec<UninterpretedOption>,
+}
+
+impl Inner {
+    /// Hydrates the data within the descriptor.
+    ///
+    /// Note: References and nested nodes are not hydrated.
+    pub(crate) fn hydrate_data(
+        &mut self,
+        descriptor: &FileDescriptorProto,
+        is_build_target: bool,
+    ) -> Result<(), Error> {
+        if self.is_hydrated {
+            return Ok(());
+        }
+        self.name = descriptor.name.clone().unwrap_or_default();
+        self.path = PathBuf::from(&self.name);
+        self.is_build_target = is_build_target;
+        let opts = descriptor.options.as_ref().cloned().unwrap_or_default();
+        self.syntax = parse_syntax(descriptor.syntax())?;
+        self.java_package = opts.java_package;
+        self.java_outer_classname = opts.java_outer_classname;
+        self.java_multiple_files = opts.java_multiple_files();
+        self.java_generate_equals_and_hash = opts.java_generate_equals_and_hash();
+        self.java_string_check_utf8 = opts.java_string_check_utf8();
+        self.java_generic_services = opts.java_generic_services();
+        self.optimize_for = opts.optimize_for.map(Into::into);
+        self.go_package = opts.go_package;
+        self.cc_generic_services = opts.cc_generic_services();
+        self.py_generic_services = opts.py_generic_services();
+        self.php_generic_services = opts.php_generic_services();
+        self.deprecated = opts.deprecated();
+        self.cc_enable_arenas = opts.cc_enable_arenas();
+        self.objc_class_prefix = opts.objc_class_prefix;
+        self.csharp_namespace = opts.csharp_namespace;
+        self.swift_prefix = opts.swift_prefix;
+        self.php_class_prefix = opts.php_class_prefix;
+        self.php_namespace = opts.php_namespace;
+        self.php_metadata_namespace = opts.php_metadata_namespace;
+        self.ruby_package = opts.ruby_package;
+        self.uninterpreted_option = opts
+            .uninterpreted_option
+            .into_iter()
+            .map(Into::into)
+            .collect();
+
+        self.messages.reserve(descriptor.message_type.len());
+        self.services.reserve(descriptor.service.len());
+        self.enums.reserve(descriptor.enum_type.len());
+        self.defined_extensions.reserve(descriptor.extension.len());
+
+        self.is_hydrated = true;
+
+        Ok(())
+    }
+    /// Returns false if `is_hydrated` is false or if there are no messages,
+    /// services, enums, or defined extensions. Otherwise, returns true.
+    ///
+    /// This method should only be used as a safeguard to avoid re-hydration.
+    /// Re-hydrating an empty file erronously will not have adverse effects.
+    pub(crate) fn is_fully_hydrated(&self) -> bool {
+        self.is_hydrated
+            && (!self.messages.is_empty()
+                || !self.services.is_empty()
+                || !self.enums.is_empty()
+                || !self.defined_extensions.is_empty())
+    }
+}
+
+fn parse_syntax(syntax: &str) -> Result<Syntax, Error> {
+    match syntax {
+        "proto2" => Ok(Syntax::Proto2),
+        "proto3" => Ok(Syntax::Proto3),
+        _ => Err(Error::unsupported_syntax(syntax)),
+    }
 }
 
 // #[derive(Debug, Default)]
