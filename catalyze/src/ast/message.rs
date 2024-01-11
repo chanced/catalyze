@@ -8,23 +8,23 @@ use super::{
 use protobuf::descriptor::MessageOptions;
 
 slotmap::new_key_type! {
-    pub(crate) struct Key;
+    pub(super) struct Key;
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct Inner {
-    pub(crate) fqn: FullyQualifiedName,
-    pub(crate) name: String,
-    pub(crate) container: ContainerKey,
-    pub(crate) fields: Vec<field::Key>,
-    pub(crate) enums: Vec<r#enum::Key>,
-    pub(crate) messages: Vec<message::Key>,
-    pub(crate) oneofs: Vec<oneof::Key>,
-    pub(crate) real_oneofs: Vec<oneof::Key>,
-    pub(crate) synthetic_oneofs: Vec<oneof::Key>,
-    pub(crate) defined_extensions: Vec<extension::Key>,
-    pub(crate) applied_extensions: Vec<extension::Key>,
-    pub(crate) dependents: Vec<file::Key>,
+pub(super) struct Inner {
+    pub(super) fqn: FullyQualifiedName,
+    pub(super) name: String,
+    pub(super) container: ContainerKey,
+    pub(super) fields: Vec<field::Key>,
+    pub(super) enums: Vec<r#enum::Key>,
+    pub(super) messages: Vec<message::Key>,
+    pub(super) oneofs: Vec<oneof::Key>,
+    pub(super) real_oneofs: Vec<oneof::Key>,
+    pub(super) synthetic_oneofs: Vec<oneof::Key>,
+    pub(super) defined_extensions: Vec<extension::Key>,
+    pub(super) applied_extensions: Vec<extension::Key>,
+    pub(super) dependents: Vec<file::Key>,
     reserved_ranges: Vec<ReservedRange>,
     ///  Reserved field names, which may not be used by fields in the same
     /// message.  
@@ -53,10 +53,10 @@ pub(crate) struct Inner {
     file: file::Key,
 }
 impl Inner {
-    pub(crate) fn set_container(&mut self, container: impl Into<ContainerKey>) {
+    pub(super) fn set_container(&mut self, container: impl Into<ContainerKey>) {
         self.container = container.into();
     }
-    pub(crate) fn hydrate_options(&mut self, mut opts: MessageOptions) {
+    pub(super) fn hydrate_options(&mut self, mut opts: MessageOptions) {
         self.message_set_wire_format = opts.message_set_wire_format();
         self.no_standard_descriptor_accessor = opts.no_standard_descriptor_accessor();
         self.deprecated = opts.deprecated();

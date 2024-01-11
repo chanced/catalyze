@@ -1,11 +1,11 @@
 use super::{file, impl_traits, package, Accessor, Ast, FullyQualifiedName, UninterpretedOption};
 
 slotmap::new_key_type! {
-    pub(crate) struct Key;
+    pub(super) struct Key;
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct Inner {
+pub(super) struct Inner {
     fqn: FullyQualifiedName,
     name: String,
     package: Option<package::Key>,

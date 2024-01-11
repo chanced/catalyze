@@ -18,7 +18,7 @@ use super::{
 };
 
 slotmap::new_key_type! {
-    pub(crate) struct Key;
+    pub(super) struct Key;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -363,7 +363,7 @@ impl<'ast> Value<'ast> {
     }
 }
 impl ValueInner {
-    pub(crate) fn new(
+    pub(super) fn new(
         typ: field_descriptor_proto::Type,
         enum_: Option<r#enum::Key>,
         msg: Option<message::Key>,
@@ -423,7 +423,7 @@ impl From<protobuf::descriptor::field_options::JSType> for JsType {
 }
 
 #[derive(Debug, Default, Clone)]
-pub(crate) struct Inner {
+pub(super) struct Inner {
     fqn: FullyQualifiedName,
     name: String,
     number: i32,

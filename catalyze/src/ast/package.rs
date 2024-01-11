@@ -3,16 +3,16 @@ use super::{file, impl_traits, Accessor, Ast, FullyQualifiedName};
 use std::fmt::Debug;
 
 slotmap::new_key_type! {
-    pub(crate) struct Key;
+    pub(super) struct Key;
 }
 
 #[derive(PartialEq, Default, Clone, Debug)]
-pub(crate) struct Inner {
-    pub(crate) fqn: FullyQualifiedName,
-    pub(crate) name: String,
-    pub(crate) is_well_known: bool,
-    pub(crate) files: Vec<file::Key>,
-    pub(crate) is_hydrated: bool,
+pub(super) struct Inner {
+    pub(super) fqn: FullyQualifiedName,
+    pub(super) name: String,
+    pub(super) is_well_known: bool,
+    pub(super) files: Vec<file::Key>,
+    pub(super) is_hydrated: bool,
 }
 impl Inner {
     pub fn new(name: impl AsRef<str>) -> Self {

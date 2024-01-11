@@ -24,13 +24,9 @@
 
 pub use protobuf;
 
-use ahash::AHasher;
-use std::hash::BuildHasherDefault;
-
 pub mod ast;
 pub mod error;
 pub mod generator;
 
-pub(crate) type HashMap<K, V> = ahash::HashMap<K, V>;
-pub(crate) type HashSet<V> = ahash::HashSet<V>;
-pub(crate) type IndexSet<T> = indexmap::IndexSet<T, BuildHasherDefault<AHasher>>;
+type HashMap<K, V> = ahash::HashMap<K, V>;
+// type HashSet<V> = ahash::HashSet<V>;

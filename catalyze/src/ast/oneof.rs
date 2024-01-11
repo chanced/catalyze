@@ -3,7 +3,7 @@ use super::{file, impl_traits, package, Accessor, Ast, FullyQualifiedName, Unint
 pub struct Oneof<'ast>(Accessor<'ast, Key, Inner>);
 
 #[derive(Debug, Default, Clone, PartialEq)]
-pub(crate) struct Inner {
+pub(super) struct Inner {
     fqn: FullyQualifiedName,
     package: Option<package::Key>,
     file: file::Key,
@@ -14,5 +14,5 @@ pub(crate) struct Inner {
 impl_traits!(Oneof, Key, Inner);
 
 slotmap::new_key_type! {
-    pub(crate) struct Key;
+    pub(super) struct Key;
 }

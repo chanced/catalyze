@@ -8,11 +8,11 @@ use std::fmt;
 use super::{file, package};
 
 slotmap::new_key_type! {
-    pub(crate) struct Key;
+    pub(super) struct Key;
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
-pub(crate) struct Inner {
+pub(super) struct Inner {
     fqn: FullyQualifiedName,
     reserved_ranges: Vec<ReservedRange>,
     ///  Reserved field names, which may not be used by fields in the same

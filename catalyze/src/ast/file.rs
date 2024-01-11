@@ -313,32 +313,76 @@ impl From<protobuf::descriptor::file_options::OptimizeMode> for OptimizeMode {
         }
     }
 }
+
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub(super) struct ImportInner {
+    is_used: bool,
+    is_public: bool,
+    is_weak: bool,
+    file: Key,
+}
+
+pub struct Import<'ast> {
+    pub is_used: bool,
+    pub is_public: bool,
+    pub is_weak: bool,
+    /// The imported `File`
+    pub import: File<'ast>,
+    /// The [`File`] containing this import.
+    pub imported_by: File<'ast>,
+}
+
+impl<'ast> Import<'ast> {
+    #[must_use]
+    pub fn is_used(&self) -> bool {
+        self.is_used
+    }
+    #[must_use]
+    pub fn is_public(&self) -> bool {
+        self.is_public
+    }
+    #[must_use]
+    pub fn is_weak(&self) -> bool {
+        self.is_weak
+    }
+    #[must_use]
+    pub fn import(&self) -> File<'ast> {
+        self.import
+    }
+    #[must_use]
+    pub fn imported_by(&self) -> File<'ast> {
+        self.imported_by
+    }
+}
 #[derive(Debug, Default, Clone, PartialEq)]
 #[doc(hidden)]
-pub(crate) struct Inner {
-    pub(crate) name: String,
-    pub(crate) path: PathBuf,
-    pub(crate) package: Option<package::Key>,
+pub(super) struct Inner {
+    pub(super) name: String,
+    pub(super) path: PathBuf,
+    pub(super) package: Option<package::Key>,
 
-    pub(crate) messages: Vec<message::Key>,
-    pub(crate) enums: Vec<r#enum::Key>,
-    pub(crate) services: Vec<service::Key>,
-    pub(crate) defined_extensions: Vec<extension::Key>,
+    pub(super) messages: Vec<message::Key>,
+    pub(super) enums: Vec<r#enum::Key>,
+    pub(super) services: Vec<service::Key>,
+    pub(super) defined_extensions: Vec<extension::Key>,
+
+    pub(super) used_imports: Vec<ImportInner>,
+    pub(super) unused_imports: Vec<ImportInner>,
+    pub(super) imports: Vec<ImportInner>,
+    pub(super) public_imports: Vec<ImportInner>,
+    pub(super) weak_imports: Vec<ImportInner>,
 
     // file_path: PathBuf,
-    pub(crate) fqn: FullyQualifiedName,
+    pub(super) fqn: FullyQualifiedName,
 
-    pub(crate) package_comments: Comments,
-    pub(crate) comments: Comments,
-    pub(crate) dependents: Vec<Key>,
-    pub(crate) imports: Vec<Key>,
-    pub(crate) transitive_dependencies: Vec<Key>,
-    pub(crate) transitive_dependents: Vec<Key>,
-    pub(crate) used_imports: HashSet<Key>,
-    pub(crate) unused_imports: HashSet<Key>,
-    pub(crate) is_build_target: bool,
+    pub(super) package_comments: Comments,
+    pub(super) comments: Comments,
+    pub(super) dependents: Vec<Key>,
+    pub(super) transitive_dependencies: Vec<Key>,
+    pub(super) transitive_dependents: Vec<Key>,
+    pub(super) is_build_target: bool,
 
-    pub(crate) syntax: Syntax,
+    pub(super) syntax: Syntax,
     ///  Sets the Java package where classes generated from this .proto will be
     ///  placed.  By default, the proto package is used, but this is often
     ///  inappropriate because proto packages do not normally start with
@@ -430,23 +474,23 @@ pub(crate) struct Inner {
     ///  The parser stores options it doesn't recognize here.
     uninterpreted_options: Vec<UninterpretedOption>,
 
-    pub(crate) unknown_option_fields: protobuf::UnknownFields,
+    pub(super) unknown_option_fields: protobuf::UnknownFields,
 }
 
 impl Inner {
-    pub(crate) fn set_name_and_path(&mut self, name: String) {
+    pub(super) fn set_name_and_path(&mut self, name: String) {
         self.path = PathBuf::from(&name);
         self.set_name(name);
     }
 
-    pub(crate) fn set_syntax(&mut self, syntax: Option<String>) -> Result<(), Error> {
+    pub(super) fn set_syntax(&mut self, syntax: Option<String>) -> Result<(), Error> {
         self.syntax = parse_syntax(&syntax.unwrap_or_default())?;
         Ok(())
     }
     /// Hydrates the data within the descriptor.
     ///
     /// Note: References and nested nodes are not hydrated.
-    pub(crate) fn hydrate_options(&mut self, mut opts: FileOptions, is_build_target: bool) {
+    pub(super) fn hydrate_options(&mut self, mut opts: FileOptions, is_build_target: bool) {
         self.is_build_target = is_build_target;
 
         self.java_package = opts.java_package;
@@ -487,39 +531,39 @@ fn parse_syntax(syntax: &str) -> Result<Syntax, Error> {
 }
 
 // #[derive(Debug, Default)]
-// pub(crate) struct Files {
+// pub(super) struct Files {
 //     files: Vec<Key>,
 //     fqn_lookup: HashMap<FullyQualifiedName, usize>,
 //     path_lookup: HashMap<PathBuf, usize>,
 // }
 
 // impl Files {
-//     pub(crate) fn new() -> Self {
+//     pub(super) fn new() -> Self {
 //         Self {
 //             files: Vec::new(),
 //             fqn_lookup: HashMap::default(),
 //             path_lookup: HashMap::default(),
 //         }
 //     }
-//     pub(crate) fn files(&self) -> &[File] {
+//     pub(super) fn files(&self) -> &[File] {
 //         &self.files
 //     }
-//     pub(crate) fn contains_fqn(&self, fqn: &FullyQualifiedName) -> bool {
+//     pub(super) fn contains_fqn(&self, fqn: &FullyQualifiedName) -> bool {
 //         self.fqn_lookup.contains_key(fqn)
 //     }
-//     pub(crate) fn contains_path(&self, path: &Path) -> bool {
+//     pub(super) fn contains_path(&self, path: &Path) -> bool {
 //         self.path_lookup.contains_key(path)
 //     }
-//     pub(crate) fn get_by_fqn(&self, fqn: &FullyQualifiedName) ->
+//     pub(super) fn get_by_fqn(&self, fqn: &FullyQualifiedName) ->
 // Option<&File> {         self.fqn_lookup.get(fqn).map(|idx| &self.files[*idx])
 //     }
-//     pub(crate) fn get_by_path(&self, path: impl AsRef<Path>) -> Option<Key> {
+//     pub(super) fn get_by_path(&self, path: impl AsRef<Path>) -> Option<Key> {
 //         self.path_lookup
 //             .get(path.as_ref())
 //             .map(|idx| &self.files[*idx])
 //     }
 
-//     pub(crate) fn push(&mut self, path: PathBuf, fqn: FullyQualifiedName,
+//     pub(super) fn push(&mut self, path: PathBuf, fqn: FullyQualifiedName,
 // key: Key) {         if self.fqn_lookup.contains_key(&fqn) {
 //             return;
 //         }

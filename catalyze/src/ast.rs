@@ -71,14 +71,12 @@ pub trait AccessFqn {
         self.fully_qualified_name()
     }
 }
-trait SetFqn {
-    fn set_fqn(&mut self, fqn: FullyQualifiedName);
-}
-pub(crate) trait FromFqn {
+
+trait FromFqn {
     fn from_fqn(fqn: FullyQualifiedName) -> Self;
 }
 
-pub(crate) mod node_path {
+mod node_path {
     const PACKAGE: i32 = 2;
     const MESSAGE_TYPE: i32 = 4;
     const ENUM_TYPE: i32 = 5;
@@ -92,16 +90,16 @@ pub(crate) mod node_path {
     const SERVICE_TYPE_METHOD: i32 = 2;
 }
 #[doc(hidden)]
-pub(crate) trait Get<K, T> {
+trait Get<K, T> {
     fn get(&self, key: K) -> &T;
 }
 
-pub(crate) trait Access<T> {
+trait Access<T> {
     fn access(&self) -> &T;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Key {
+enum Key {
     Package(package::Key),
     File(file::Key),
     Message(message::Key),
@@ -165,7 +163,7 @@ impl From<extension::Key> for Key {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum ContainerKey {
+enum ContainerKey {
     Message(message::Key),
     File(file::Key),
 }
@@ -257,7 +255,7 @@ impl<'ast> Container<'ast> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Table<K, V>
+struct Table<K, V>
 where
     K: slotmap::Key,
 {
@@ -282,28 +280,28 @@ where
     K: slotmap::Key,
     V: AccessFqn,
 {
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (K, &V)> {
+    fn iter(&self) -> impl Iterator<Item = (K, &V)> {
         self.order.iter().map(move |key| (*key, &self.map[*key]))
     }
-    pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = (K, &mut V)> {
+    fn iter_mut(&mut self) -> impl Iterator<Item = (K, &mut V)> {
         self.map.iter_mut()
     }
-    pub(crate) fn keys(&self) -> impl '_ + Iterator<Item = K> {
+    fn keys(&self) -> impl '_ + Iterator<Item = K> {
         self.order.iter().copied()
     }
-    pub(crate) fn get_by_fqn(&self, fqn: &FullyQualifiedName) -> Option<&V> {
+    fn get_by_fqn(&self, fqn: &FullyQualifiedName) -> Option<&V> {
         self.lookup.get(fqn).map(|key| &self.map[*key])
     }
-    pub(crate) fn get_mut_by_fqn(&mut self, fqn: &FullyQualifiedName) -> Option<&mut V> {
+    fn get_mut_by_fqn(&mut self, fqn: &FullyQualifiedName) -> Option<&mut V> {
         self.lookup.get(fqn).map(|key| &mut self.map[*key])
     }
-    pub(crate) fn get(&self, key: K) -> &V {
+    fn get(&self, key: K) -> &V {
         &self.map[key]
     }
-    pub(crate) fn get_mut(&mut self, key: K) -> &mut V {
+    fn get_mut(&mut self, key: K) -> &mut V {
         &mut self.map[key]
     }
-    pub(crate) fn insert(&mut self, value: V) -> K {
+    fn insert(&mut self, value: V) -> K {
         let fqn = value.fqn().clone();
         let key = self.map.insert(value);
         self.lookup.insert(fqn, key);
@@ -374,7 +372,7 @@ pub struct Ast {
 }
 
 impl Ast {
-    pub(crate) fn new(input: Vec<FileDescriptorProto>, targets: &[String]) -> Result<Self, Error> {
+    fn new(input: Vec<FileDescriptorProto>, targets: &[String]) -> Result<Self, Error> {
         let targets = targets.iter().map(PathBuf::from).collect::<Vec<_>>();
         let mut this = Self::default();
         for fd in input {
@@ -595,14 +593,14 @@ impl Ast {
     }
 }
 
-pub(crate) struct Accessor<'ast, K, I> {
-    pub(crate) ast: &'ast Ast,
-    pub(crate) key: K,
+struct Accessor<'ast, K, I> {
+    ast: &'ast Ast,
+    key: K,
     marker: std::marker::PhantomData<I>,
 }
 
 impl<'ast, K, I> Accessor<'ast, K, I> {
-    pub(crate) const fn new(key: K, ast: &'ast Ast) -> Self {
+    const fn new(key: K, ast: &'ast Ast) -> Self {
         Self {
             ast,
             key,
@@ -809,7 +807,7 @@ impl FullyQualifiedName {
     pub fn as_str(&self) -> &str {
         &self.0
     }
-    pub(crate) fn push(&mut self, value: impl AsRef<str>) {
+    fn push(&mut self, value: impl AsRef<str>) {
         let value = value.as_ref();
         if value.is_empty() {
             return;
@@ -819,7 +817,7 @@ impl FullyQualifiedName {
         }
         self.0.push_str(value);
     }
-    pub(crate) fn from_package_name(package_name: impl AsRef<str>) -> Self {
+    fn from_package_name(package_name: impl AsRef<str>) -> Self {
         let package_name = package_name.as_ref();
         if package_name.is_empty() {
             return Self::default();
@@ -1044,9 +1042,9 @@ impl ReservedRange {
 pub struct Comments {
     /// Any comment immediately preceding the node, without any
     /// whitespace between it and the comment.
-    pub(crate) leading: Option<String>,
-    pub(crate) trailing: Option<String>,
-    pub(crate) leading_detached: Vec<String>,
+    leading: Option<String>,
+    trailing: Option<String>,
+    leading_detached: Vec<String>,
 }
 
 impl Comments {
@@ -1069,7 +1067,7 @@ impl Comments {
     }
 }
 
-pub(crate) struct Location {
+struct Location {
     path: Vec<i32>,
     ///  Always has exactly three or four elements: start line, start column,
     ///  end line (optional, otherwise assumed same as start line), end column.
@@ -1094,7 +1092,7 @@ impl Location {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(i32)]
-pub(crate) enum FileDescriptorPath {
+enum FileDescriptorPath {
     /// file name, relative to root of source tree
     Name = 1,
     /// FileDescriptorProto.package
@@ -1133,18 +1131,18 @@ impl FileDescriptorPath {
         self as i32
     }
 
-    pub(crate) const NAME: i32 = Self::Name.as_i32();
-    pub(crate) const PACKAGE: i32 = Self::Package.as_i32();
-    pub(crate) const DEPENDENCY: i32 = Self::Dependency.as_i32();
-    pub(crate) const PUBLIC_DEPENDENCY: i32 = Self::PublicDependency.as_i32();
-    pub(crate) const WEAK_DEPENDENCY: i32 = Self::WeakDependency.as_i32();
-    pub(crate) const MESSAGE_TYPE: i32 = Self::MessageType.as_i32();
-    pub(crate) const ENUM_TYPE: i32 = Self::EnumType.as_i32();
-    pub(crate) const SERVICE: i32 = Self::Service.as_i32();
-    pub(crate) const EXTENSION: i32 = Self::Extension.as_i32();
-    pub(crate) const OPTIONS: i32 = Self::Options.as_i32();
-    pub(crate) const SOURCE_CODE_INFO: i32 = Self::SourceCodeInfo.as_i32();
-    pub(crate) const SYNTAX: i32 = Self::Syntax.as_i32();
+    const NAME: i32 = Self::Name.as_i32();
+    const PACKAGE: i32 = Self::Package.as_i32();
+    const DEPENDENCY: i32 = Self::Dependency.as_i32();
+    const PUBLIC_DEPENDENCY: i32 = Self::PublicDependency.as_i32();
+    const WEAK_DEPENDENCY: i32 = Self::WeakDependency.as_i32();
+    const MESSAGE_TYPE: i32 = Self::MessageType.as_i32();
+    const ENUM_TYPE: i32 = Self::EnumType.as_i32();
+    const SERVICE: i32 = Self::Service.as_i32();
+    const EXTENSION: i32 = Self::Extension.as_i32();
+    const OPTIONS: i32 = Self::Options.as_i32();
+    const SOURCE_CODE_INFO: i32 = Self::SourceCodeInfo.as_i32();
+    const SYNTAX: i32 = Self::Syntax.as_i32();
 }
 
 impl TryFrom<i32> for FileDescriptorPath {
@@ -1182,7 +1180,7 @@ impl PartialEq<FileDescriptorPath> for i32 {
 
 /// Paths for nodes in a [`DescriptorProto`]
 #[derive(Clone, PartialEq, Eq, Copy)]
-pub(crate) enum DescriptorPath {
+enum DescriptorPath {
     /// DescriptorProto.field
     Field = 2,
     /// DescriptorProto.nested_type
@@ -1199,11 +1197,11 @@ impl DescriptorPath {
     pub const fn as_i32(self) -> i32 {
         self as i32
     }
-    pub(crate) const FIELD: i32 = Self::Field.as_i32();
-    pub(crate) const NESTED_TYPE: i32 = Self::NestedType.as_i32();
-    pub(crate) const ENUM_TYPE: i32 = Self::EnumType.as_i32();
-    pub(crate) const EXTENSION: i32 = Self::Extension.as_i32();
-    pub(crate) const ONEOF_DECL: i32 = Self::OneofDecl.as_i32();
+    const FIELD: i32 = Self::Field.as_i32();
+    const NESTED_TYPE: i32 = Self::NestedType.as_i32();
+    const ENUM_TYPE: i32 = Self::EnumType.as_i32();
+    const EXTENSION: i32 = Self::Extension.as_i32();
+    const ONEOF_DECL: i32 = Self::OneofDecl.as_i32();
 }
 
 impl TryFrom<i32> for DescriptorPath {
@@ -1346,7 +1344,7 @@ macro_rules! impl_access_reserved {
 macro_rules! impl_access_file {
     ($typ:ident, $inner: ident) => {
         impl $inner {
-            pub(crate) fn set_file(&mut self, package: crate::ast::package::Key) {
+            fn set_file(&mut self, package: crate::ast::package::Key) {
                 self.package = Some(package);
             }
         }
@@ -1361,7 +1359,7 @@ macro_rules! impl_access_file {
 macro_rules! impl_access_package {
     ($typ: ident, $inner: ident) => {
         impl $inner {
-            pub(crate) fn set_package(&mut self, pkg: Option<crate::ast::package::Key>) {
+            pub(super) fn set_package(&mut self, pkg: Option<crate::ast::package::Key>) {
                 self.package = pkg;
             }
         }
@@ -1375,7 +1373,7 @@ macro_rules! impl_access_package {
 }
 macro_rules! set_unknown_fields {
     ($inner:ident) => {
-        pub(crate) fn set_unknown_fields<T>(&mut self, fields: impl IntoIterator<Item = T>)
+        pub(super) fn set_unknown_fields<T>(&mut self, fields: impl IntoIterator<Item = T>)
         where
             T: Into<crate::ast::UnknownFields>,
         {
@@ -1386,7 +1384,7 @@ macro_rules! set_unknown_fields {
 macro_rules! impl_set_uninterpreted_options {
     ($inner:ident) => {
         impl $inner {
-            pub(crate) fn set_uninterpreted_options<T>(&mut self, opts: impl IntoIterator<Item = T>)
+            pub(super) fn set_uninterpreted_options<T>(&mut self, opts: impl IntoIterator<Item = T>)
             where
                 T: Into<crate::ast::UninterpretedOption>,
             {
@@ -1398,7 +1396,7 @@ macro_rules! impl_set_uninterpreted_options {
 macro_rules! impl_access_name {
     ($typ:ident, $inner: ident) => {
         impl $inner {
-            pub(crate) fn set_name(&mut self, name: impl Into<String>) {
+            pub(super) fn set_name(&mut self, name: impl Into<String>) {
                 self.name = name.into();
             }
         }
@@ -1459,20 +1457,20 @@ macro_rules! impl_traits {
     };
 }
 
-pub(crate) use impl_access;
-pub(crate) use impl_access_file;
-pub(crate) use impl_access_fqn;
-pub(crate) use impl_access_name;
-pub(crate) use impl_access_package;
-pub(crate) use impl_access_reserved;
-pub(crate) use impl_base_traits;
-pub(crate) use impl_clone_copy;
-pub(crate) use impl_eq;
-pub(crate) use impl_fmt;
-pub(crate) use impl_from_fqn;
-pub(crate) use impl_from_key_and_ast;
-pub(crate) use impl_set_uninterpreted_options;
-pub(crate) use impl_traits;
+use impl_access;
+use impl_access_file;
+use impl_access_fqn;
+use impl_access_name;
+use impl_access_package;
+use impl_access_reserved;
+use impl_base_traits;
+use impl_clone_copy;
+use impl_eq;
+use impl_fmt;
+use impl_from_fqn;
+use impl_from_key_and_ast;
+use impl_set_uninterpreted_options;
+use impl_traits;
 
 #[cfg(test)]
 mod tests {
