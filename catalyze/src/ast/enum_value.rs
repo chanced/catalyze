@@ -1,7 +1,6 @@
-use crate::{
-    ast::{impl_traits, Accessor, Ast, FullyQualifiedName, UninterpretedOption},
-    file, package,
-};
+use crate::ast::{impl_traits, Accessor, Ast, FullyQualifiedName, UninterpretedOption};
+
+use super::{file, package};
 
 pub struct EnumValue<'ast>(Accessor<'ast, Key, Inner>);
 

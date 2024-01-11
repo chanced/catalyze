@@ -22,23 +22,15 @@
 )]
 #![cfg_attr(test, allow(clippy::too_many_lines))]
 
+pub use protobuf;
+
 use ahash::AHasher;
 use std::hash::BuildHasherDefault;
 
 pub mod ast;
-pub mod r#enum;
-pub mod enum_value;
 pub mod error;
-pub mod extension;
-pub mod field;
-pub mod file;
 pub mod generator;
-pub mod location;
-pub mod message;
-pub mod method;
-pub mod oneof;
-pub mod package;
-pub mod service;
+
 pub(crate) type HashMap<K, V> = ahash::HashMap<K, V>;
 pub(crate) type HashSet<V> = ahash::HashSet<V>;
 pub(crate) type IndexSet<T> = indexmap::IndexSet<T, BuildHasherDefault<AHasher>>;

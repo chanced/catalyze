@@ -1,7 +1,4 @@
-use crate::{
-    ast::{impl_traits, AccessFqn, Accessor, Ast, FullyQualifiedName},
-    file::{self},
-};
+use super::{file, impl_traits, Accessor, Ast, FullyQualifiedName};
 
 use std::fmt::Debug;
 

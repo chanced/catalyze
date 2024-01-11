@@ -1,18 +1,14 @@
-use crate::{
-    ast::{impl_traits, Accessor, Ast, FullyQualifiedName, UninterpretedOption},
-    r#enum,
-    error::Error,
-    extension,
-    location::Comments,
-    message::{self},
-    package::{self, Package},
-    service, HashSet,
-};
+use crate::{error::Error, HashSet};
 use protobuf::descriptor::{file_options::OptimizeMode as ProtoOptimizeMode, FileOptions};
 use std::{
     fmt,
     path::{Path, PathBuf},
     str::FromStr,
+};
+
+use super::{
+    r#enum, extension, impl_traits, message, package, service, Accessor, Comments,
+    FullyQualifiedName, UninterpretedOption,
 };
 
 slotmap::new_key_type! {

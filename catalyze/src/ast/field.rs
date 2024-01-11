@@ -1,10 +1,6 @@
 use crate::{
     ast::{impl_traits, Access, Accessor, Ast, FullyQualifiedName, Get, UninterpretedOption},
-    r#enum::{self, Enum},
     error::Error,
-    file,
-    message::{self, Message},
-    package,
 };
 use ::std::vec::Vec;
 use protobuf::{
@@ -12,7 +8,14 @@ use protobuf::{
     EnumOrUnknown,
 };
 
-use std::{default, fmt};
+use std::fmt;
+
+use super::{
+    r#enum::{self, Enum},
+    file,
+    message::{self, Message},
+    package,
+};
 
 slotmap::new_key_type! {
     pub(crate) struct Key;

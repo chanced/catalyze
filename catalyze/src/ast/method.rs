@@ -1,14 +1,11 @@
-use crate::{
-    ast::{impl_traits, Accessor, Ast, FullyQualifiedName, UninterpretedOption},
-    file, package,
-};
+use super::{file, impl_traits, package, Accessor, Ast, FullyQualifiedName, UninterpretedOption};
 
 slotmap::new_key_type! {
     pub(crate) struct Key;
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
-pub(crate) struct Inner {
+pub(super) struct Inner {
     fqn: FullyQualifiedName,
     package: Option<package::Key>,
     file: file::Key,
@@ -16,5 +13,6 @@ pub(crate) struct Inner {
     uninterpreted_options: Vec<UninterpretedOption>,
 }
 
-pub struct Extension<'ast>(Accessor<'ast, Key, Inner>);
-impl_traits!(Extension, Key, Inner);
+pub struct Method<'ast>(Accessor<'ast, Key, Inner>);
+
+impl_traits!(Method, Key, Inner);

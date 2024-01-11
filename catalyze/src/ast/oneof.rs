@@ -1,7 +1,4 @@
-use crate::{
-    ast::{impl_traits, Accessor, Ast, FullyQualifiedName, UninterpretedOption},
-    file, package,
-};
+use super::{file, impl_traits, package, Accessor, Ast, FullyQualifiedName, UninterpretedOption};
 
 pub struct Oneof<'ast>(Accessor<'ast, Key, Inner>);
 

@@ -1,12 +1,11 @@
-use crate::{
-    ast::{
-        impl_traits, Access, Accessor, Ast, ContainerKey, FullyQualifiedName, ReservedRange,
-        UninterpretedOption,
-    },
-    file, package,
+use crate::ast::{
+    impl_traits, Access, Accessor, Ast, ContainerKey, FullyQualifiedName, ReservedRange,
+    UninterpretedOption,
 };
 
 use std::fmt;
+
+use super::{file, package};
 
 slotmap::new_key_type! {
     pub(crate) struct Key;

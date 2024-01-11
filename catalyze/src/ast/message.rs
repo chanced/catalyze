@@ -1,17 +1,11 @@
-use protobuf::descriptor::MessageOptions;
-
-use crate::{
-    ast::{
-        impl_traits, Accessor, Ast, ContainerKey, FullyQualifiedName, ReservedRange,
-        UninterpretedOption,
-    },
-    error::Error,
-    extension,
+use super::{
+    r#enum, extension,
     field::{self},
-    file, message,
+    file, impl_traits, message,
     oneof::{self},
-    package,
+    package, Accessor, Ast, ContainerKey, FullyQualifiedName, ReservedRange, UninterpretedOption,
 };
+use protobuf::descriptor::MessageOptions;
 
 slotmap::new_key_type! {
     pub(crate) struct Key;
@@ -23,7 +17,7 @@ pub(crate) struct Inner {
     pub(crate) name: String,
     pub(crate) container: ContainerKey,
     pub(crate) fields: Vec<field::Key>,
-    pub(crate) enums: Vec<crate::r#enum::Key>,
+    pub(crate) enums: Vec<r#enum::Key>,
     pub(crate) messages: Vec<message::Key>,
     pub(crate) oneofs: Vec<oneof::Key>,
     pub(crate) real_oneofs: Vec<oneof::Key>,
