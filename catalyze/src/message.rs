@@ -62,7 +62,7 @@ impl Inner {
     pub(crate) fn set_container(&mut self, container: impl Into<ContainerKey>) {
         self.container = container.into();
     }
-    pub(crate) fn hydrate_options(&mut self, mut opts: MessageOptions) -> Result<(), Error> {
+    pub(crate) fn hydrate_options(&mut self, mut opts: MessageOptions) {
         self.message_set_wire_format = opts.message_set_wire_format();
         self.no_standard_descriptor_accessor = opts.no_standard_descriptor_accessor();
         self.deprecated = opts.deprecated();
@@ -73,7 +73,6 @@ impl Inner {
             .map(Into::into)
             .collect();
         self.unkown_option_fields = opts.special_fields.unknown_fields().clone();
-        Ok(())
     }
 }
 

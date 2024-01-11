@@ -51,18 +51,6 @@ pub trait AccessReserved {
     fn reserved_names(&self) -> &[String];
     fn reserved_ranges(&self) -> &[ReservedRange];
 }
-pub(crate) trait SetReserved {
-    fn set_reserved_names(&mut self, names: Vec<String>);
-    fn set_reserved_ranges(&mut self, ranges: Vec<ReservedRange>);
-    fn set_reserved<R>(
-        &mut self,
-        names: Vec<String>,
-        ranges: Vec<protobuf::descriptor::descriptor_proto::ReservedRange>,
-    ) {
-        self.set_reserved_names(names);
-        self.set_reserved_ranges(ranges.into_iter().map(Into::into).collect());
-    }
-}
 
 /// A trait implemented by all nodes that have a [`FullyQualifiedName`].
 pub trait AccessFqn {
@@ -375,7 +363,6 @@ pub struct Ast {
     oneofs: Table<oneof::Key, oneof::Inner>,
     extensions: Table<extension::Key, extension::Inner>,
     nodes: HashMap<FullyQualifiedName, Key>,
-    pkg_lookup: HashMap<String, package::Key>,
 }
 
 impl Ast {
@@ -393,6 +380,7 @@ impl Ast {
         descriptor: FileDescriptorProto,
         targets: &[PathBuf],
     ) -> Result<file::Key, Error> {
+        // TODO: remove destruction once complete
         let FileDescriptorProto {
             name,
             package,
@@ -421,15 +409,14 @@ impl Ast {
             .any(|target| target.as_os_str() == name.as_str());
         let (key, file) = self.files.get_or_insert_mut_by_fqn(fqn.clone());
 
-        let pkg_key = if let Some((pkg_key, pkg)) = package {
-            file.package = Some(pkg_key);
+        let package = if let Some((pkg_key, pkg)) = package {
             pkg.files.push(key);
-            file.set_package(pkg_key);
             Some(pkg_key)
         } else {
             None
         };
 
+        file.set_package(package);
         file.set_name_and_path(name);
         file.set_syntax(syntax)?;
         file.hydrate_options(options.unwrap_or_default(), is_build_target);
@@ -437,21 +424,21 @@ impl Ast {
         let mut messages = Vec::with_capacity(message_type.len());
         for msg in message_type {
             let fqn = FullyQualifiedName::new(msg.name(), Some(fqn.clone()));
-            let msg_key = self.hydrate_message(fqn, msg, key)?;
+            let msg_key = self.hydrate_message(fqn, msg, key, key, package)?;
             messages.push(msg_key);
         }
 
         let mut enums = Vec::with_capacity(enum_type.len());
         for enm in enum_type {
             let fqn = FullyQualifiedName::new(enm.name(), Some(fqn.clone()));
-            let enum_key = self.hydrate_enum(fqn, enm, key)?;
+            let enum_key = self.hydrate_enum(fqn, enm, key, key, package)?;
             enums.push(enum_key);
         }
 
         let mut services = Vec::with_capacity(service.len());
         for service in service {
             let fqn = FullyQualifiedName::new(service.name(), Some(fqn.clone()));
-            let svc_key = self.hydrate_service(fqn, service, key)?;
+            let svc_key = self.hydrate_service(fqn, service, key, package)?;
             services.push(svc_key);
         }
 
@@ -459,7 +446,7 @@ impl Ast {
 
         for ext in extension {
             let fqn = FullyQualifiedName::new(ext.name(), Some(fqn.clone()));
-            let ext_key = self.hydrate_extension(fqn, ext, key)?;
+            let ext_key = self.hydrate_extension(fqn, ext, key, key, package)?;
             extensions.push(ext_key);
         }
         let file = &mut self.files[key];
@@ -467,6 +454,7 @@ impl Ast {
         file.enums = enums;
         file.services = services;
         file.defined_extensions = extensions;
+        file.set_package(package);
         // TODO: comments
         todo!()
     }
@@ -476,6 +464,8 @@ impl Ast {
         fqn: FullyQualifiedName,
         descriptor: DescriptorProto,
         container: impl Into<ContainerKey>,
+        file: file::Key,
+        package: Option<package::Key>,
     ) -> Result<message::Key, Error> {
         let DescriptorProto {
             name,
@@ -492,7 +482,7 @@ impl Ast {
         } = descriptor;
         let name = name.unwrap_or_default();
         let (key, msg) = self.messages.get_or_insert_mut_by_fqn(fqn.clone());
-        msg.hydrate_options(options.unwrap_or_default())?;
+        msg.hydrate_options(options.unwrap_or_default());
         msg.set_container(container);
         msg.set_name(name);
 
@@ -501,19 +491,21 @@ impl Ast {
                 FullyQualifiedName::new(nested_msg.name(), Some(fqn.clone())),
                 nested_msg,
                 key,
+                file,
+                package,
             )?;
         }
         for enm in enum_type {
             let fqn = FullyQualifiedName::new(enm.name(), Some(fqn.clone()));
-            self.hydrate_enum(fqn, enm, key)?;
+            self.hydrate_enum(fqn, enm, key, file, package)?;
         }
         for oneof in oneof_decl {
             let fqn = FullyQualifiedName::new(oneof.name(), Some(fqn.clone()));
-            self.hydrate_oneof(fqn, oneof, key)?;
+            self.hydrate_oneof(fqn, oneof, key, file, package)?;
         }
         for field in field {
             let fqn = FullyQualifiedName::new(field.name(), Some(fqn.clone()));
-            self.hydrate_field(fqn, field, key)?;
+            self.hydrate_field(fqn, field, key, file, package)?;
         }
         todo!()
     }
@@ -523,6 +515,8 @@ impl Ast {
         fqn: FullyQualifiedName,
         descriptor: EnumDescriptorProto,
         container_key: impl Into<ContainerKey>,
+        file: file::Key,
+        package: Option<package::Key>,
     ) -> Result<r#enum::Key, Error> {
         todo!()
     }
@@ -532,6 +526,8 @@ impl Ast {
         fqn: FullyQualifiedName,
         descriptor: FieldDescriptorProto,
         container_key: impl Into<ContainerKey>,
+        file: file::Key,
+        package: Option<package::Key>,
     ) -> Result<extension::Key, Error> {
         todo!()
     }
@@ -540,7 +536,8 @@ impl Ast {
         &self,
         fqn: FullyQualifiedName,
         descriptor: ServiceDescriptorProto,
-        file_key: file::Key,
+        file: file::Key,
+        package: Option<package::Key>,
     ) -> Result<service::Key, Error> {
         todo!()
     }
@@ -550,6 +547,8 @@ impl Ast {
         fqn: FullyQualifiedName,
         descriptor: EnumValueDescriptorProto,
         enum_key: r#enum::Key,
+        file: file::Key,
+        package: Option<package::Key>,
     ) -> Result<r#enum::Key, Error> {
         todo!()
     }
@@ -559,6 +558,8 @@ impl Ast {
         fqn: FullyQualifiedName,
         descriptor: FieldDescriptorProto,
         msg_key: message::Key,
+        file: file::Key,
+        package: Option<package::Key>,
     ) -> Result<field::Key, Error> {
         todo!()
     }
@@ -568,6 +569,8 @@ impl Ast {
         fqn: FullyQualifiedName,
         descriptor: OneofDescriptorProto,
         message_key: message::Key,
+        file: file::Key,
+        package: Option<package::Key>,
     ) -> Result<oneof::Key, Error> {
         todo!()
     }
@@ -577,6 +580,8 @@ impl Ast {
         fqn: FullyQualifiedName,
         descriptor: MethodDescriptorProto,
         service_key: service::Key,
+        file: file::Key,
+        package: Option<package::Key>,
     ) -> Result<method::Key, Error> {
         todo!()
     }
@@ -1128,12 +1133,14 @@ macro_rules! impl_fmt {
 
 macro_rules! impl_access_reserved {
     ($typ: ident, $inner:ident) => {
-        impl crate::ast::SetReserved for $inner {
-            fn set_reserved_names(&mut self, names: Vec<String>) {
+        impl $inner {
+            fn set_reserved(
+                &mut self,
+                names: Vec<String>,
+                ranges: Vec<protobuf::descriptor::descriptor_proto::ReservedRange>,
+            ) {
                 self.reserved_names = names;
-            }
-            fn set_reserved_ranges(&mut self, ranges: Vec<crate::ast::ReservedRange>) {
-                self.reserved_ranges = ranges;
+                self.reserved_ranges = ranges.into_iter().map(Into::into).collect();
             }
         }
         impl<'ast> $typ<'ast> {
@@ -1165,8 +1172,8 @@ macro_rules! impl_access_file {
 macro_rules! impl_access_package {
     ($typ: ident, $inner: ident) => {
         impl $inner {
-            pub(crate) fn set_package(&mut self, pkg: crate::package::Key) {
-                self.package = Some(pkg);
+            pub(crate) fn set_package(&mut self, pkg: Option<crate::package::Key>) {
+                self.package = pkg;
             }
         }
         #[inherent::inherent]
