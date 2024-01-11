@@ -7,8 +7,8 @@ use std::{
 
 use ahash::HashMapExt;
 use protobuf::descriptor::{
-    EnumDescriptorProto, EnumValueDescriptorProto, FieldDescriptorProto, FileDescriptorProto,
-    MethodDescriptorProto, OneofDescriptorProto, ServiceDescriptorProto,
+    DescriptorProto, EnumDescriptorProto, EnumValueDescriptorProto, FieldDescriptorProto,
+    FileDescriptorProto, MethodDescriptorProto, OneofDescriptorProto, ServiceDescriptorProto,
 };
 use slotmap::SlotMap;
 
@@ -474,30 +474,44 @@ impl Ast {
     fn hydrate_message(
         &mut self,
         fqn: FullyQualifiedName,
-        descriptor: protobuf::descriptor::DescriptorProto,
+        descriptor: DescriptorProto,
         container: impl Into<ContainerKey>,
     ) -> Result<message::Key, Error> {
+        let DescriptorProto {
+            name,
+            field,
+            extension,
+            nested_type,
+            enum_type,
+            extension_range,
+            oneof_decl,
+            options,
+            reserved_range,
+            reserved_name,
+            special_fields,
+        } = descriptor;
+        let name = name.unwrap_or_default();
         let (key, msg) = self.messages.get_or_insert_mut_by_fqn(fqn.clone());
-        msg.hydrate_options(descriptor.options.unwrap_or_default())?;
+        msg.hydrate_options(options.unwrap_or_default())?;
         msg.set_container(container);
-        msg.set_name(descriptor.name.unwrap_or_default());
+        msg.set_name(name);
 
-        for nested in descriptor.nested_type {
+        for nested_msg in nested_type {
             self.hydrate_message(
-                FullyQualifiedName::new(nested.name(), Some(fqn.clone())),
-                nested,
+                FullyQualifiedName::new(nested_msg.name(), Some(fqn.clone())),
+                nested_msg,
                 key,
             )?;
         }
-        for enm in descriptor.enum_type {
+        for enm in enum_type {
             let fqn = FullyQualifiedName::new(enm.name(), Some(fqn.clone()));
             self.hydrate_enum(fqn, enm, key)?;
         }
-        for oneof in descriptor.oneof_decl {
+        for oneof in oneof_decl {
             let fqn = FullyQualifiedName::new(oneof.name(), Some(fqn.clone()));
             self.hydrate_oneof(fqn, oneof, key)?;
         }
-        for field in descriptor.field {
+        for field in field {
             let fqn = FullyQualifiedName::new(field.name(), Some(fqn.clone()));
             self.hydrate_field(fqn, field, key)?;
         }
