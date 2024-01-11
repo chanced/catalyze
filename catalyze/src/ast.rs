@@ -390,17 +390,17 @@ impl Ast {
         let FileDescriptorProto {
             name,
             package,
-            dependency,
-            public_dependency,
-            weak_dependency,
+            dependency: _,
+            public_dependency: _,
+            weak_dependency: _,
             message_type,
             enum_type,
             service,
             extension,
             options,
-            source_code_info,
+            source_code_info: _,
             syntax,
-            special_fields,
+            special_fields: _,
         } = descriptor;
 
         let package = package.as_ref().map(|pkg| {
@@ -476,15 +476,15 @@ impl Ast {
         let DescriptorProto {
             name,
             field,
-            extension,
+            extension: _,
             nested_type,
             enum_type,
-            extension_range,
+            extension_range: _,
             oneof_decl,
             options,
-            reserved_range,
-            reserved_name,
-            special_fields,
+            reserved_range: _,
+            reserved_name: _,
+            special_fields: _,
         } = descriptor;
         let name = name.unwrap_or_default();
         let (key, msg) = self.messages.get_or_insert_mut_by_fqn(fqn.clone());
@@ -518,76 +518,76 @@ impl Ast {
 
     fn hydrate_enum(
         &self,
-        fqn: FullyQualifiedName,
-        descriptor: EnumDescriptorProto,
-        container_key: impl Into<ContainerKey>,
-        file: file::Key,
-        package: Option<package::Key>,
+        _fqn: FullyQualifiedName,
+        _descriptor: EnumDescriptorProto,
+        _container_key: impl Into<ContainerKey>,
+        _file: file::Key,
+        _package: Option<package::Key>,
     ) -> Result<r#enum::Key, Error> {
         todo!()
     }
 
     fn hydrate_extension(
         &self,
-        fqn: FullyQualifiedName,
-        descriptor: FieldDescriptorProto,
-        container_key: impl Into<ContainerKey>,
-        file: file::Key,
-        package: Option<package::Key>,
+        _fqn: FullyQualifiedName,
+        _descriptor: FieldDescriptorProto,
+        _container_key: impl Into<ContainerKey>,
+        _file: file::Key,
+        _package: Option<package::Key>,
     ) -> Result<extension::Key, Error> {
         todo!()
     }
 
     fn hydrate_service(
         &self,
-        fqn: FullyQualifiedName,
-        descriptor: ServiceDescriptorProto,
-        file: file::Key,
-        package: Option<package::Key>,
+        _fqn: FullyQualifiedName,
+        _descriptor: ServiceDescriptorProto,
+        _file: file::Key,
+        _package: Option<package::Key>,
     ) -> Result<service::Key, Error> {
         todo!()
     }
 
     fn hydrate_enum_value(
         &self,
-        fqn: FullyQualifiedName,
-        descriptor: EnumValueDescriptorProto,
-        enum_key: r#enum::Key,
-        file: file::Key,
-        package: Option<package::Key>,
+        _fqn: FullyQualifiedName,
+        _descriptor: EnumValueDescriptorProto,
+        _enum_key: r#enum::Key,
+        _file: file::Key,
+        _package: Option<package::Key>,
     ) -> Result<r#enum::Key, Error> {
         todo!()
     }
 
     fn hydrate_field(
         &self,
-        fqn: FullyQualifiedName,
-        descriptor: FieldDescriptorProto,
-        msg_key: message::Key,
-        file: file::Key,
-        package: Option<package::Key>,
+        _fqn: FullyQualifiedName,
+        _descriptor: FieldDescriptorProto,
+        _msg_key: message::Key,
+        _file: file::Key,
+        _package: Option<package::Key>,
     ) -> Result<field::Key, Error> {
         todo!()
     }
 
     fn hydrate_oneof(
         &self,
-        fqn: FullyQualifiedName,
-        descriptor: OneofDescriptorProto,
-        message_key: message::Key,
-        file: file::Key,
-        package: Option<package::Key>,
+        _fqn: FullyQualifiedName,
+        _descriptor: OneofDescriptorProto,
+        _message_key: message::Key,
+        _file: file::Key,
+        _package: Option<package::Key>,
     ) -> Result<oneof::Key, Error> {
         todo!()
     }
 
     fn hydrate_method(
         &self,
-        fqn: FullyQualifiedName,
-        descriptor: MethodDescriptorProto,
-        service_key: service::Key,
-        file: file::Key,
-        package: Option<package::Key>,
+        _fqn: FullyQualifiedName,
+        _descriptor: MethodDescriptorProto,
+        _service_key: service::Key,
+        _file: file::Key,
+        _package: Option<package::Key>,
     ) -> Result<method::Key, Error> {
         todo!()
     }
@@ -749,7 +749,7 @@ pub enum Node<'ast> {
 }
 
 impl fmt::Debug for Node<'_> {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, _fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         todo!()
         // match self {
         //     Self::Package(p) => p.fmt(fmt),
@@ -1474,7 +1474,6 @@ use impl_traits;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[test]
     fn test_new_fully_qualified_name() {

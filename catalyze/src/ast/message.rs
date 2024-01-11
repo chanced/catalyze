@@ -3,7 +3,7 @@ use super::{
     field::{self},
     file, impl_traits, message,
     oneof::{self},
-    package, Accessor, Ast, ContainerKey, FullyQualifiedName, ReservedRange, UninterpretedOption,
+    package, Accessor, ContainerKey, FullyQualifiedName, ReservedRange, UninterpretedOption,
 };
 use protobuf::descriptor::MessageOptions;
 
@@ -56,7 +56,7 @@ impl Inner {
     pub(super) fn set_container(&mut self, container: impl Into<ContainerKey>) {
         self.container = container.into();
     }
-    pub(super) fn hydrate_options(&mut self, mut opts: MessageOptions) {
+    pub(super) fn hydrate_options(&mut self, opts: MessageOptions) {
         self.message_set_wire_format = opts.message_set_wire_format();
         self.no_standard_descriptor_accessor = opts.no_standard_descriptor_accessor();
         self.deprecated = opts.deprecated();

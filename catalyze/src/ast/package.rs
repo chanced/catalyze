@@ -1,4 +1,4 @@
-use super::{file, impl_traits, Accessor, Ast, FullyQualifiedName};
+use super::{file, impl_traits, Accessor, FullyQualifiedName};
 
 use std::fmt::Debug;
 

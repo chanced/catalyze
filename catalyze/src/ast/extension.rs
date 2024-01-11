@@ -1,4 +1,4 @@
-use crate::ast::{impl_traits, Accessor, Ast, FullyQualifiedName, UninterpretedOption};
+use crate::ast::{impl_traits, Accessor, FullyQualifiedName, UninterpretedOption};
 
 use super::{file, package};
 

@@ -1,4 +1,4 @@
-use super::{file, impl_traits, package, Accessor, Ast, FullyQualifiedName, UninterpretedOption};
+use super::{file, impl_traits, package, Accessor, FullyQualifiedName, UninterpretedOption};
 
 slotmap::new_key_type! {
     pub(super) struct Key;

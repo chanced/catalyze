@@ -1,4 +1,4 @@
-use crate::{error::Error, HashSet};
+use crate::error::Error;
 use protobuf::descriptor::{file_options::OptimizeMode as ProtoOptimizeMode, FileOptions};
 use std::{
     fmt,
@@ -490,7 +490,7 @@ impl Inner {
     /// Hydrates the data within the descriptor.
     ///
     /// Note: References and nested nodes are not hydrated.
-    pub(super) fn hydrate_options(&mut self, mut opts: FileOptions, is_build_target: bool) {
+    pub(super) fn hydrate_options(&mut self, opts: FileOptions, is_build_target: bool) {
         self.is_build_target = is_build_target;
 
         self.java_package = opts.java_package;

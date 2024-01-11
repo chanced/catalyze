@@ -1,4 +1,4 @@
-use super::{file, impl_traits, package, Accessor, Ast, FullyQualifiedName, UninterpretedOption};
+use super::{file, impl_traits, package, Accessor, FullyQualifiedName, UninterpretedOption};
 
 pub struct Oneof<'ast>(Accessor<'ast, Key, Inner>);
 

@@ -1,6 +1,5 @@
 use crate::ast::{
-    impl_traits, Access, Accessor, Ast, ContainerKey, FullyQualifiedName, ReservedRange,
-    UninterpretedOption,
+    impl_traits, Accessor, ContainerKey, FullyQualifiedName, ReservedRange, UninterpretedOption,
 };
 
 use std::fmt;
@@ -82,12 +81,12 @@ impl fmt::Display for WellKnownEnum {
 impl std::str::FromStr for WellKnownEnum {
     type Err = ();
 
-    fn from_str(s: &str) -> ::std::result::Result<WellKnownEnum, Self::Err> {
+    fn from_str(s: &str) -> ::std::result::Result<Self, Self::Err> {
         match s {
-            Self::FIELD_CARDINALITY => Ok(WellKnownEnum::FieldCardinality),
-            Self::FIELD_KIND => Ok(WellKnownEnum::FieldKind),
-            Self::NULL_VALUE => Ok(WellKnownEnum::NullValue),
-            Self::SYNTAX => Ok(WellKnownEnum::Syntax),
+            Self::FIELD_CARDINALITY => Ok(Self::FieldCardinality),
+            Self::FIELD_KIND => Ok(Self::FieldKind),
+            Self::NULL_VALUE => Ok(Self::NullValue),
+            Self::SYNTAX => Ok(Self::Syntax),
             _ => Err(()),
         }
     }

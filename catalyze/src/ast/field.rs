@@ -1,5 +1,5 @@
 use crate::{
-    ast::{impl_traits, Access, Accessor, Ast, FullyQualifiedName, Get, UninterpretedOption},
+    ast::{impl_traits, Accessor, Ast, FullyQualifiedName, UninterpretedOption},
     error::Error,
 };
 use ::std::vec::Vec;
