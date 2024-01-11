@@ -2,7 +2,9 @@ use crate::{
     ast::{impl_traits, Access, Accessor, Ast, FullyQualifiedName, Get, UninterpretedOption},
     r#enum::{self, Enum},
     error::Error,
+    file,
     message::{self, Message},
+    package,
 };
 use ::std::vec::Vec;
 use protobuf::{
@@ -126,7 +128,7 @@ pub enum MapKey {
     Sint64 = 18,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct Map<'ast> {
     pub key: MapKey,
     pub value: Value<'ast>,
@@ -140,12 +142,7 @@ impl fmt::Debug for Map<'_> {
     }
 }
 
-impl Clone for Map<'_> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl Copy for Map<'_> {}
+// impl Copy for Map<'_> {}
 
 impl<'ast> Map<'ast> {
     pub const fn new(key: MapKey, value: Value<'ast>) -> Self {
@@ -182,7 +179,8 @@ pub enum Type<'ast> {
     Map(Map<'ast>),
     Unknown(i32),
 }
-impl Copy for Type<'_> {}
+
+// impl Copy for Type<'_> {}
 
 #[derive(Debug, Clone, Copy)]
 enum TypeInner {
@@ -216,7 +214,7 @@ impl ValueInner {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub enum Value<'ast> {
     Scalar(Scalar),
     Enum(Enum<'ast>),       // 14,
@@ -225,23 +223,40 @@ pub enum Value<'ast> {
     Unknown(i32),
 }
 
+impl<'ast> From<i32> for Value<'ast> {
+    fn from(v: i32) -> Self {
+        Self::Unknown(v)
+    }
+}
+
+impl<'ast> From<Message<'ast>> for Value<'ast> {
+    fn from(v: Message<'ast>) -> Self {
+        Self::Message(v)
+    }
+}
+
+impl<'ast> From<Enum<'ast>> for Value<'ast> {
+    fn from(v: Enum<'ast>) -> Self {
+        Self::Enum(v)
+    }
+}
+
+impl<'ast> From<Scalar> for Value<'ast> {
+    fn from(v: Scalar) -> Self {
+        Self::Scalar(v)
+    }
+}
+
 impl<'ast> From<(message::Key, &'ast Ast)> for Value<'ast> {
     fn from((key, ast): (message::Key, &'ast Ast)) -> Self {
-        Self::from((key, ast))
+        Self::from(Message::from((key, ast)))
     }
 }
 impl<'ast> From<(r#enum::Key, &'ast Ast)> for Value<'ast> {
     fn from((key, ast): (r#enum::Key, &'ast Ast)) -> Self {
-        Self::from((key, ast))
+        Self::from(Enum::from((key, ast)))
     }
 }
-
-impl<'ast> Clone for Value<'ast> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl<'ast> Copy for Value<'ast> {}
 
 impl<'ast> fmt::Debug for Value<'ast> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -254,7 +269,7 @@ impl<'ast> fmt::Debug for Value<'ast> {
     }
 }
 
-impl Value<'_> {
+impl<'ast> Value<'ast> {
     /// Returns `true` if the type is [`Unknown`].
     ///
     /// [`Unknown`]: Type::Unknown
@@ -309,6 +324,38 @@ impl Value<'_> {
             Some(v)
         } else {
             None
+        }
+    }
+
+    pub const fn try_into_scalar(self) -> Result<Scalar, Self> {
+        if let Self::Scalar(v) = self {
+            Ok(v)
+        } else {
+            Err(self)
+        }
+    }
+
+    pub const fn try_into_enum(self) -> Result<Enum<'ast>, Self> {
+        if let Self::Enum(v) = self {
+            Ok(v)
+        } else {
+            Err(self)
+        }
+    }
+
+    pub const fn try_into_message(self) -> Result<Message<'ast>, Self> {
+        if let Self::Message(v) = self {
+            Ok(v)
+        } else {
+            Err(self)
+        }
+    }
+
+    pub const fn try_into_unknown(self) -> Result<i32, Self> {
+        if let Self::Unknown(v) = self {
+            Ok(v)
+        } else {
+            Err(self)
         }
     }
 }
@@ -468,7 +515,7 @@ pub(crate) struct Inner {
     ///  For Google-internal migration only. Do not use.
     weak: bool,
     ///  The parser stores options it doesn't recognize here. See above.
-    uninterpreted_option: Vec<UninterpretedOption>,
+    uninterpreted_options: Vec<UninterpretedOption>,
     ///  If true, this is a proto3 "optional". When a proto3 field is optional,
     /// it  tracks presence regardless of field type.
     ///
@@ -491,8 +538,10 @@ pub(crate) struct Inner {
     ///
     ///  Proto2 optional fields do not set this flag, because they already
     /// indicate  optional with `LABEL_OPTIONAL`.
-    // @@protoc_insertion_point(field:google.protobuf.FieldDescriptorProto.proto3_optional)
-    pub proto3_optional: Option<bool>,
+    proto3_optional: Option<bool>,
+
+    package: Option<package::Key>,
+    file: file::Key,
 }
 
 pub struct Field<'ast>(Accessor<'ast, Key, Inner>);

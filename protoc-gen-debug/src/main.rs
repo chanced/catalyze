@@ -28,6 +28,8 @@ fn main() {
     let request = CodeGeneratorRequest::parse_from_bytes(&buf).unwrap_or_else(|e| {
         exit!("Failed to parse CodeGeneratorRequest: {e}");
     });
+    eprintln!("{request:#?}");
+
     let mut path = request.parameter();
     if path.is_empty() {
         path = ".";
@@ -54,8 +56,7 @@ fn main() {
     let response = response.write_to_bytes().unwrap_or_else(|e| {
         exit!("Failed to serialize response: {e}");
     });
-
     stdout().write_all(&response).unwrap_or_else(|e| {
-        exit!("Failed to write response to stdout: {e}",);
+        exit!("Failed to write response to stdout: {e}");
     });
 }

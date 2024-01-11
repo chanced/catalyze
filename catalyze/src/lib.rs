@@ -18,7 +18,7 @@
     clippy::wildcard_imports,
     clippy::module_inception,
 	clippy::struct_excessive_bools,
-    clippy::expl_impl_clone_on_copy
+    clippy::missing_const_for_fn
 )]
 #![cfg_attr(test, allow(clippy::too_many_lines))]
 

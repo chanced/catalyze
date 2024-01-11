@@ -1,4 +1,10 @@
-use crate::ast::{impl_traits, Access, Accessor, Ast, FullyQualifiedName};
+use crate::{
+    ast::{
+        impl_traits, Access, Accessor, Ast, ContainerKey, FullyQualifiedName, ReservedRange,
+        UninterpretedOption,
+    },
+    file, package,
+};
 
 use std::fmt;
 
@@ -6,9 +12,21 @@ slotmap::new_key_type! {
     pub(crate) struct Key;
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct Inner {
     fqn: FullyQualifiedName,
+    reserved_ranges: Vec<ReservedRange>,
+    ///  Reserved field names, which may not be used by fields in the same
+    /// message.  
+    ///
+    /// A given name may only be reserved once.
+    reserved_names: Vec<String>,
+    package: Option<package::Key>,
+    file: file::Key,
+    container: ContainerKey,
+    name: String,
+
+    uninterpreted_options: Vec<UninterpretedOption>,
 }
 
 pub struct Enum<'ast>(Accessor<'ast, Key, Inner>);

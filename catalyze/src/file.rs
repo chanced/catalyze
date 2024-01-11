@@ -8,7 +8,7 @@ use crate::{
     package::{self, Package},
     service, HashSet,
 };
-use protobuf::descriptor::{file_options::OptimizeMode as ProtoOptimizeMode, FileDescriptorProto};
+use protobuf::descriptor::{file_options::OptimizeMode as ProtoOptimizeMode, FileOptions};
 use std::{
     fmt,
     path::{Path, PathBuf},
@@ -25,17 +25,8 @@ impl_traits!(File, Key, Inner);
 
 impl<'ast> File<'ast> {
     #[must_use]
-    pub fn name(&self) -> &str {
-        self.0.name.as_ref()
-    }
-    #[must_use]
     pub fn path(&self) -> &Path {
         self.0.path.as_ref()
-    }
-
-    #[must_use]
-    pub fn package(&self) -> Option<Package> {
-        self.0.package.map(|k| (k, self.0.ast).into())
     }
 
     // #[must_use]
@@ -181,7 +172,7 @@ impl<'ast> File<'ast> {
     ///  See the documentation for the "Options" section above.
     #[must_use]
     pub fn uninterpreted_option(&self) -> &[UninterpretedOption] {
-        &self.0.uninterpreted_option
+        &self.0.uninterpreted_options
     }
 }
 
@@ -329,7 +320,6 @@ impl From<protobuf::descriptor::file_options::OptimizeMode> for OptimizeMode {
 #[derive(Debug, Default, Clone, PartialEq)]
 #[doc(hidden)]
 pub(crate) struct Inner {
-    pub(crate) is_hydrated: bool,
     pub(crate) name: String,
     pub(crate) path: PathBuf,
     pub(crate) package: Option<package::Key>,
@@ -442,40 +432,40 @@ pub(crate) struct Inner {
     /// will be used for  determining the ruby package.
     ruby_package: Option<String>,
     ///  The parser stores options it doesn't recognize here.
-    ///  See the documentation for the "Options" section above.
-    uninterpreted_option: Vec<UninterpretedOption>,
+    uninterpreted_options: Vec<UninterpretedOption>,
+
+    pub(crate) unknown_option_fields: protobuf::UnknownFields,
 }
 
 impl Inner {
+    pub(crate) fn set_name_and_path(&mut self, name: String) {
+        self.path = PathBuf::from(&name);
+        self.set_name(name);
+    }
+
+    pub(crate) fn set_syntax(&mut self, syntax: Option<String>) -> Result<(), Error> {
+        self.syntax = parse_syntax(&syntax.unwrap_or_default())?;
+        Ok(())
+    }
     /// Hydrates the data within the descriptor.
     ///
     /// Note: References and nested nodes are not hydrated.
-    pub(crate) fn hydrate_data(
-        &mut self,
-        descriptor: &FileDescriptorProto,
-        is_build_target: bool,
-    ) -> Result<(), Error> {
-        if self.is_hydrated {
-            return Ok(());
-        }
-        self.name = descriptor.name.clone().unwrap_or_default();
-        self.path = PathBuf::from(&self.name);
+    pub(crate) fn hydrate_options(&mut self, mut opts: FileOptions, is_build_target: bool) {
         self.is_build_target = is_build_target;
-        let opts = descriptor.options.as_ref().cloned().unwrap_or_default();
-        self.syntax = parse_syntax(descriptor.syntax())?;
+
         self.java_package = opts.java_package;
         self.java_outer_classname = opts.java_outer_classname;
-        self.java_multiple_files = opts.java_multiple_files();
-        self.java_generate_equals_and_hash = opts.java_generate_equals_and_hash();
-        self.java_string_check_utf8 = opts.java_string_check_utf8();
-        self.java_generic_services = opts.java_generic_services();
+        self.java_multiple_files = opts.java_multiple_files.unwrap_or(false);
+        self.java_generate_equals_and_hash = opts.java_generate_equals_and_hash.unwrap_or(false);
+        self.java_string_check_utf8 = opts.java_string_check_utf8.unwrap_or(false);
+        self.java_generic_services = opts.java_generic_services.unwrap_or(false);
         self.optimize_for = opts.optimize_for.map(Into::into);
         self.go_package = opts.go_package;
-        self.cc_generic_services = opts.cc_generic_services();
-        self.py_generic_services = opts.py_generic_services();
-        self.php_generic_services = opts.php_generic_services();
-        self.deprecated = opts.deprecated();
-        self.cc_enable_arenas = opts.cc_enable_arenas();
+        self.cc_generic_services = opts.cc_generic_services.unwrap_or(false);
+        self.py_generic_services = opts.py_generic_services.unwrap_or(false);
+        self.php_generic_services = opts.php_generic_services.unwrap_or(false);
+        self.deprecated = opts.deprecated.unwrap_or(false);
+        self.cc_enable_arenas = opts.cc_enable_arenas.unwrap_or(false);
         self.objc_class_prefix = opts.objc_class_prefix;
         self.csharp_namespace = opts.csharp_namespace;
         self.swift_prefix = opts.swift_prefix;
@@ -483,32 +473,12 @@ impl Inner {
         self.php_namespace = opts.php_namespace;
         self.php_metadata_namespace = opts.php_metadata_namespace;
         self.ruby_package = opts.ruby_package;
-        self.uninterpreted_option = opts
+        self.uninterpreted_options = opts
             .uninterpreted_option
             .into_iter()
             .map(Into::into)
             .collect();
-
-        self.messages.reserve(descriptor.message_type.len());
-        self.services.reserve(descriptor.service.len());
-        self.enums.reserve(descriptor.enum_type.len());
-        self.defined_extensions.reserve(descriptor.extension.len());
-
-        self.is_hydrated = true;
-
-        Ok(())
-    }
-    /// Returns false if `is_hydrated` is false or if there are no messages,
-    /// services, enums, or defined extensions. Otherwise, returns true.
-    ///
-    /// This method should only be used as a safeguard to avoid re-hydration.
-    /// Re-hydrating an empty file erronously will not have adverse effects.
-    pub(crate) fn is_fully_hydrated(&self) -> bool {
-        self.is_hydrated
-            && (!self.messages.is_empty()
-                || !self.services.is_empty()
-                || !self.enums.is_empty()
-                || !self.defined_extensions.is_empty())
+        self.unknown_option_fields = opts.special_fields.unknown_fields().clone();
     }
 }
 

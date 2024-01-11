@@ -1,5 +1,5 @@
 use crate::{
-    ast::{impl_traits, Accessor, Ast, Fqn, FullyQualifiedName},
+    ast::{impl_traits, AccessFqn, Accessor, Ast, FullyQualifiedName},
     file::{self},
 };
 

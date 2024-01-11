@@ -1,11 +1,16 @@
-use std::error::Error;
+use protobuf::descriptor::MessageOptions;
 
 use crate::{
-    ast::{impl_traits, Accessor, Ast, FullyQualifiedName},
+    ast::{
+        impl_traits, Accessor, Ast, ContainerKey, FullyQualifiedName, ReservedRange,
+        UninterpretedOption,
+    },
+    error::Error,
     extension,
     field::{self},
     file, message,
     oneof::{self},
+    package,
 };
 
 slotmap::new_key_type! {
@@ -15,22 +20,60 @@ slotmap::new_key_type! {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Inner {
     pub(crate) fqn: FullyQualifiedName,
+    pub(crate) name: String,
+    pub(crate) container: ContainerKey,
     pub(crate) fields: Vec<field::Key>,
+    pub(crate) enums: Vec<crate::r#enum::Key>,
     pub(crate) messages: Vec<message::Key>,
     pub(crate) oneofs: Vec<oneof::Key>,
     pub(crate) real_oneofs: Vec<oneof::Key>,
     pub(crate) synthetic_oneofs: Vec<oneof::Key>,
-    pub(crate) dependents: Vec<file::Key>,
+    pub(crate) defined_extensions: Vec<extension::Key>,
     pub(crate) applied_extensions: Vec<extension::Key>,
+    pub(crate) dependents: Vec<file::Key>,
+    reserved_ranges: Vec<ReservedRange>,
+    ///  Reserved field names, which may not be used by fields in the same
+    /// message.  
+    ///
+    /// A given name may only be reserved once.
+    reserved_names: Vec<String>,
+
+    message_set_wire_format: bool,
+    ///  Disables the generation of the standard "descriptor()" accessor, which
+    /// can  conflict with a field of the same name.  This is meant to make
+    /// migration  from proto1 easier; new code should avoid fields named
+    /// "descriptor".
+    no_standard_descriptor_accessor: bool,
+    ///  Is this message deprecated?
+    ///
+    ///  Depending on the target platform, this can emit Deprecated annotations
+    ///  for the message, or it will be completely ignored; in the very least,
+    ///  this is a formalization for deprecating messages.
+    deprecated: bool,
+    map_entry: bool,
+    ///  The parser stores options it doesn't recognize here. See above.
+    uninterpreted_options: Vec<UninterpretedOption>,
+    unkown_option_fields: protobuf::UnknownFields,
+
+    package: Option<package::Key>,
+    file: file::Key,
 }
 impl Inner {
-    pub(crate) fn hydrate_data(
-        &self,
-        descriptor: &protobuf::descriptor::DescriptorProto,
-        container_key: crate::ast::ContainerKey,
-    ) -> Result<(), Error> {
-        
-        todo!()
+    pub(crate) fn set_container(&mut self, container: impl Into<ContainerKey>) {
+        self.container = container.into();
+    }
+    pub(crate) fn hydrate_options(&mut self, mut opts: MessageOptions) -> Result<(), Error> {
+        self.message_set_wire_format = opts.message_set_wire_format();
+        self.no_standard_descriptor_accessor = opts.no_standard_descriptor_accessor();
+        self.deprecated = opts.deprecated();
+        self.map_entry = opts.map_entry();
+        self.uninterpreted_options = opts
+            .uninterpreted_option
+            .into_iter()
+            .map(Into::into)
+            .collect();
+        self.unkown_option_fields = opts.special_fields.unknown_fields().clone();
+        Ok(())
     }
 }
 
@@ -214,33 +257,33 @@ pub enum WellKnownMessage {
     Value,
 }
 impl WellKnownMessage {
-    pub(crate) const ANY: &'static str = "Any";
-    pub(crate) const API: &'static str = "Api";
-    pub(crate) const BOOL_VALUE: &'static str = "BoolValue";
-    pub(crate) const BYTES_VALUE: &'static str = "BytesValue";
-    pub(crate) const DOUBLE_VALUE: &'static str = "DoubleValue";
-    pub(crate) const DURATION: &'static str = "Duration";
-    pub(crate) const EMPTY: &'static str = "Empty";
-    pub(crate) const ENUM: &'static str = "Enum";
-    pub(crate) const ENUM_VALUE: &'static str = "EnumValue";
-    pub(crate) const FIELD: &'static str = "Field";
-    pub(crate) const FIELD_KIND: &'static str = "FieldKind";
-    pub(crate) const FIELD_MASK: &'static str = "FieldMask";
-    pub(crate) const FLOAT_VALUE: &'static str = "FloatValue";
-    pub(crate) const INT32_VALUE: &'static str = "Int32Value";
-    pub(crate) const INT64_VALUE: &'static str = "Int64Value";
-    pub(crate) const LIST_VALUE: &'static str = "ListValue";
-    pub(crate) const METHOD: &'static str = "Method";
-    pub(crate) const MIXIN: &'static str = "Mixin";
-    pub(crate) const OPTION: &'static str = "Option";
-    pub(crate) const SOURCE_CONTEXT: &'static str = "SourceContext";
-    pub(crate) const STRING_VALUE: &'static str = "StringValue";
-    pub(crate) const STRUCT: &'static str = "Struct";
-    pub(crate) const TIMESTAMP: &'static str = "Timestamp";
-    pub(crate) const TYPE: &'static str = "Type";
-    pub(crate) const UINT32_VALUE: &'static str = "UInt32Value";
-    pub(crate) const UINT64_VALUE: &'static str = "UInt64Value";
-    pub(crate) const VALUE: &'static str = "Value";
+    const ANY: &'static str = "Any";
+    const API: &'static str = "Api";
+    const BOOL_VALUE: &'static str = "BoolValue";
+    const BYTES_VALUE: &'static str = "BytesValue";
+    const DOUBLE_VALUE: &'static str = "DoubleValue";
+    const DURATION: &'static str = "Duration";
+    const EMPTY: &'static str = "Empty";
+    const ENUM: &'static str = "Enum";
+    const ENUM_VALUE: &'static str = "EnumValue";
+    const FIELD: &'static str = "Field";
+    const FIELD_KIND: &'static str = "FieldKind";
+    const FIELD_MASK: &'static str = "FieldMask";
+    const FLOAT_VALUE: &'static str = "FloatValue";
+    const INT32_VALUE: &'static str = "Int32Value";
+    const INT64_VALUE: &'static str = "Int64Value";
+    const LIST_VALUE: &'static str = "ListValue";
+    const METHOD: &'static str = "Method";
+    const MIXIN: &'static str = "Mixin";
+    const OPTION: &'static str = "Option";
+    const SOURCE_CONTEXT: &'static str = "SourceContext";
+    const STRING_VALUE: &'static str = "StringValue";
+    const STRUCT: &'static str = "Struct";
+    const TIMESTAMP: &'static str = "Timestamp";
+    const TYPE: &'static str = "Type";
+    const UINT32_VALUE: &'static str = "UInt32Value";
+    const UINT64_VALUE: &'static str = "UInt64Value";
+    const VALUE: &'static str = "Value";
 
     pub const fn as_str(self) -> &'static str {
         match self {
