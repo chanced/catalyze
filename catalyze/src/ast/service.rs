@@ -1,4 +1,6 @@
-use super::{file, impl_traits, package, Accessor, FullyQualifiedName, UninterpretedOption};
+use super::{
+    file, impl_traits_and_methods, package, FullyQualifiedName, Resolver, UninterpretedOption,
+};
 
 slotmap::new_key_type! {
     pub(super) struct Key;
@@ -13,6 +15,6 @@ pub(super) struct Inner {
     uninterpreted_options: Vec<UninterpretedOption>,
 }
 
-pub struct Service<'ast>(Accessor<'ast, Key, Inner>);
+pub struct Service<'ast>(Resolver<'ast, Key, Inner>);
 
-impl_traits!(Service, Key, Inner);
+impl_traits_and_methods!(Service, Key, Inner);

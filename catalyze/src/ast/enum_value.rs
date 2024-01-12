@@ -1,13 +1,13 @@
-use crate::ast::{impl_traits, Accessor, FullyQualifiedName, UninterpretedOption};
+use crate::ast::{impl_traits_and_methods, FullyQualifiedName, Resolver, UninterpretedOption};
 
 use super::{file, package};
 
-pub struct EnumValue<'ast>(Accessor<'ast, Key, Inner>);
+pub struct EnumValue<'ast>(Resolver<'ast, Key, Inner>);
 
 slotmap::new_key_type! {
     pub(super) struct Key;
 }
-impl_traits!(EnumValue, Key, Inner);
+impl_traits_and_methods!(EnumValue, Key, Inner);
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {

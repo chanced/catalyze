@@ -29,4 +29,4 @@ pub mod error;
 pub mod generator;
 
 type HashMap<K, V> = ahash::HashMap<K, V>;
-// type HashSet<V> = ahash::HashSet<V>;
+type HashSet<V> = ahash::HashSet<V>;

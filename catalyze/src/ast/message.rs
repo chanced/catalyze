@@ -1,9 +1,10 @@
 use super::{
     r#enum, extension,
     field::{self},
-    file, impl_traits, message,
+    file, impl_traits_and_methods, message,
     oneof::{self},
-    package, Accessor, ContainerKey, FullyQualifiedName, ReservedRange, UninterpretedOption,
+    package, ContainerKey, FullyQualifiedName, ReferentKey, ReferrerKey, ReservedRange, Resolver,
+    UninterpretedOption,
 };
 use protobuf::descriptor::MessageOptions;
 
@@ -25,6 +26,8 @@ pub(super) struct Inner {
     pub(super) defined_extensions: Vec<extension::Key>,
     pub(super) applied_extensions: Vec<extension::Key>,
     pub(super) dependents: Vec<file::Key>,
+    pub(super) referenced_by: Vec<ReferrerKey>,
+
     reserved_ranges: Vec<ReservedRange>,
     ///  Reserved field names, which may not be used by fields in the same
     /// message.  
@@ -50,7 +53,7 @@ pub(super) struct Inner {
     unkown_option_fields: protobuf::UnknownFields,
 
     package: Option<package::Key>,
-    file: file::Key,
+    pub(super) file: file::Key,
 }
 impl Inner {
     pub(super) fn set_container(&mut self, container: impl Into<ContainerKey>) {
@@ -70,8 +73,9 @@ impl Inner {
     }
 }
 
-pub struct Message<'ast>(Accessor<'ast, Key, Inner>);
-impl_traits!(Message, Key, Inner);
+pub struct Message<'ast>(Resolver<'ast, Key, Inner>);
+
+kimpl_traits_and_methods!(Message, Key, Inner);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WellKnownMessage {

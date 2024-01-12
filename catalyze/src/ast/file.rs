@@ -2,13 +2,14 @@ use crate::error::Error;
 use protobuf::descriptor::{file_options::OptimizeMode as ProtoOptimizeMode, FileOptions};
 use std::{
     fmt,
+    ops::Deref,
     path::{Path, PathBuf},
     str::FromStr,
 };
 
 use super::{
-    r#enum, extension, impl_traits, message, package, service, Accessor, Comments,
-    FullyQualifiedName, UninterpretedOption,
+    r#enum, extension, impl_traits_and_methods, message, package, service, Comments,
+    FullyQualifiedName, Resolver, UninterpretedOption,
 };
 
 slotmap::new_key_type! {
@@ -16,8 +17,8 @@ slotmap::new_key_type! {
     pub struct Key;
 }
 
-pub struct File<'ast>(Accessor<'ast, Key, Inner>);
-impl_traits!(File, Key, Inner);
+pub struct File<'ast>(Resolver<'ast, Key, Inner>);
+impl_traits_and_methods!(File, Key, Inner);
 
 impl<'ast> File<'ast> {
     #[must_use]
@@ -332,28 +333,41 @@ pub struct Import<'ast> {
     pub imported_by: File<'ast>,
 }
 
+impl<'ast> Deref for Import<'ast> {
+    type Target = File<'ast>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.import
+    }
+}
+
 impl<'ast> Import<'ast> {
     #[must_use]
-    pub fn is_used(&self) -> bool {
+    pub fn is_used(self) -> bool {
         self.is_used
     }
     #[must_use]
-    pub fn is_public(&self) -> bool {
+    pub fn is_public(self) -> bool {
         self.is_public
     }
     #[must_use]
-    pub fn is_weak(&self) -> bool {
+    pub fn is_weak(self) -> bool {
         self.is_weak
     }
     #[must_use]
-    pub fn import(&self) -> File<'ast> {
+    pub fn import(self) -> File<'ast> {
         self.import
     }
     #[must_use]
-    pub fn imported_by(&self) -> File<'ast> {
+    pub fn imported_by(self) -> File<'ast> {
         self.imported_by
     }
+    #[must_use]
+    pub fn as_file(self) -> File<'ast> {
+        self.import
+    }
 }
+
 #[derive(Debug, Default, Clone, PartialEq)]
 #[doc(hidden)]
 pub(super) struct Inner {

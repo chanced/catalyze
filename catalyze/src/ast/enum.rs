@@ -1,10 +1,11 @@
 use crate::ast::{
-    impl_traits, Accessor, ContainerKey, FullyQualifiedName, ReservedRange, UninterpretedOption,
+    impl_traits_and_methods, ContainerKey, FullyQualifiedName, ReservedRange, Resolver,
+    UninterpretedOption,
 };
 
 use std::fmt;
 
-use super::{file, package};
+use super::{file, package, ReferrerKey};
 
 slotmap::new_key_type! {
     pub(super) struct Key;
@@ -23,12 +24,13 @@ pub(super) struct Inner {
     file: file::Key,
     container: ContainerKey,
     name: String,
+    pub(super) referenced_by: Vec<ReferrerKey>,
 
     uninterpreted_options: Vec<UninterpretedOption>,
 }
 
-pub struct Enum<'ast>(Accessor<'ast, Key, Inner>);
-impl_traits!(Enum, Key, Inner);
+pub struct Enum<'ast>(Resolver<'ast, Key, Inner>);
+impl_traits_and_methods!(Enum, Key, Inner);
 
 // impl Access<Inner> for Enum<'_> {
 //     fn access(&self) -> &Inner {

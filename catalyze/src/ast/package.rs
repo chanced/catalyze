@@ -1,4 +1,4 @@
-use super::{file, impl_traits, Accessor, FullyQualifiedName};
+use super::{file, impl_traits_and_methods, FullyQualifiedName, Resolver};
 
 use std::fmt::Debug;
 
@@ -26,13 +26,13 @@ impl Inner {
     }
 }
 
-pub struct Package<'ast>(Accessor<'ast, Key, Inner>);
+pub struct Package<'ast>(Resolver<'ast, Key, Inner>);
 
 impl<'ast> Package<'ast> {
     pub const WELL_KNOWN: &'static str = "google.protobuf";
 }
 
-impl_traits!(Package, Key, Inner);
+impl_traits_and_methods!(Package, Key, Inner);
 
 // impl Debug for Package {
 //     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -1,4 +1,8 @@
-use super::{file, impl_traits, package, Accessor, FullyQualifiedName, UninterpretedOption};
+use super::{
+    file, impl_traits_and_methods,
+    message::{self, Message},
+    package, FullyQualifiedName, Resolver, UninterpretedOption,
+};
 
 slotmap::new_key_type! {
     pub(super) struct Key;
@@ -11,8 +15,20 @@ pub(super) struct Inner {
     file: file::Key,
     name: String,
     uninterpreted_options: Vec<UninterpretedOption>,
+    input: message::Key,
+    output: message::Key,
 }
 
-pub struct Method<'ast>(Accessor<'ast, Key, Inner>);
+pub struct Method<'ast>(Resolver<'ast, Key, Inner>);
 
-impl_traits!(Method, Key, Inner);
+impl<'ast> Method<'ast> {
+    pub fn input(self) -> Message<'ast> {
+        Message::new(self.0.input, self.0.ast)
+    }
+
+    pub(crate) fn new(key: Key, ast: &'ast crate::ast::Ast) -> Self {
+        Self(Resolver::new(key, ast))
+    }
+}
+
+impl_traits_and_methods!(Method, Key, Inner);

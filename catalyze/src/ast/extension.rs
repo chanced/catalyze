@@ -1,4 +1,4 @@
-use crate::ast::{impl_traits, Accessor, FullyQualifiedName, UninterpretedOption};
+use crate::ast::{impl_traits_and_methods, FullyQualifiedName, Resolver, UninterpretedOption};
 
 use super::{file, package};
 
@@ -15,5 +15,5 @@ pub(super) struct Inner {
     uninterpreted_options: Vec<UninterpretedOption>,
 }
 
-pub struct Extension<'ast>(Accessor<'ast, Key, Inner>);
-impl_traits!(Extension, Key, Inner);
+pub struct Extension<'ast>(Resolver<'ast, Key, Inner>);
+impl_traits_and_methods!(Extension, Key, Inner);

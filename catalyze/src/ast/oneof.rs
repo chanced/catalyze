@@ -1,6 +1,8 @@
-use super::{file, impl_traits, package, Accessor, FullyQualifiedName, UninterpretedOption};
+use super::{
+    file, impl_traits_and_methods, package, FullyQualifiedName, Resolver, UninterpretedOption,
+};
 
-pub struct Oneof<'ast>(Accessor<'ast, Key, Inner>);
+pub struct Oneof<'ast>(Resolver<'ast, Key, Inner>);
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {
@@ -11,7 +13,7 @@ pub(super) struct Inner {
     uninterpreted_options: Vec<UninterpretedOption>,
 }
 
-impl_traits!(Oneof, Key, Inner);
+impl_traits_and_methods!(Oneof, Key, Inner);
 
 slotmap::new_key_type! {
     pub(super) struct Key;

@@ -16,14 +16,14 @@ use std::{
     path::PathBuf,
 };
 
-use ahash::HashMapExt;
+use ahash::{HashMapExt, HashSetExt};
 use protobuf::descriptor::{
     DescriptorProto, EnumDescriptorProto, EnumValueDescriptorProto, FieldDescriptorProto,
     FileDescriptorProto, MethodDescriptorProto, OneofDescriptorProto, ServiceDescriptorProto,
 };
 use slotmap::SlotMap;
 
-use crate::{error::Error, HashMap};
+use crate::{error::Error, HashMap, HashSet};
 use r#enum::{Enum, WellKnownEnum};
 use enum_value::EnumValue;
 use extension::Extension;
@@ -34,6 +34,21 @@ use method::Method;
 use oneof::Oneof;
 use package::Package;
 use service::Service;
+
+mod node_path {
+    const PACKAGE: i32 = 2;
+    const MESSAGE_TYPE: i32 = 4;
+    const ENUM_TYPE: i32 = 5;
+    const SERVICE: i32 = 6;
+    const SYNTAX: i32 = 12;
+    const MESSAGE_TYPE_FIELD: i32 = 2;
+    const MESSAGE_TYPE_NESTED_TYPE: i32 = 3;
+    const MESSAGE_TYPE_ENUM_TYPE: i32 = 4;
+    const MESSAGE_TYPE_ONEOF_DECL: i32 = 8;
+    const ENUM_TYPE_VALUE: i32 = 2;
+    const SERVICE_TYPE_METHOD: i32 = 2;
+}
+pub trait AccessReferences {}
 
 pub trait AccessContainer {
     fn container(&self) -> crate::ast::Container;
@@ -76,26 +91,141 @@ trait FromFqn {
     fn from_fqn(fqn: FullyQualifiedName) -> Self;
 }
 
-mod node_path {
-    const PACKAGE: i32 = 2;
-    const MESSAGE_TYPE: i32 = 4;
-    const ENUM_TYPE: i32 = 5;
-    const SERVICE: i32 = 6;
-    const SYNTAX: i32 = 12;
-    const MESSAGE_TYPE_FIELD: i32 = 2;
-    const MESSAGE_TYPE_NESTED_TYPE: i32 = 3;
-    const MESSAGE_TYPE_ENUM_TYPE: i32 = 4;
-    const MESSAGE_TYPE_ONEOF_DECL: i32 = 8;
-    const ENUM_TYPE_VALUE: i32 = 2;
-    const SERVICE_TYPE_METHOD: i32 = 2;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reference<'ast> {
+    /// The [`Field`], [`Extension`], or [`Method`] which references the
+    /// [`Message`] or [`Enum`].
+    pub referencer: Referrer<'ast>,
+    /// The [`Message`] or [`Enum`] which is referenced by the [`Field`],
+    /// [`Extension`], or [`Method`].
+    pub referenced: Referent<'ast>,
 }
+
+impl<'ast> Reference<'ast> {
+    /// The [`Field`], [`Extension`], or [`Method`] which references the
+    /// [`Message`] or [`Enum`].
+    pub fn referencing(self) -> Referrer<'ast> {
+        self.referencer
+    }
+    /// The [`Message`] or [`Enum`] which is referenced by the [`Field`],
+    /// [`Extension`], or [`Method`].
+    pub fn referenced(self) -> Referent<'ast> {
+        self.referenced
+    }
+}
+
+/// The [`Message`] or [`Enum`] which is referenced by the [`Field`],
+/// [`Extension`], or [`Method`].
+///
+/// [`Referent`] is returne from [`Field::referent`], [`Extension::referent`],
+/// [`Method::input_referent`], and [`Method::output_referent`]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Referent<'ast> {
+    Message(Message<'ast>),
+    Enum(Enum<'ast>),
+}
+impl<'ast> From<(r#enum::Key, &'ast Ast)> for Referent<'ast> {
+    fn from((key, ast): (r#enum::Key, &'ast Ast)) -> Self {
+        Self::Enum((key, ast).into())
+    }
+}
+impl<'ast> From<(message::Key, &'ast Ast)> for Referent<'ast> {
+    fn from((key, ast): (message::Key, &'ast Ast)) -> Self {
+        Self::Message((key, ast).into())
+    }
+}
+
+/// The [`Field`], [`Extension`], or [`Method`] which references a [`Message`]
+/// or [`Enum`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Referrer<'ast> {
+    Field(Field<'ast>),
+    Extension(Extension<'ast>),
+    Method(Method<'ast>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReferrerKey {
+    Field(field::Key),
+    Extension(extension::Key),
+    Method(method::Key),
+}
+impl From<field::Key> for ReferrerKey {
+    fn from(key: field::Key) -> Self {
+        Self::Field(key)
+    }
+}
+impl From<extension::Key> for ReferrerKey {
+    fn from(key: extension::Key) -> Self {
+        Self::Extension(key)
+    }
+}
+impl From<method::Key> for ReferrerKey {
+    fn from(key: method::Key) -> Self {
+        Self::Method(key)
+    }
+}
+
+impl<'ast> Referrer<'ast> {
+    /// Returns `true` if the referrer is [`Field`].
+    ///
+    /// [`Field`]: Referrer::Field
+    #[must_use]
+    pub fn is_field(&self) -> bool {
+        matches!(self, Self::Field(..))
+    }
+
+    #[must_use]
+    pub fn as_field(&self) -> Option<&Field<'ast>> {
+        if let Self::Field(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Returns `true` if the referrer is [`Extension`].
+    ///
+    /// [`Extension`]: Referrer::Extension
+    #[must_use]
+    pub fn is_extension(&self) -> bool {
+        matches!(self, Self::Extension(..))
+    }
+
+    #[must_use]
+    pub fn as_extension(&self) -> Option<&Extension<'ast>> {
+        if let Self::Extension(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Returns `true` if the referrer is [`Method`].
+    ///
+    /// [`Method`]: Referrer::Method
+    #[must_use]
+    pub fn is_method(&self) -> bool {
+        matches!(self, Self::Method(..))
+    }
+
+    #[must_use]
+    pub fn as_method(&self) -> Option<&Method<'ast>> {
+        if let Self::Method(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+}
+
 #[doc(hidden)]
 trait Get<K, T> {
     fn get(&self, key: K) -> &T;
 }
 
-trait Access<T> {
-    fn access(&self) -> &T;
+trait Resolve<T> {
+    fn resolve(&self) -> &T;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -390,23 +520,24 @@ impl Ast {
         let FileDescriptorProto {
             name,
             package,
-            dependency: _,
-            public_dependency: _,
-            weak_dependency: _,
+            dependency,
+            public_dependency,
+            weak_dependency,
             message_type,
             enum_type,
             service,
             extension,
             options,
-            source_code_info: _,
+            source_code_info,
             syntax,
-            special_fields: _,
+            special_fields,
         } = descriptor;
 
         let package = package.as_ref().map(|pkg| {
             self.packages
                 .get_or_insert_mut_by_fqn(FullyQualifiedName::from_package_name(pkg))
         });
+        let mut referenced_files = HashSet::new();
 
         let name = name.unwrap_or_default();
         let fqn = FullyQualifiedName::new(&name, package.as_ref().map(|(_, pkg)| pkg.fqn.clone()));
@@ -431,6 +562,7 @@ impl Ast {
         for msg in message_type {
             let fqn = FullyQualifiedName::new(msg.name(), Some(fqn.clone()));
             let msg_key = self.hydrate_message(fqn, msg, key, key, package)?;
+            referenced_files.insert(self.messages[msg_key].file);
             messages.push(msg_key);
         }
 
@@ -449,16 +581,22 @@ impl Ast {
         }
 
         let mut extensions = Vec::with_capacity(extension.len());
-
         for ext in extension {
             let fqn = FullyQualifiedName::new(ext.name(), Some(fqn.clone()));
             let ext_key = self.hydrate_extension(fqn, ext, key, key, package)?;
             extensions.push(ext_key);
         }
+
+        for (idx, dependency) in dependency.into_iter().enumerate() {
+            let fqn = FullyQualifiedName(dependency);
+            // let is_used =
+            todo!()
+        }
+
         let file = &mut self.files[key];
         file.messages = messages;
         file.enums = enums;
-        file.services = services;
+        file.services = service;
         file.defined_extensions = extensions;
         file.set_package(package);
         // TODO: comments
@@ -593,13 +731,13 @@ impl Ast {
     }
 }
 
-struct Accessor<'ast, K, I> {
+struct Resolver<'ast, K, I> {
     ast: &'ast Ast,
     key: K,
     marker: std::marker::PhantomData<I>,
 }
 
-impl<'ast, K, I> Accessor<'ast, K, I> {
+impl<'ast, K, I> Resolver<'ast, K, I> {
     const fn new(key: K, ast: &'ast Ast) -> Self {
         Self {
             ast,
@@ -609,7 +747,7 @@ impl<'ast, K, I> Accessor<'ast, K, I> {
     }
 }
 
-impl<'ast, K, I> Clone for Accessor<'ast, K, I>
+impl<'ast, K, I> Clone for Resolver<'ast, K, I>
 where
     K: Clone,
 {
@@ -622,7 +760,7 @@ where
     }
 }
 
-impl<'ast, K, I> From<(K, &'ast Ast)> for Accessor<'ast, K, I> {
+impl<'ast, K, I> From<(K, &'ast Ast)> for Resolver<'ast, K, I> {
     fn from((key, ast): (K, &'ast Ast)) -> Self {
         Self {
             ast,
@@ -632,9 +770,9 @@ impl<'ast, K, I> From<(K, &'ast Ast)> for Accessor<'ast, K, I> {
     }
 }
 
-impl<'ast, K, I> Copy for Accessor<'ast, K, I> where K: Copy {}
+impl<'ast, K, I> Copy for Resolver<'ast, K, I> where K: Copy {}
 
-impl<'ast, K, I> PartialEq for Accessor<'ast, K, I>
+impl<'ast, K, I> PartialEq for Resolver<'ast, K, I>
 where
     K: PartialEq,
 {
@@ -642,10 +780,9 @@ where
         self.key == other.key
     }
 }
-impl<'ast, K, I> Eq for Accessor<'ast, K, I> where K: Eq {}
+impl<'ast, K, I> Eq for Resolver<'ast, K, I> where K: Eq {}
 
-macro_rules! impl_get_access {
-
+macro_rules! impl_resolve {
     ($($col: ident -> $mod: ident,)+) => {
         $(
             impl Get<$mod::Key, $mod::Inner> for Ast {
@@ -653,35 +790,32 @@ macro_rules! impl_get_access {
                     &self.$col[key]
                 }
             }
-            impl<'ast> Access<$mod::Inner> for Accessor<'ast, $mod::Key, $mod::Inner>
+            impl<'ast> Resolve<$mod::Inner> for Resolver<'ast, $mod::Key, $mod::Inner>
             {
-                fn access(&self) -> &$mod::Inner {
+                fn resolve(&self) -> &$mod::Inner {
                     self.ast.get(self.key.clone())
                 }
             }
-            impl<'ast> Deref for Accessor<'ast, $mod::Key, $mod::Inner>{
+            impl<'ast> Deref for Resolver<'ast, $mod::Key, $mod::Inner>{
                 type Target = $mod::Inner;
                 fn deref(&self) -> &Self::Target {
-                    self.access()
+                    self.resolve()
                 }
             }
-            impl<'ast> fmt::Debug for Accessor<'ast, $mod::Key, $mod::Inner>
+            impl<'ast> fmt::Debug for Resolver<'ast, $mod::Key, $mod::Inner>
             {
                 fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                    f.debug_tuple("Accessor")
+                    f.debug_tuple("Resolver")
                         .field(&self.key)
-                        .field(self.access())
+                        .field(self.resolve())
                         .finish()
                 }
             }
-
-
-
         )+
     };
 }
 
-impl_get_access!(
+impl_resolve!(
     packages -> package,
     files -> file,
     messages -> message,
@@ -730,6 +864,7 @@ pub enum WellKnownType {
     Enum(WellKnownEnum),
     Message(WellKnownMessage),
 }
+
 impl WellKnownType {
     pub const PACKAGE: &'static str = "google.protobuf";
 }
@@ -749,20 +884,19 @@ pub enum Node<'ast> {
 }
 
 impl fmt::Debug for Node<'_> {
-    fn fmt(&self, _fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
-        // match self {
-        //     Self::Package(p) => p.fmt(fmt),
-        //     Self::File(f) => f.fmt(fmt),
-        //     Self::Message(m) => m.fmt(fmt),
-        //     Self::Oneof(o) => o.fmt(fmt),
-        //     Self::Enum(e) => e.fmt(fmt),
-        //     Self::EnumValue(e) => e.fmt(fmt),
-        //     Self::Service(s) => s.fmt(fmt),
-        //     Self::Method(m) => m.fmt(fmt),
-        //     Self::Field(f) => f.fmt(fmt),
-        //     Self::Extension(e) => e.fmt(fmt),
-        // }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Package(n) => n.fmt(f),
+            Self::File(n) => n.fmt(f),
+            Self::Message(n) => n.fmt(f),
+            Self::Oneof(n) => n.fmt(f),
+            Self::Enum(n) => n.fmt(f),
+            Self::EnumValue(n) => n.fmt(f),
+            Self::Service(n) => n.fmt(f),
+            Self::Method(n) => n.fmt(f),
+            Self::Field(n) => n.fmt(f),
+            Self::Extension(n) => n.fmt(f),
+        }
     }
 }
 
@@ -801,6 +935,7 @@ impl FullyQualifiedName {
         }
         Self(format!("{container}.{value}"))
     }
+
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -1068,14 +1203,15 @@ impl Comments {
 }
 
 struct Location {
-    path: Vec<i32>,
+    pub path: Vec<i32>,
     ///  Always has exactly three or four elements: start line, start column,
     ///  end line (optional, otherwise assumed same as start line), end column.
     ///  These are packed into a single field for efficiency.  Note that line
     ///  and column numbers are zero-based -- typically you will want to add
     ///  1 to each before displaying to a user.
-    span: Vec<i32>,
+    pub span: Vec<i32>,
 }
+
 impl Location {
     pub fn path(&self) -> &[i32] {
         &self.path
@@ -1219,11 +1355,15 @@ impl TryFrom<i32> for DescriptorPath {
     }
 }
 
+macro_rules! impl_access_references {
+    ($inner:ident) => {};
+}
+
 macro_rules! impl_access {
     ($typ: ident, $key: ident, $inner: ident) => {
-        impl<'ast> crate::ast::Access<$inner> for $typ<'ast> {
-            fn access(&self) -> &$inner {
-                crate::ast::Access::access(&self.0)
+        impl<'ast> crate::ast::Resolve<$inner> for $typ<'ast> {
+            fn resolve(&self) -> &$inner {
+                crate::ast::Resolve::resolve(&self.0)
             }
         }
     };
@@ -1246,8 +1386,8 @@ macro_rules! impl_access_fqn {
         impl<'ast> crate::ast::AccessFqn for $typ<'ast> {
             #[doc = "Returns the [`FullyQualifiedName`] of the node."]
             pub fn fully_qualified_name(&self) -> &crate::ast::FullyQualifiedName {
-                use crate::ast::Access;
-                &self.access().fqn
+                use crate::ast::Resolve;
+                &self.resolve().fqn
             }
             #[doc = "Alias for `fully_qualified_name` - returns the [`FullyQualifiedName`] of the node."]
             pub fn fqn(&self) -> &crate::ast::FullyQualifiedName {
@@ -1289,12 +1429,12 @@ macro_rules! impl_from_key_and_ast {
     ($typ:ident, $key:ident, $inner:ident) => {
         impl<'ast> From<($key, &'ast crate::ast::Ast)> for $typ<'ast> {
             fn from((key, ast): ($key, &'ast crate::ast::Ast)) -> Self {
-                Self(crate::ast::Accessor::new(key, ast))
+                Self(crate::ast::Resolver::new(key, ast))
             }
         }
-        impl<'ast> From<crate::ast::Accessor<'ast, $key, $inner>> for $typ<'ast> {
-            fn from(accessor: crate::ast::Accessor<'ast, $key, $inner>) -> Self {
-                Self(accessor)
+        impl<'ast> From<crate::ast::Resolver<'ast, $key, $inner>> for $typ<'ast> {
+            fn from(resolver: crate::ast::Resolver<'ast, $key, $inner>) -> Self {
+                Self(resolver)
             }
         }
     };
@@ -1304,15 +1444,15 @@ macro_rules! impl_fmt {
     ($typ: ident, $key: ident, $inner: ident) => {
         impl<'ast> ::std::fmt::Display for $typ<'ast> {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                use crate::ast::Access;
-                ::std::fmt::Display::fmt(&self.access().fqn, f)
+                use crate::ast::Resolve;
+                ::std::fmt::Display::fmt(&self.resolve().fqn, f)
             }
         }
 
         impl<'ast> ::std::fmt::Debug for $typ<'ast> {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                use crate::ast::Access;
-                ::std::fmt::Debug::fmt(self.access(), f)
+                use crate::ast::Resolve;
+                ::std::fmt::Debug::fmt(self.resolve(), f)
             }
         }
     };
@@ -1408,8 +1548,18 @@ macro_rules! impl_access_name {
         }
     };
 }
+macro_rules! node_method_new {
+    ($typ:ident, $key:ident) => {
+        impl<'ast> $typ<'ast> {
+            pub(super) fn new(key: $key, ast: &'ast crate::ast::Ast) -> Self {
+                Self((key, ast).into())
+            }
+        }
+        self.0.input
+    };
+}
 
-macro_rules! impl_base_traits {
+macro_rules! impl_base_traits_and_methods {
     ($typ:ident, $key:ident, $inner:ident) => {
         crate::ast::impl_clone_copy!($typ);
         crate::ast::impl_eq!($typ);
@@ -1421,20 +1571,20 @@ macro_rules! impl_base_traits {
         crate::ast::impl_access_name!($typ, $inner);
     };
 }
-macro_rules! impl_traits {
+macro_rules! impl_traits_and_methods {
     (Package, $key:ident, $inner: ident) => {
-        crate::ast::impl_base_traits!(Package, $key, $inner);
+        crate::ast::impl_base_traits_and_methods!(Package, $key, $inner);
     };
 
     (File, $key:ident, $inner: ident) => {
-        crate::ast::impl_base_traits!(File, $key, $inner);
+        crate::ast::impl_base_traits_and_methods!(File, $key, $inner);
         crate::ast::impl_access_package!(File, $inner);
         crate::ast::impl_set_uninterpreted_options!($inner);
     };
 
     (Message, $key:ident, $inner: ident) => {
         // has_reserved = true
-        crate::ast::impl_base_traits!(Message, $key, $inner);
+        crate::ast::impl_base_traits_and_methods!(Message, $key, $inner);
         crate::ast::impl_access_reserved!(Message, $inner);
         crate::ast::impl_access_file!(Message, $inner);
         crate::ast::impl_access_package!(Message, $inner);
@@ -1442,15 +1592,15 @@ macro_rules! impl_traits {
     };
 
     (Enum, $key:ident, $inner: ident) => {
-        crate::ast::impl_base_traits!(Enum, $key, $inner);
+        crate::ast::impl_base_traits_and_methods!(Enum, $key, $inner);
         crate::ast::impl_access_reserved!(Enum, $inner);
-        crate::ast::impl_access_package!(Enum, $inner);
         crate::ast::impl_access_file!(Enum, $inner);
+        crate::ast::impl_access_package!(Enum, $inner);
         crate::ast::impl_set_uninterpreted_options!($inner);
     };
 
     ($typ: ident, $key: ident, $inner: ident) => {
-        crate::ast::impl_base_traits!($typ, $key, $inner);
+        crate::ast::impl_base_traits_and_methods!($typ, $key, $inner);
         crate::ast::impl_access_file!($typ, $inner);
         crate::ast::impl_access_package!($typ, $inner);
         crate::ast::impl_set_uninterpreted_options!($inner);
@@ -1460,17 +1610,18 @@ macro_rules! impl_traits {
 use impl_access;
 use impl_access_file;
 use impl_access_fqn;
+
 use impl_access_name;
 use impl_access_package;
 use impl_access_reserved;
-use impl_base_traits;
+use impl_base_traits_and_methods;
 use impl_clone_copy;
 use impl_eq;
 use impl_fmt;
 use impl_from_fqn;
 use impl_from_key_and_ast;
 use impl_set_uninterpreted_options;
-use impl_traits;
+use impl_traits_and_methods;
 
 #[cfg(test)]
 mod tests {

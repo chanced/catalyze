@@ -1,5 +1,5 @@
 use crate::{
-    ast::{impl_traits, Accessor, Ast, FullyQualifiedName, UninterpretedOption},
+    ast::{impl_traits_and_methods, Ast, FullyQualifiedName, Resolver, UninterpretedOption},
     error::Error,
 };
 use ::std::vec::Vec;
@@ -14,7 +14,7 @@ use super::{
     r#enum::{self, Enum},
     file,
     message::{self, Message},
-    package,
+    package, Referent,
 };
 
 slotmap::new_key_type! {
@@ -205,9 +205,14 @@ enum ValueInner {
     Message(message::Key),
     Unknown(i32),
 }
+impl Default for ValueInner {
+    fn default() -> Self {
+        Self::Unknown(0)
+    }
+}
 
 impl ValueInner {
-    fn access_with<'ast>(&self, ast: &'ast Ast) -> Value<'ast> {
+    fn resolve_with<'ast>(&self, ast: &'ast Ast) -> Value<'ast> {
         match *self {
             Self::Scalar(s) => Value::Scalar(s),
             Self::Enum(key) => (key, ast).into(),
@@ -424,6 +429,7 @@ impl From<protobuf::descriptor::field_options::JSType> for JsType {
 
 #[derive(Debug, Default, Clone)]
 pub(super) struct Inner {
+    value: ValueInner,
     fqn: FullyQualifiedName,
     name: String,
     number: i32,
@@ -546,7 +552,16 @@ pub(super) struct Inner {
     package: Option<package::Key>,
     file: file::Key,
 }
+impl<'ast> Field<'ast> {
+    pub fn referent(self) -> Option<Referent<'ast>> {
+        match self.0.value {
+            ValueInner::Enum(e) => Some((e, self.0.ast).into()),
+            ValueInner::Message(m) => Some((m, self.0.ast).into()),
+            _ => None,
+        }
+    }
+}
 
-pub struct Field<'ast>(Accessor<'ast, Key, Inner>);
+pub struct Field<'ast>(Resolver<'ast, Key, Inner>);
 
-impl_traits!(Field, Key, Inner);
+impl_traits_and_methods!(Field, Key, Inner);

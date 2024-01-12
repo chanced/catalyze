@@ -1,0 +1,11 @@
+version: v1
+build:
+    roots:
+        - fixtures/protos
+lint:
+    use:
+        - "DEFAULT"
+    except:
+        - "PACKAGE_VERSION_SUFFIX"
+        - "ENUM_VALUE_PREFIX"
+        - "ENUM_ZERO_VALUE_SUFFIX"
