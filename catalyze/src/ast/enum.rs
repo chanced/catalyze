@@ -5,7 +5,7 @@ use crate::ast::{
 
 use std::fmt;
 
-use super::{file, package, ReferrerKey};
+use super::{file, package, reference::ReferrerKey};
 
 slotmap::new_key_type! {
     pub(super) struct Key;

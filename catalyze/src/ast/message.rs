@@ -3,8 +3,9 @@ use super::{
     field::{self},
     file, impl_traits_and_methods, message,
     oneof::{self},
-    package, ContainerKey, FullyQualifiedName, ReferentKey, ReferrerKey, ReservedRange, Resolver,
-    UninterpretedOption,
+    package,
+    reference::{Reference, ReferenceInner},
+    ContainerKey, FullyQualifiedName, ReservedRange, Resolver, UninterpretedOption,
 };
 use protobuf::descriptor::MessageOptions;
 
@@ -14,19 +15,19 @@ slotmap::new_key_type! {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Inner {
-    pub(super) fqn: FullyQualifiedName,
-    pub(super) name: String,
-    pub(super) container: ContainerKey,
-    pub(super) fields: Vec<field::Key>,
-    pub(super) enums: Vec<r#enum::Key>,
-    pub(super) messages: Vec<message::Key>,
-    pub(super) oneofs: Vec<oneof::Key>,
-    pub(super) real_oneofs: Vec<oneof::Key>,
-    pub(super) synthetic_oneofs: Vec<oneof::Key>,
-    pub(super) defined_extensions: Vec<extension::Key>,
-    pub(super) applied_extensions: Vec<extension::Key>,
-    pub(super) dependents: Vec<file::Key>,
-    pub(super) referenced_by: Vec<ReferrerKey>,
+    fqn: FullyQualifiedName,
+    name: String,
+    container: ContainerKey,
+    fields: Vec<field::Key>,
+    enums: Vec<r#enum::Key>,
+    messages: Vec<message::Key>,
+    oneofs: Vec<oneof::Key>,
+    real_oneofs: Vec<oneof::Key>,
+    synthetic_oneofs: Vec<oneof::Key>,
+    defined_extensions: Vec<extension::Key>,
+    applied_extensions: Vec<extension::Key>,
+    dependents: Vec<file::Key>,
+    referenced_by: Vec<ReferenceInner>,
 
     reserved_ranges: Vec<ReservedRange>,
     ///  Reserved field names, which may not be used by fields in the same
@@ -53,9 +54,39 @@ pub(super) struct Inner {
     unkown_option_fields: protobuf::UnknownFields,
 
     package: Option<package::Key>,
-    pub(super) file: file::Key,
+    file: file::Key,
 }
 impl Inner {
+    pub(super) fn set_fields(&mut self, fields: Vec<field::Key>) {
+        self.fields = fields;
+    }
+    pub(super) fn set_enums(&mut self, enums: Vec<r#enum::Key>) {
+        self.enums = enums;
+    }
+    pub(super) fn set_messages(&mut self, messages: Vec<message::Key>) {
+        self.messages = messages;
+    }
+    pub(super) fn set_oneofs(&mut self, oneofs: Vec<oneof::Key>) {
+        self.oneofs = oneofs;
+    }
+    pub(super) fn set_real_oneofs(&mut self, real_oneofs: Vec<oneof::Key>) {
+        self.real_oneofs = real_oneofs;
+    }
+    pub(super) fn set_synthetic_oneofs(&mut self, synthetic_oneofs: Vec<oneof::Key>) {
+        self.synthetic_oneofs = synthetic_oneofs;
+    }
+    pub(super) fn set_defined_extensions(&mut self, defined_extensions: Vec<extension::Key>) {
+        self.defined_extensions = defined_extensions;
+    }
+    pub(super) fn set_applied_extensions(&mut self, applied_extensions: Vec<extension::Key>) {
+        self.applied_extensions = applied_extensions;
+    }
+    pub(super) fn set_dependents(&mut self, dependents: Vec<file::Key>) {
+        self.dependents = dependents;
+    }
+    pub(super) fn set_referenced_by(&mut self, referenced_by: Vec<ReferenceInner>) {
+        self.referenced_by = referenced_by;
+    }
     pub(super) fn set_container(&mut self, container: impl Into<ContainerKey>) {
         self.container = container.into();
     }
@@ -75,7 +106,7 @@ impl Inner {
 
 pub struct Message<'ast>(Resolver<'ast, Key, Inner>);
 
-kimpl_traits_and_methods!(Message, Key, Inner);
+impl_traits_and_methods!(Message, Key, Inner);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WellKnownMessage {

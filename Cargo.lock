@@ -20,6 +20,7 @@ name = "catalyze"
 version = "0.0.0"
 dependencies = [
  "ahash",
+ "either",
  "inherent",
  "itertools",
  "protobuf",

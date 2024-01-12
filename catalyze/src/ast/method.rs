@@ -25,10 +25,6 @@ impl<'ast> Method<'ast> {
     pub fn input(self) -> Message<'ast> {
         Message::new(self.0.input, self.0.ast)
     }
-
-    pub(crate) fn new(key: Key, ast: &'ast crate::ast::Ast) -> Self {
-        Self(Resolver::new(key, ast))
-    }
 }
 
 impl_traits_and_methods!(Method, Key, Inner);
