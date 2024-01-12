@@ -1,10 +1,10 @@
 use super::{
-    r#enum, extension,
+    access, r#enum, extension,
     field::{self},
     file, impl_traits_and_methods, message,
     oneof::{self},
     package,
-    reference::{Reference, ReferenceInner},
+    reference::{ReferenceInner, References},
     ContainerKey, FullyQualifiedName, ReservedRange, Resolver, UninterpretedOption,
 };
 use protobuf::descriptor::MessageOptions;
@@ -28,6 +28,7 @@ pub(super) struct Inner {
     applied_extensions: Vec<extension::Key>,
     dependents: Vec<file::Key>,
     referenced_by: Vec<ReferenceInner>,
+    references: Vec<ReferenceInner>,
 
     reserved_ranges: Vec<ReservedRange>,
     ///  Reserved field names, which may not be used by fields in the same
@@ -57,6 +58,12 @@ pub(super) struct Inner {
     file: file::Key,
 }
 impl Inner {
+    pub(super) fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut ReferenceInner> {
+        self.references
+            .iter_mut()
+            .chain(self.referenced_by.iter_mut())
+    }
+
     pub(super) fn set_fields(&mut self, fields: Vec<field::Key>) {
         self.fields = fields;
     }
@@ -105,8 +112,26 @@ impl Inner {
 }
 
 pub struct Message<'ast>(Resolver<'ast, Key, Inner>);
-
 impl_traits_and_methods!(Message, Key, Inner);
+
+impl<'ast> Message<'ast> {
+    pub fn references(&'ast self) -> References<'ast> {
+        access::References::references(self)
+    }
+    pub fn referenced_by(&'ast self) -> References<'ast> {
+        access::ReferencedBy::referenced_by(self)
+    }
+}
+impl<'ast> access::References<'ast> for Message<'ast> {
+    fn references(&'ast self) -> super::reference::References<'ast> {
+        References::from_slice(&self.0.references, self.ast())
+    }
+}
+impl<'ast> access::ReferencedBy<'ast> for Message<'ast> {
+    fn referenced_by(&'ast self) -> super::reference::References<'ast> {
+        References::from_slice(&self.0.referenced_by, self.ast())
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WellKnownMessage {

@@ -1,4 +1,4 @@
-use std::{iter::Copied, slice};
+use std::{iter::Copied, option, slice};
 
 use either::Either;
 
@@ -40,18 +40,6 @@ impl<'ast> Reference<'ast> {
     pub fn is_external(self) -> bool {
         self.is_external
     }
-    pub(super) fn new(
-        referrer: impl Into<ReferrerKey>,
-        referent: impl Into<ReferentKey>,
-        is_external: bool,
-        ast: &'ast Ast,
-    ) -> Self {
-        Self {
-            referrer: Referrer::new(referrer, ast),
-            referent: Referent::new(referent, ast),
-            is_external,
-        }
-    }
 
     fn from_inner(inner: ReferenceInner, ast: &'ast Ast) -> Self {
         Self {
@@ -62,7 +50,7 @@ impl<'ast> Reference<'ast> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Default, Copy, Debug, PartialEq, Eq)]
 pub struct ReferenceInner {
     referrer: ReferrerKey,
     referent: ReferentKey,
@@ -70,7 +58,7 @@ pub struct ReferenceInner {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ReferentKey {
+pub(super) enum ReferentKey {
     Message(message::Key),
     Enum(r#enum::Key),
 }
@@ -143,6 +131,16 @@ pub(super) enum ReferrerKey {
     Extension(extension::Key),
     Method(method::Key),
 }
+impl Default for ReferrerKey {
+    fn default() -> Self {
+        Self::Field(field::Key::default())
+    }
+}
+impl Default for ReferentKey {
+    fn default() -> Self {
+        Self::Message(message::Key::default())
+    }
+}
 impl From<field::Key> for ReferrerKey {
     fn from(key: field::Key) -> Self {
         Self::Field(key)
@@ -214,12 +212,9 @@ impl<'ast> Referrer<'ast> {
 
 pub struct References<'ast> {
     ast: &'ast Ast,
-    inner: Either<Copied<slice::Iter<'ast, ReferenceInner>>, std::option::IntoIter<ReferenceInner>>,
+    inner: Either<Copied<slice::Iter<'ast, ReferenceInner>>, option::IntoIter<ReferenceInner>>,
 }
 impl<'ast> References<'ast> {
-    pub(crate) fn empty(ast: &'ast Ast) -> Self {
-        Self::from_option(None, ast)
-    }
     pub(crate) fn from_option(opt: Option<ReferenceInner>, ast: &'ast Ast) -> Self {
         Self {
             ast,

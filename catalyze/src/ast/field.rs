@@ -317,8 +317,8 @@ pub enum Type<'ast> {
 
 // impl Copy for Type<'_> {}
 
-#[derive(Debug, Clone, Copy)]
-enum TypeInner {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum TypeInner {
     Single(ValueInner),
     Repeated(ValueInner),
     Map(MapInner),
@@ -331,7 +331,7 @@ impl Default for TypeInner {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ValueInner {
+pub(super) enum ValueInner {
     Scalar(Scalar),
     Enum(r#enum::Key),
     Message(message::Key),
@@ -560,13 +560,13 @@ impl From<protobuf::descriptor::field_options::JSType> for JsType {
 }
 
 impl<'ast> Field<'ast> {
-    pub fn references(self) -> References<'ast> {
+    pub fn references(&'ast self) -> References<'ast> {
         super::access::References::references(self)
     }
 }
 
 impl<'ast> super::access::References<'ast> for Field<'ast> {
-    fn references(self) -> super::reference::References<'ast> {
+    fn references(&'ast self) -> super::reference::References<'ast> {
         References::from_option(self.0.reference, self.ast())
     }
 }

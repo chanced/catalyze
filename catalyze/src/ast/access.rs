@@ -1,5 +1,9 @@
 pub trait References<'ast> {
-    fn references(self) -> super::reference::References<'ast>;
+    fn references(&'ast self) -> super::reference::References<'ast>;
+}
+
+pub trait ReferencedBy<'ast> {
+    fn referenced_by(&'ast self) -> super::reference::References<'ast>;
 }
 
 /// A trait implemented by nodes with parent nodes, providing access to
