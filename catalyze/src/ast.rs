@@ -64,6 +64,56 @@ trait Resolve<T> {
     fn resolve(&self) -> &T;
 }
 
+struct Resolver<'ast, K, I> {
+    ast: &'ast Ast,
+    key: K,
+    marker: std::marker::PhantomData<I>,
+}
+
+impl<'ast, K, I> Resolver<'ast, K, I> {
+    const fn new(key: K, ast: &'ast Ast) -> Self {
+        Self {
+            ast,
+            key,
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<'ast, K, I> Clone for Resolver<'ast, K, I>
+where
+    K: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            ast: self.ast,
+            key: self.key.clone(),
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<'ast, K, I> From<(K, &'ast Ast)> for Resolver<'ast, K, I> {
+    fn from((key, ast): (K, &'ast Ast)) -> Self {
+        Self {
+            ast,
+            key,
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<'ast, K, I> Copy for Resolver<'ast, K, I> where K: Copy {}
+
+impl<'ast, K, I> PartialEq for Resolver<'ast, K, I>
+where
+    K: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+impl<'ast, K, I> Eq for Resolver<'ast, K, I> where K: Eq {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Key {
     Package(package::Key),
@@ -566,57 +616,6 @@ impl Ast {
         todo!()
     }
 }
-
-struct Resolver<'ast, K, I> {
-    ast: &'ast Ast,
-    key: K,
-    marker: std::marker::PhantomData<I>,
-}
-
-impl<'ast, K, I> Resolver<'ast, K, I> {
-    const fn new(key: K, ast: &'ast Ast) -> Self {
-        Self {
-            ast,
-            key,
-            marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<'ast, K, I> Clone for Resolver<'ast, K, I>
-where
-    K: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            ast: self.ast,
-            key: self.key.clone(),
-            marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<'ast, K, I> From<(K, &'ast Ast)> for Resolver<'ast, K, I> {
-    fn from((key, ast): (K, &'ast Ast)) -> Self {
-        Self {
-            ast,
-            key,
-            marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<'ast, K, I> Copy for Resolver<'ast, K, I> where K: Copy {}
-
-impl<'ast, K, I> PartialEq for Resolver<'ast, K, I>
-where
-    K: PartialEq,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.key == other.key
-    }
-}
-impl<'ast, K, I> Eq for Resolver<'ast, K, I> where K: Eq {}
 
 macro_rules! impl_resolve {
     ($($col: ident -> $mod: ident,)+) => {
