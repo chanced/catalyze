@@ -1,10 +1,8 @@
-use core::panic;
-
 use crate::ast::{impl_traits_and_methods, FullyQualifiedName, Resolver, UninterpretedOption};
 
 use super::{
-    access::{NodeAtPath, NodeKeys},
-    file, package, State,
+    access::{AtPath, NodeKeys},
+    file, package, Comments, Span, State,
 };
 
 pub struct EnumValue<'ast>(Resolver<'ast, Key, Inner>);
@@ -20,13 +18,16 @@ pub(super) struct Inner {
     state: State,
     fqn: FullyQualifiedName,
     file: file::Key,
+    node_path: Vec<i32>,
+    span: Span,
+    comments: Option<Comments>,
     package: Option<package::Key>,
     name: String,
     uninterpreted_options: Vec<UninterpretedOption>,
 }
 
-impl NodeAtPath for Inner {
-    fn node_at_path(&self, path: &[i32]) -> Option<super::Key> {
+impl AtPath for Inner {
+    fn at_path(&self, path: &[i32]) -> Option<super::Key> {
         if path.is_empty() {
             Some(self.key.into())
         } else {

@@ -1,4 +1,8 @@
-use super::{access::NodeKeys, file, impl_traits_and_methods, FullyQualifiedName, Resolver, State};
+use super::{
+    access::NodeKeys,
+    file::{self, File},
+    impl_traits_and_methods, FullyQualifiedName, Resolver, State,
+};
 
 use std::fmt::Debug;
 
@@ -6,11 +10,31 @@ slotmap::new_key_type! {
     pub(super) struct Key;
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CommentsInner {
+    comments: super::Comments,
+    defined_in: file::Key,
+}
+
+pub struct Comments<'ast> {
+    pub comments: super::Comments,
+    pub defined_in: File<'ast>,
+}
+
+impl<'ast> Comments<'ast> {
+    pub fn defined_in(&self) -> File<'ast> {
+        self.defined_in
+    }
+    pub fn comments(&self) -> &super::Comments {
+        &self.comments
+    }
+}
 #[derive(PartialEq, Default, Clone, Debug)]
 pub(super) struct Inner {
     key: Key,
     state: State,
     fqn: FullyQualifiedName,
+    comments: Vec<CommentsInner>,
     name: String,
     is_well_known: bool,
     files: Vec<file::Key>,
@@ -18,11 +42,13 @@ pub(super) struct Inner {
 impl Inner {
     pub fn new(name: impl AsRef<str>) -> Self {
         Self {
+            key: Key::default(),
             state: State::Hydrating,
             name: name.as_ref().to_owned(),
             is_well_known: name.as_ref() == Package::WELL_KNOWN,
             files: Vec::default(),
             fqn: FullyQualifiedName::from_package_name(name),
+            comments: Vec::default(),
         }
     }
     pub(super) fn fqn(&self) -> &FullyQualifiedName {
@@ -30,6 +56,12 @@ impl Inner {
     }
     pub(super) fn add_file(&mut self, file: file::Key) {
         self.files.push(file);
+    }
+    pub(super) fn add_comments(&mut self, comments: super::Comments, defined_in: file::Key) {
+        self.comments.push(CommentsInner {
+            comments,
+            defined_in,
+        });
     }
 }
 

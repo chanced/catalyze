@@ -16,7 +16,7 @@ use super::{
     message::{self, Message},
     package,
     reference::{ReferenceInner, References},
-    State,
+    Comments, Span, State,
 };
 
 #[derive(Debug, Default, Clone)]
@@ -25,6 +25,9 @@ pub(super) struct Inner {
     state: State,
     value: ValueInner,
     fqn: FullyQualifiedName,
+    node_path: Vec<i32>,
+    span: Span,
+    comments: Option<Comments>,
     name: String,
     number: i32,
     label: Option<Label>,

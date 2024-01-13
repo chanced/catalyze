@@ -54,6 +54,18 @@ pub trait FullyQualifiedName {
     }
 }
 
+pub trait NodePath {
+    fn node_path(&self) -> &[i32];
+}
+
+pub trait Comments {
+    fn comments(&self) -> Option<&super::Comments>;
+}
+
+pub trait Span {
+    fn span(&self) -> super::Span;
+}
+
 pub(crate) trait ReferencesMut {
     fn references_mut(
         &mut self,
@@ -69,8 +81,8 @@ pub(super) trait State {
     fn state_mut(&mut self) -> &mut super::State;
 }
 
-pub(super) trait NodeAtPath {
-    fn node_at_path(&self, path: &[i32]) -> Option<super::Key>;
+pub(super) trait AtPath {
+    fn at_path(&self, path: &[i32]) -> Option<super::Key>;
 }
 
 pub(super) trait Key {

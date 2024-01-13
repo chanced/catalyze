@@ -11,6 +11,8 @@ pub mod package;
 pub mod reference;
 pub mod service;
 
+mod path;
+
 use std::{
     borrow::Cow,
     fmt,
@@ -37,33 +39,57 @@ use oneof::Oneof;
 use package::Package;
 use service::Service;
 
-mod node_path {
-    const PACKAGE: i32 = 2;
-    const MESSAGE: i32 = 4;
-    const ENUM: i32 = 5;
-    const SERVICE: i32 = 6;
-    const SYNTAX: i32 = 12;
-    const FIELD: i32 = 2;
-    const NESTED_MESSAGE: i32 = 3;
-    const MESSAGE_ENUM: i32 = 4;
-    const ONEOF: i32 = 8;
-    const ENUM_VALUE: i32 = 2;
-    const METHOD: i32 = 2;
+/// Zero-based spans of a node.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Span {
+    pub start_line: i32,
+    pub start_column: i32,
+    pub end_line: i32,
+    pub end_column: i32,
+}
+impl Span {
+    fn new(span: Vec<i32>) -> Result<Self, Vec<i32>> {
+        match span.len() {
+            3 => Ok(Self {
+                start_line: span[0],
+                start_column: span[1],
+                end_line: span[0],
+                end_column: span[2],
+            }),
+            4 => Ok(Self {
+                start_line: span[0],
+                start_column: span[1],
+                end_line: span[2],
+                end_column: span[3],
+            }),
+            _ => Err(span),
+        }
+    }
+    pub fn start_line(&self) -> i32 {
+        self.start_line
+    }
+    pub fn start_column(&self) -> i32 {
+        self.start_column
+    }
+    pub fn end_line(&self) -> i32 {
+        self.end_line
+    }
+    pub fn end_column(&self) -> i32 {
+        self.end_column
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum State {
     #[default]
     Hydrating = 0,
-    Commenting = 1,
-    Linking = 2,
-    Done = 3,
+    Linking = 1,
+    Done = 2,
 }
 impl State {
     fn next(self) -> Option<Self> {
         match self {
-            Self::Hydrating => Some(Self::Commenting),
-            Self::Commenting => Some(Self::Linking),
+            Self::Hydrating => Some(Self::Linking),
             Self::Linking => Some(Self::Done),
             Self::Done => None,
         }
@@ -83,9 +109,6 @@ trait Fsm: access::State {
     }
     fn is_hydrating(&self) -> bool {
         self.state() == State::Hydrating
-    }
-    fn is_commenting(&self) -> bool {
-        self.state() == State::Commenting
     }
     fn is_linking(&self) -> bool {
         self.state() == State::Linking
@@ -763,6 +786,23 @@ pub enum Node<'ast> {
     Extension(Extension<'ast>),
 }
 
+macro_rules! node_pass_through {
+    ($method: ident) => {
+        match self {
+            Self::Package(n) => n.$method(),
+            Self::File(n) => n.$method(),
+            Self::Message(n) => n.$method(),
+            Self::Oneof(n) => n.$method(),
+            Self::Enum(n) => n.$method(),
+            Self::EnumValue(n) => n.$method(),
+            Self::Service(n) => n.$method(),
+            Self::Method(n) => n.$method(),
+            Self::Field(n) => n.$method(),
+            Self::Extension(n) => n.$method(),
+        }
+    };
+}
+
 impl fmt::Debug for Node<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -1079,30 +1119,6 @@ impl Comments {
     /// Each comment block or line above the entity but seperated by whitespace.
     pub fn leading_detached(&self) -> &[String] {
         &self.leading_detached
-    }
-}
-
-struct Location {
-    pub path: Vec<i32>,
-    ///  Always has exactly three or four elements: start line, start column,
-    ///  end line (optional, otherwise assumed same as start line), end column.
-    ///  These are packed into a single field for efficiency.  Note that line
-    ///  and column numbers are zero-based -- typically you will want to add
-    ///  1 to each before displaying to a user.
-    pub span: Vec<i32>,
-}
-
-impl Location {
-    pub fn path(&self) -> &[i32] {
-        &self.path
-    }
-    ///  Always has exactly three or four elements: start line, start column,
-    ///  end line (optional, otherwise assumed same as start line), end column.
-    ///  These are packed into a single field for efficiency.  Note that line
-    ///  and column numbers are zero-based -- typically you will want to add
-    ///  1 to each before displaying to a user.
-    pub fn span(&self) -> &[i32] {
-        &self.span
     }
 }
 
@@ -1528,6 +1544,68 @@ macro_rules! node_method_key {
     };
 }
 
+macro_rules! impl_span {
+    ($node:ident, $inner:ident) => {
+        impl<'ast> crate::ast::access::Span for $node<'ast> {
+            fn span(&self) -> crate::ast::Span {
+                self.0.span
+            }
+        }
+        impl<'ast> $node<'ast> {
+            pub fn span(&self) -> crate::ast::Span {
+                self.0.span
+            }
+        }
+
+        impl $inner {
+            pub(super) fn set_span(&mut self, span: crate::ast::Span) {
+                self.span = span;
+            }
+        }
+    };
+}
+
+macro_rules! impl_comments {
+    ($node:ident, $inner:ident) => {
+        impl<'ast> crate::ast::access::Comments for $node<'ast> {
+            fn comments(&self) -> Option<&crate::ast::Comments> {
+                self.0.comments.as_ref()
+            }
+        }
+        impl<'ast> $node<'ast> {
+            pub fn comments(&self) -> Option<&crate::ast::Comments> {
+                self.0.comments.as_ref()
+            }
+        }
+
+        impl $inner {
+            pub(super) fn set_comments(&mut self, comments: crate::ast::Comments) {
+                self.comments = Some(comments);
+            }
+        }
+    };
+}
+
+macro_rules! impl_node_path {
+    ($node:ident, $inner:ident) => {
+        impl<'ast> crate::ast::access::NodePath for $node<'ast> {
+            fn node_path(&self) -> &[i32] {
+                &self.0.node_path
+            }
+        }
+        impl<'ast> $node<'ast> {
+            pub fn node_path(&self) -> &[i32] {
+                &self.0.node_path
+            }
+        }
+        impl $inner {
+            pub(super) fn set_node_path(&mut self, path: Vec<i32>) {
+                self.node_path = path;
+            }
+        }
+    };
+}
+
 macro_rules! impl_base_traits_and_methods {
     ($node:ident, $key:ident, $inner:ident) => {
         crate::ast::impl_key!($inner, $key);
@@ -1554,17 +1632,20 @@ macro_rules! impl_traits_and_methods {
     (File, $key:ident, $inner: ident) => {
         crate::ast::impl_base_traits_and_methods!(File, $key, $inner);
         crate::ast::impl_access_package!(File, $inner);
+        crate::ast::impl_comments!(File, $inner);
         crate::ast::impl_set_uninterpreted_options!($inner);
         crate::ast::inner_method_package!($inner);
     };
 
     (Message, $key:ident, $inner: ident) => {
-        // has_reserved = true
         crate::ast::impl_base_traits_and_methods!(Message, $key, $inner);
         crate::ast::impl_access_reserved!(Message, $inner);
         crate::ast::impl_access_file!(Message, $inner);
         crate::ast::impl_access_package!(Message, $inner);
         crate::ast::impl_set_uninterpreted_options!($inner);
+        crate::ast::impl_node_path!(Message, $inner);
+        crate::ast::impl_span!(Message, $inner);
+        crate::ast::impl_comments!(Message, $inner);
         crate::ast::inner_method_file!($inner);
         crate::ast::inner_method_package!($inner);
     };
@@ -1575,6 +1656,9 @@ macro_rules! impl_traits_and_methods {
         crate::ast::impl_access_file!(Enum, $inner);
         crate::ast::impl_access_package!(Enum, $inner);
         crate::ast::impl_set_uninterpreted_options!($inner);
+        crate::ast::impl_node_path!(Enum, $inner);
+        crate::ast::impl_span!(Enum, $inner);
+        crate::ast::impl_comments!(Enum, $inner);
         crate::ast::inner_method_file!($inner);
         crate::ast::inner_method_package!($inner);
     };
@@ -1584,6 +1668,9 @@ macro_rules! impl_traits_and_methods {
         crate::ast::impl_access_file!($node, $inner);
         crate::ast::impl_access_package!($node, $inner);
         crate::ast::impl_set_uninterpreted_options!($inner);
+        crate::ast::impl_node_path!($node, $inner);
+        crate::ast::impl_span!($node, $inner);
+        crate::ast::impl_comments!($node, $inner);
         crate::ast::inner_method_file!($inner);
         crate::ast::inner_method_package!($inner);
     };
@@ -1597,13 +1684,16 @@ use impl_access_package;
 use impl_access_reserved;
 use impl_base_traits_and_methods;
 use impl_clone_copy;
+use impl_comments;
 use impl_eq;
 use impl_fmt;
 use impl_from_fqn;
 use impl_from_key_and_ast;
 use impl_fsm;
 use impl_key;
+use impl_node_path;
 use impl_set_uninterpreted_options;
+use impl_span;
 use impl_state;
 use impl_traits_and_methods;
 use inner_method_file;

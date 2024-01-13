@@ -4,8 +4,8 @@ use super::{
     access::NodeKeys,
     field::{TypeInner, ValueInner},
     file, package,
-    reference::{ReferenceInner, References, ReferentKey},
-    State,
+    reference::{ReferenceInner, References},
+    Comments, Span, State,
 };
 
 pub use super::field::{CType, JsType, Label};
@@ -20,6 +20,9 @@ pub(super) struct Inner {
     state: State,
     value: ValueInner,
     fqn: FullyQualifiedName,
+    node_path: Vec<i32>,
+    span: Span,
+    comments: Option<Comments>,
     name: String,
     number: i32,
     label: Option<Label>,

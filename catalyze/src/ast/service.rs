@@ -1,6 +1,6 @@
 use super::{
-    access::NodeKeys, file, impl_traits_and_methods, package, FullyQualifiedName, Resolver, State,
-    UninterpretedOption,
+    access::NodeKeys, file, impl_traits_and_methods, package, Comments, FullyQualifiedName,
+    Resolver, Span, State, UninterpretedOption,
 };
 
 slotmap::new_key_type! {
@@ -12,6 +12,9 @@ pub(super) struct Inner {
     key: Key,
     state: State,
     fqn: FullyQualifiedName,
+    node_path: Vec<i32>,
+    span: Span,
+    comments: Option<Comments>,
     name: String,
     package: Option<package::Key>,
     file: file::Key,

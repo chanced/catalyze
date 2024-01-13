@@ -5,7 +5,7 @@ use crate::ast::{
 
 use std::fmt;
 
-use super::{access::NodeKeys, file, package, reference::ReferrerKey, State};
+use super::{access::NodeKeys, file, package, reference::ReferrerKey, Comments, Span, State};
 
 slotmap::new_key_type! {
     pub(super) struct Key;
@@ -16,6 +16,9 @@ pub(super) struct Inner {
     key: Key,
     state: State,
     fqn: FullyQualifiedName,
+    node_path: Vec<i32>,
+    span: Span,
+    comments: Option<Comments>,
     reserved_ranges: Vec<ReservedRange>,
     ///  Reserved field names, which may not be used by fields in the same
     /// message.  

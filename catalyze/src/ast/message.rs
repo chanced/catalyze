@@ -6,7 +6,8 @@ use super::{
     oneof::{self},
     package,
     reference::{ReferenceInner, References},
-    ContainerKey, FullyQualifiedName, ReservedRange, Resolver, State, UninterpretedOption,
+    Comments, ContainerKey, FullyQualifiedName, ReservedRange, Resolver, Span, State,
+    UninterpretedOption,
 };
 use protobuf::descriptor::MessageOptions;
 
@@ -19,6 +20,9 @@ pub(super) struct Inner {
     key: Key,
     state: State,
     fqn: FullyQualifiedName,
+    node_path: Vec<i32>,
+    span: Span,
+    comments: Option<Comments>,
     name: String,
     container: ContainerKey,
     fields: Vec<field::Key>,

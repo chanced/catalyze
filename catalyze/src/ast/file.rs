@@ -1,4 +1,5 @@
 use crate::error::Error;
+use ahash::HashMap;
 use protobuf::descriptor::{file_options::OptimizeMode as ProtoOptimizeMode, FileOptions};
 use std::{
     fmt,
@@ -8,8 +9,9 @@ use std::{
 };
 
 use super::{
-    access::NodeKeys, r#enum, extension, impl_traits_and_methods, message, package, service,
-    Comments, FullyQualifiedName, Resolver, State, UninterpretedOption,
+    access::{AtPath, NodeKeys},
+    r#enum, extension, impl_traits_and_methods, message, package, service, Comments,
+    FullyQualifiedName, Resolver, State, UninterpretedOption,
 };
 
 slotmap::new_key_type! {
@@ -386,13 +388,15 @@ pub(super) struct Inner {
     public_imports: Vec<ImportInner>,
     weak_imports: Vec<ImportInner>,
     fqn: FullyQualifiedName,
-    package_comments: Comments,
-    comments: Comments,
+    package_comments: Option<Comments>,
+    comments: Option<Comments>,
     dependents: Vec<Key>,
     transitive_dependencies: Vec<Key>,
     transitive_dependents: Vec<Key>,
     is_build_target: bool,
     syntax: Syntax,
+
+    node_paths: HashMap<Vec<i32>, super::Key>,
 
     ///  Sets the Java package where classes generated from this .proto will be
     ///  placed.  By default, the proto package is used, but this is often
@@ -538,10 +542,7 @@ impl Inner {
         self.fqn = fqn;
     }
     pub(super) fn set_package_comments(&mut self, package_comments: Comments) {
-        self.package_comments = package_comments;
-    }
-    pub(super) fn set_comments(&mut self, comments: Comments) {
-        self.comments = comments;
+        self.package_comments = Some(package_comments);
     }
     pub(super) fn set_dependents(&mut self, dependents: Vec<Key>) {
         self.dependents = dependents;

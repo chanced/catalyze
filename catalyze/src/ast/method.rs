@@ -4,7 +4,7 @@ use super::{
     message::{self, Message},
     package,
     reference::{ReferenceInner, References},
-    FullyQualifiedName, Resolver, State, UninterpretedOption,
+    Comments, FullyQualifiedName, Resolver, Span, State, UninterpretedOption,
 };
 
 slotmap::new_key_type! {
@@ -16,6 +16,9 @@ pub(super) struct Inner {
     key: Key,
     state: State,
     fqn: FullyQualifiedName,
+    node_path: Vec<i32>,
+    span: Span,
+    comments: Option<Comments>,
     package: Option<package::Key>,
     file: file::Key,
     name: String,
