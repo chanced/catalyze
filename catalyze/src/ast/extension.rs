@@ -4,6 +4,7 @@ use super::{
     field::{TypeInner, ValueInner},
     file, package,
     reference::{ReferenceInner, References, ReferentKey},
+    State,
 };
 
 pub use super::field::{CType, JsType, Label};
@@ -14,6 +15,7 @@ slotmap::new_key_type! {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {
+    state: State,
     value: ValueInner,
     fqn: FullyQualifiedName,
     name: String,

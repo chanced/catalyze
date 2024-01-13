@@ -1,11 +1,13 @@
 use super::{
-    file, impl_traits_and_methods, package, FullyQualifiedName, Resolver, UninterpretedOption,
+    file, impl_traits_and_methods, package, FullyQualifiedName, Resolver, State,
+    UninterpretedOption,
 };
 
 pub struct Oneof<'ast>(Resolver<'ast, Key, Inner>);
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {
+    state: State,
     fqn: FullyQualifiedName,
     package: Option<package::Key>,
     file: file::Key,

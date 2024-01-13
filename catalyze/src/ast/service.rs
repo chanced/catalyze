@@ -1,5 +1,6 @@
 use super::{
-    file, impl_traits_and_methods, package, FullyQualifiedName, Resolver, UninterpretedOption,
+    file, impl_traits_and_methods, package, FullyQualifiedName, Resolver, State,
+    UninterpretedOption,
 };
 
 slotmap::new_key_type! {
@@ -8,6 +9,7 @@ slotmap::new_key_type! {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Inner {
+    state: State,
     fqn: FullyQualifiedName,
     name: String,
     package: Option<package::Key>,

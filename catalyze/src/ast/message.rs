@@ -5,7 +5,7 @@ use super::{
     oneof::{self},
     package,
     reference::{ReferenceInner, References},
-    ContainerKey, FullyQualifiedName, ReservedRange, Resolver, UninterpretedOption,
+    ContainerKey, FullyQualifiedName, ReservedRange, Resolver, State, UninterpretedOption,
 };
 use protobuf::descriptor::MessageOptions;
 
@@ -15,6 +15,7 @@ slotmap::new_key_type! {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Inner {
+    state: State,
     fqn: FullyQualifiedName,
     name: String,
     container: ContainerKey,
@@ -57,13 +58,16 @@ pub(super) struct Inner {
     package: Option<package::Key>,
     file: file::Key,
 }
-impl Inner {
-    pub(super) fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut ReferenceInner> {
+
+impl super::access::ReferencesMut for Inner {
+    fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut ReferenceInner> {
         self.references
             .iter_mut()
             .chain(self.referenced_by.iter_mut())
     }
+}
 
+impl Inner {
     pub(super) fn set_fields(&mut self, fields: Vec<field::Key>) {
         self.fields = fields;
     }

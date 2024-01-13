@@ -9,7 +9,7 @@ use std::{
 
 use super::{
     r#enum, extension, impl_traits_and_methods, message, package, service, Comments,
-    FullyQualifiedName, Resolver, UninterpretedOption,
+    FullyQualifiedName, Resolver, State, UninterpretedOption,
 };
 
 slotmap::new_key_type! {
@@ -371,32 +371,28 @@ impl<'ast> Import<'ast> {
 #[derive(Debug, Default, Clone, PartialEq)]
 #[doc(hidden)]
 pub(super) struct Inner {
-    pub(super) name: String,
-    pub(super) path: PathBuf,
-    pub(super) package: Option<package::Key>,
+    state: State,
+    name: String,
+    path: PathBuf,
+    package: Option<package::Key>,
+    messages: Vec<message::Key>,
+    enums: Vec<r#enum::Key>,
+    services: Vec<service::Key>,
+    defined_extensions: Vec<extension::Key>,
+    used_imports: Vec<ImportInner>,
+    unused_imports: Vec<ImportInner>,
+    imports: Vec<ImportInner>,
+    public_imports: Vec<ImportInner>,
+    weak_imports: Vec<ImportInner>,
+    fqn: FullyQualifiedName,
+    package_comments: Comments,
+    comments: Comments,
+    dependents: Vec<Key>,
+    transitive_dependencies: Vec<Key>,
+    transitive_dependents: Vec<Key>,
+    is_build_target: bool,
+    syntax: Syntax,
 
-    pub(super) messages: Vec<message::Key>,
-    pub(super) enums: Vec<r#enum::Key>,
-    pub(super) services: Vec<service::Key>,
-    pub(super) defined_extensions: Vec<extension::Key>,
-
-    pub(super) used_imports: Vec<ImportInner>,
-    pub(super) unused_imports: Vec<ImportInner>,
-    pub(super) imports: Vec<ImportInner>,
-    pub(super) public_imports: Vec<ImportInner>,
-    pub(super) weak_imports: Vec<ImportInner>,
-
-    // file_path: PathBuf,
-    pub(super) fqn: FullyQualifiedName,
-
-    pub(super) package_comments: Comments,
-    pub(super) comments: Comments,
-    pub(super) dependents: Vec<Key>,
-    pub(super) transitive_dependencies: Vec<Key>,
-    pub(super) transitive_dependents: Vec<Key>,
-    pub(super) is_build_target: bool,
-
-    pub(super) syntax: Syntax,
     ///  Sets the Java package where classes generated from this .proto will be
     ///  placed.  By default, the proto package is used, but this is often
     ///  inappropriate because proto packages do not normally start with
@@ -496,7 +492,57 @@ impl Inner {
         self.path = PathBuf::from(&name);
         self.set_name(name);
     }
-
+    pub(super) fn set_path(&mut self, path: PathBuf) {
+        self.path = path;
+    }
+    pub(super) fn set_messages(&mut self, messages: Vec<message::Key>) {
+        self.messages = messages;
+    }
+    pub(super) fn set_enums(&mut self, enums: Vec<r#enum::Key>) {
+        self.enums = enums;
+    }
+    pub(super) fn set_services(&mut self, services: Vec<service::Key>) {
+        self.services = services;
+    }
+    pub(super) fn set_defined_extensions(&mut self, defined_extensions: Vec<extension::Key>) {
+        self.defined_extensions = defined_extensions;
+    }
+    pub(super) fn set_used_imports(&mut self, used_imports: Vec<ImportInner>) {
+        self.used_imports = used_imports;
+    }
+    pub(super) fn set_unused_imports(&mut self, unused_imports: Vec<ImportInner>) {
+        self.unused_imports = unused_imports;
+    }
+    pub(super) fn set_imports(&mut self, imports: Vec<ImportInner>) {
+        self.imports = imports;
+    }
+    pub(super) fn set_public_imports(&mut self, public_imports: Vec<ImportInner>) {
+        self.public_imports = public_imports;
+    }
+    pub(super) fn set_weak_imports(&mut self, weak_imports: Vec<ImportInner>) {
+        self.weak_imports = weak_imports;
+    }
+    pub(super) fn set_fqn(&mut self, fqn: FullyQualifiedName) {
+        self.fqn = fqn;
+    }
+    pub(super) fn set_package_comments(&mut self, package_comments: Comments) {
+        self.package_comments = package_comments;
+    }
+    pub(super) fn set_comments(&mut self, comments: Comments) {
+        self.comments = comments;
+    }
+    pub(super) fn set_dependents(&mut self, dependents: Vec<Key>) {
+        self.dependents = dependents;
+    }
+    pub(super) fn set_transitive_dependencies(&mut self, transitive_dependencies: Vec<Key>) {
+        self.transitive_dependencies = transitive_dependencies;
+    }
+    pub(super) fn set_transitive_dependents(&mut self, transitive_dependents: Vec<Key>) {
+        self.transitive_dependents = transitive_dependents;
+    }
+    pub(super) fn set_is_build_target(&mut self, is_build_target: bool) {
+        self.is_build_target = is_build_target;
+    }
     pub(super) fn set_syntax(&mut self, syntax: Option<String>) -> Result<(), Error> {
         self.syntax = parse_syntax(&syntax.unwrap_or_default())?;
         Ok(())

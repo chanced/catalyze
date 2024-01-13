@@ -51,6 +51,50 @@ mod node_path {
     const SERVICE_TYPE_METHOD: i32 = 2;
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum State {
+    #[default]
+    Hydrating = 0,
+    Commenting = 1,
+    Linking = 2,
+    Done = 3,
+}
+impl State {
+    fn next(self) -> Option<Self> {
+        match self {
+            Self::Hydrating => Some(Self::Commenting),
+            Self::Commenting => Some(Self::Linking),
+            Self::Linking => Some(Self::Done),
+            Self::Done => None,
+        }
+    }
+}
+trait Fsm: access::State {
+    fn transition(&mut self, next: State) {
+        let current = self.state_mut();
+        if current.next() == Some(next) {
+            *current = next;
+        } else {
+            panic!("invalid state transition; cannot transition to {next:?} from {current:?}",);
+        }
+    }
+    fn done(&mut self) {
+        self.transition(State::Done);
+    }
+    fn is_hydrating(&self) -> bool {
+        self.state() == State::Hydrating
+    }
+    fn is_commenting(&self) -> bool {
+        self.state() == State::Commenting
+    }
+    fn is_linking(&self) -> bool {
+        self.state() == State::Linking
+    }
+    fn is_done(&self) -> bool {
+        self.state() == State::Done
+    }
+}
+
 trait FromFqn {
     fn from_fqn(fqn: FullyQualifiedName) -> Self;
 }
@@ -296,6 +340,12 @@ where
     K: slotmap::Key,
     V: access::FullyQualifiedName,
 {
+    fn get(&self, key: K) -> Option<&V> {
+        self.map.get(key)
+    }
+    fn get_mut(&mut self, key: K) -> Option<&mut V> {
+        self.map.get_mut(key)
+    }
     fn iter(&self) -> impl Iterator<Item = (K, &V)> {
         self.order.iter().map(move |key| (*key, &self.map[*key]))
     }
@@ -310,12 +360,6 @@ where
     }
     fn get_mut_by_fqn(&mut self, fqn: &FullyQualifiedName) -> Option<&mut V> {
         self.lookup.get(fqn).map(|key| &mut self.map[*key])
-    }
-    fn get(&self, key: K) -> &V {
-        &self.map[key]
-    }
-    fn get_mut(&mut self, key: K) -> &mut V {
-        &mut self.map[key]
     }
     fn insert(&mut self, value: V) -> K {
         let fqn = value.fqn().clone();
@@ -426,14 +470,15 @@ impl Ast {
         let mut referenced_files = HashSet::new();
 
         let name = name.unwrap_or_default();
-        let fqn = FullyQualifiedName::new(&name, package.as_ref().map(|(_, pkg)| pkg.fqn.clone()));
+        let fqn =
+            FullyQualifiedName::new(&name, package.as_ref().map(|(_, pkg)| pkg.fqn().clone()));
         let is_build_target = targets
             .iter()
             .any(|target| target.as_os_str() == name.as_str());
         let (key, file) = self.files.get_or_insert_mut_by_fqn(fqn.clone());
 
         let package = if let Some((pkg_key, pkg)) = package {
-            pkg.files.push(key);
+            pkg.add_file(key);
             Some(pkg_key)
         } else {
             None
@@ -448,7 +493,7 @@ impl Ast {
         for msg in message_type {
             let fqn = FullyQualifiedName::new(msg.name(), Some(fqn.clone()));
             let msg_key = self.hydrate_message(fqn, msg, key, key, package)?;
-            referenced_files.insert(self.messages[msg_key].file());
+            referenced_files.insert(self.messages.get(msg_key).unwrap().file());
             messages.push(msg_key);
         }
 
@@ -480,10 +525,10 @@ impl Ast {
         }
 
         let file = &mut self.files[key];
-        file.messages = messages;
-        file.enums = enums;
-        file.services = services;
-        file.defined_extensions = extensions;
+        file.set_messages(messages);
+        file.set_enums(enums);
+        file.set_services(services);
+        file.set_defined_extensions(extensions);
         file.set_package(package);
         // TODO: comments
         todo!()
@@ -1190,10 +1235,11 @@ impl TryFrom<i32> for DescriptorPath {
     }
 }
 
-macro_rules! impl_access_references {
-    ($inner:ident) => {};
+macro_rules! impl_fsm {
+    ($inner:ident) => {
+        impl crate::ast::Fsm for $inner {}
+    };
 }
-
 macro_rules! impl_access {
     ($node: ident, $key: ident, $inner: ident) => {
         impl<'ast> crate::ast::Resolve<$inner> for $node<'ast> {
@@ -1222,11 +1268,7 @@ macro_rules! impl_access_fqn {
                 use crate::ast::Resolve;
                 &self.resolve().fqn
             }
-            fn fqn(&self) -> &crate::ast::FullyQualifiedName {
-                self.fully_qualified_name()
-            }
         }
-
         impl<'ast> $node<'ast> {
             fn fully_qualified_name(&self) -> &crate::ast::FullyQualifiedName {
                 use crate::ast::Resolve;
@@ -1236,9 +1278,26 @@ macro_rules! impl_access_fqn {
                 self.fully_qualified_name()
             }
         }
+        impl<'ast> crate::ast::access::FullyQualifiedName for $inner {
+            fn fully_qualified_name(&self) -> &crate::ast::FullyQualifiedName {
+                &self.fqn
+            }
+        }
     };
 }
 
+macro_rules! impl_state {
+    ($inner:ident) => {
+        impl crate::ast::access::State for $inner {
+            fn state(&self) -> crate::ast::State {
+                self.state
+            }
+            fn state_mut(&mut self) -> &mut crate::ast::State {
+                &mut self.state
+            }
+        }
+    };
+}
 macro_rules! impl_from_fqn {
     ($inner:ident) => {
         impl From<crate::ast::FullyQualifiedName> for $inner {
@@ -1457,6 +1516,7 @@ macro_rules! node_method_key {
 
 macro_rules! impl_base_traits_and_methods {
     ($node:ident, $key:ident, $inner:ident) => {
+        crate::ast::impl_fsm!($inner);
         crate::ast::node_method_new!($node, $key);
         crate::ast::node_method_key!($node, $key);
         crate::ast::node_method_ast!($node);
@@ -1468,6 +1528,7 @@ macro_rules! impl_base_traits_and_methods {
         crate::ast::impl_fmt!($node, $key, $inner);
         crate::ast::impl_from_fqn!($inner);
         crate::ast::impl_access_name!($node, $inner);
+        crate::ast::impl_state!($inner);
     };
 }
 macro_rules! impl_traits_and_methods {
@@ -1525,7 +1586,9 @@ use impl_eq;
 use impl_fmt;
 use impl_from_fqn;
 use impl_from_key_and_ast;
+use impl_fsm;
 use impl_set_uninterpreted_options;
+use impl_state;
 use impl_traits_and_methods;
 use inner_method_file;
 use inner_method_package;

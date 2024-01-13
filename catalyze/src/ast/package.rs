@@ -1,4 +1,4 @@
-use super::{file, impl_traits_and_methods, FullyQualifiedName, Resolver};
+use super::{file, impl_traits_and_methods, FullyQualifiedName, Resolver, State};
 
 use std::fmt::Debug;
 
@@ -8,21 +8,27 @@ slotmap::new_key_type! {
 
 #[derive(PartialEq, Default, Clone, Debug)]
 pub(super) struct Inner {
-    pub(super) fqn: FullyQualifiedName,
-    pub(super) name: String,
-    pub(super) is_well_known: bool,
-    pub(super) files: Vec<file::Key>,
-    pub(super) is_hydrated: bool,
+    state: State,
+    fqn: FullyQualifiedName,
+    name: String,
+    is_well_known: bool,
+    files: Vec<file::Key>,
 }
 impl Inner {
     pub fn new(name: impl AsRef<str>) -> Self {
         Self {
+            state: State::Hydrating,
             name: name.as_ref().to_owned(),
             is_well_known: name.as_ref() == Package::WELL_KNOWN,
             files: Vec::default(),
             fqn: FullyQualifiedName::from_package_name(name),
-            is_hydrated: false,
         }
+    }
+    pub(super) fn fqn(&self) -> &FullyQualifiedName {
+        &self.fqn
+    }
+    pub(super) fn add_file(&mut self, file: file::Key) {
+        self.files.push(file);
     }
 }
 

@@ -3,7 +3,7 @@ use super::{
     message::{self, Message},
     package,
     reference::{ReferenceInner, References},
-    FullyQualifiedName, Resolver, UninterpretedOption,
+    FullyQualifiedName, Resolver, State, UninterpretedOption,
 };
 
 slotmap::new_key_type! {
@@ -12,6 +12,7 @@ slotmap::new_key_type! {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {
+    state: State,
     fqn: FullyQualifiedName,
     package: Option<package::Key>,
     file: file::Key,

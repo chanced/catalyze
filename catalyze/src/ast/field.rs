@@ -15,10 +15,12 @@ use super::{
     message::{self, Message},
     package,
     reference::{ReferenceInner, References},
+    State,
 };
 
 #[derive(Debug, Default, Clone)]
 pub(super) struct Inner {
+    state: State,
     value: ValueInner,
     fqn: FullyQualifiedName,
     name: String,
@@ -568,6 +570,13 @@ impl<'ast> Field<'ast> {
 impl<'ast> super::access::References<'ast> for Field<'ast> {
     fn references(&'ast self) -> super::reference::References<'ast> {
         References::from_option(self.0.reference, self.ast())
+    }
+}
+impl super::access::ReferencesMut for Inner {
+    fn references_mut(
+        &mut self,
+    ) -> impl '_ + Iterator<Item = &'_ mut super::reference::ReferenceInner> {
+        self.reference.iter_mut()
     }
 }
 

@@ -53,3 +53,18 @@ pub trait FullyQualifiedName {
         self.fully_qualified_name()
     }
 }
+
+pub(crate) trait ReferencesMut {
+    fn references_mut(
+        &mut self,
+    ) -> impl '_ + Iterator<Item = &'_ mut super::reference::ReferenceInner>;
+}
+
+pub(super) trait NodeKeys {
+    fn key(&self) -> impl Iterator<Item = super::Key>;
+}
+
+pub(super) trait State {
+    fn state(&self) -> super::State;
+    fn state_mut(&mut self) -> &mut super::State;
+}
