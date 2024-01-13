@@ -1,4 +1,5 @@
 use super::{
+    access::NodeKeys,
     file, impl_traits_and_methods,
     message::{self, Message},
     package,
@@ -21,6 +22,12 @@ pub(super) struct Inner {
     input: message::Key,
     output: message::Key,
     references: [ReferenceInner; 2],
+}
+
+impl NodeKeys for Inner {
+    fn keys(&self) -> impl Iterator<Item = super::Key> {
+        std::iter::empty()
+    }
 }
 impl Inner {
     pub(super) fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut ReferenceInner> {

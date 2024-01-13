@@ -1,4 +1,4 @@
-use super::{file, impl_traits_and_methods, FullyQualifiedName, Resolver, State};
+use super::{access::NodeKeys, file, impl_traits_and_methods, FullyQualifiedName, Resolver, State};
 
 use std::fmt::Debug;
 
@@ -29,6 +29,12 @@ impl Inner {
     }
     pub(super) fn add_file(&mut self, file: file::Key) {
         self.files.push(file);
+    }
+}
+
+impl NodeKeys for Inner {
+    fn keys(&self) -> impl Iterator<Item = super::Key> {
+        self.files.iter().copied().map(Into::into)
     }
 }
 

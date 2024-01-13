@@ -1,6 +1,7 @@
 use crate::ast::{impl_traits_and_methods, FullyQualifiedName, Resolver, UninterpretedOption};
 
 use super::{
+    access::NodeKeys,
     field::{TypeInner, ValueInner},
     file, package,
     reference::{ReferenceInner, References, ReferentKey},
@@ -138,6 +139,12 @@ pub(super) struct Inner {
     package: Option<package::Key>,
     reference: Option<ReferenceInner>,
     file: file::Key,
+}
+
+impl NodeKeys for Inner {
+    fn keys(&self) -> impl Iterator<Item = super::Key> {
+        std::iter::empty()
+    }
 }
 
 impl Inner {

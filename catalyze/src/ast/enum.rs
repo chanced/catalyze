@@ -5,7 +5,7 @@ use crate::ast::{
 
 use std::fmt;
 
-use super::{file, package, reference::ReferrerKey, State};
+use super::{access::NodeKeys, file, package, reference::ReferrerKey, State};
 
 slotmap::new_key_type! {
     pub(super) struct Key;
@@ -25,9 +25,16 @@ pub(super) struct Inner {
     file: file::Key,
     container: ContainerKey,
     name: String,
-    pub(super) referenced_by: Vec<ReferrerKey>,
+    referenced_by: Vec<ReferrerKey>,
 
+    enum_values: Vec<super::enum_value::Key>,
     uninterpreted_options: Vec<UninterpretedOption>,
+}
+
+impl NodeKeys for Inner {
+    fn keys(&self) -> impl Iterator<Item = super::Key> {
+        self.enum_values.iter().copied().map(super::Key::EnumValue)
+    }
 }
 
 pub struct Enum<'ast>(Resolver<'ast, Key, Inner>);

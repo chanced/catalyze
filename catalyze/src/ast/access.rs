@@ -61,7 +61,7 @@ pub(crate) trait ReferencesMut {
 }
 
 pub(super) trait NodeKeys {
-    fn key(&self) -> impl Iterator<Item = super::Key>;
+    fn keys(&self) -> impl Iterator<Item = super::Key>;
 }
 
 pub(super) trait State {

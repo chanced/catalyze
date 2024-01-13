@@ -8,8 +8,8 @@ use std::{
 };
 
 use super::{
-    r#enum, extension, impl_traits_and_methods, message, package, service, Comments,
-    FullyQualifiedName, Resolver, State, UninterpretedOption,
+    access::NodeKeys, r#enum, extension, impl_traits_and_methods, message, package, service,
+    Comments, FullyQualifiedName, Resolver, State, UninterpretedOption,
 };
 
 slotmap::new_key_type! {
@@ -487,6 +487,17 @@ pub(super) struct Inner {
     pub(super) unknown_option_fields: protobuf::UnknownFields,
 }
 
+impl NodeKeys for Inner {
+    fn keys(&self) -> impl Iterator<Item = super::Key> {
+        self.messages
+            .iter()
+            .copied()
+            .map(Into::into)
+            .chain(self.enums.iter().copied().map(Into::into))
+            .chain(self.services.iter().copied().map(Into::into))
+            .chain(self.defined_extensions.iter().copied().map(Into::into))
+    }
+}
 impl Inner {
     pub(super) fn set_name_and_path(&mut self, name: String) {
         self.path = PathBuf::from(&name);

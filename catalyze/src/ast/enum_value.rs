@@ -1,6 +1,6 @@
 use crate::ast::{impl_traits_and_methods, FullyQualifiedName, Resolver, UninterpretedOption};
 
-use super::{file, package, State};
+use super::{access::NodeKeys, file, package, State};
 
 pub struct EnumValue<'ast>(Resolver<'ast, Key, Inner>);
 
@@ -17,4 +17,10 @@ pub(super) struct Inner {
     package: Option<package::Key>,
     name: String,
     uninterpreted_options: Vec<UninterpretedOption>,
+}
+
+impl NodeKeys for Inner {
+    fn keys(&self) -> impl Iterator<Item = super::Key> {
+        std::iter::empty()
+    }
 }

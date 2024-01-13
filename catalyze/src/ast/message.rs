@@ -1,5 +1,6 @@
 use super::{
-    access, r#enum, extension,
+    access::{self, NodeKeys},
+    r#enum, extension,
     field::{self},
     file, impl_traits_and_methods, message,
     oneof::{self},
@@ -64,6 +65,24 @@ impl super::access::ReferencesMut for Inner {
         self.references
             .iter_mut()
             .chain(self.referenced_by.iter_mut())
+    }
+}
+
+impl NodeKeys for Inner {
+    fn keys(&self) -> impl Iterator<Item = super::Key> {
+        self.fields
+            .iter()
+            .copied()
+            .map(super::Key::Field)
+            .chain(self.enums.iter().copied().map(super::Key::Enum))
+            .chain(self.messages.iter().copied().map(super::Key::Message))
+            .chain(self.oneofs.iter().copied().map(super::Key::Oneof))
+            .chain(
+                self.defined_extensions
+                    .iter()
+                    .copied()
+                    .map(super::Key::Extension),
+            )
     }
 }
 

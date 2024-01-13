@@ -1,6 +1,6 @@
 use super::{
-    file, impl_traits_and_methods, package, FullyQualifiedName, Resolver, State,
-    UninterpretedOption,
+    access::NodeKeys, field, file, impl_traits_and_methods, package, FullyQualifiedName, Resolver,
+    State, UninterpretedOption,
 };
 
 pub struct Oneof<'ast>(Resolver<'ast, Key, Inner>);
@@ -13,8 +13,13 @@ pub(super) struct Inner {
     file: file::Key,
     name: String,
     uninterpreted_options: Vec<UninterpretedOption>,
+    fields: Vec<field::Key>,
 }
-
+impl NodeKeys for Inner {
+    fn keys(&self) -> impl Iterator<Item = super::Key> {
+        self.fields.iter().copied().map(super::Key::Field)
+    }
+}
 impl_traits_and_methods!(Oneof, Key, Inner);
 
 slotmap::new_key_type! {

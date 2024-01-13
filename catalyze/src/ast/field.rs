@@ -10,6 +10,7 @@ use protobuf::{
 use std::fmt;
 
 use super::{
+    access::NodeKeys,
     r#enum::{self, Enum},
     file,
     message::{self, Message},
@@ -148,6 +149,12 @@ pub(super) struct Inner {
 impl Inner {
     pub(super) fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut ReferenceInner> {
         self.reference.iter_mut()
+    }
+}
+
+impl NodeKeys for Inner {
+    fn keys(&self) -> impl Iterator<Item = super::Key> {
+        std::iter::empty()
     }
 }
 
