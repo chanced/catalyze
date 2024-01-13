@@ -68,3 +68,19 @@ pub(super) trait State {
     fn state(&self) -> super::State;
     fn state_mut(&mut self) -> &mut super::State;
 }
+
+pub(super) trait NodeAtPath {
+    fn node_at_path(&self, path: &[i32]) -> Option<super::Key>;
+}
+
+pub(super) trait Key {
+    type Key: slotmap::Key + Into<super::Key> + Copy;
+    fn key(&self) -> Self::Key;
+    fn key_mut(&mut self) -> &mut Self::Key;
+    fn set_key(&mut self, key: Self::Key) {
+        *self.key_mut() = key;
+    }
+    fn node_key(&self) -> super::Key {
+        self.key().into()
+    }
+}

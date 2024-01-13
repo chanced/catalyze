@@ -9,6 +9,7 @@ slotmap::new_key_type! {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Inner {
+    key: Key,
     state: State,
     fqn: FullyQualifiedName,
     name: String,

@@ -39,16 +39,16 @@ use service::Service;
 
 mod node_path {
     const PACKAGE: i32 = 2;
-    const MESSAGE_TYPE: i32 = 4;
-    const ENUM_TYPE: i32 = 5;
+    const MESSAGE: i32 = 4;
+    const ENUM: i32 = 5;
     const SERVICE: i32 = 6;
     const SYNTAX: i32 = 12;
-    const MESSAGE_TYPE_FIELD: i32 = 2;
-    const MESSAGE_TYPE_NESTED_TYPE: i32 = 3;
-    const MESSAGE_TYPE_ENUM_TYPE: i32 = 4;
-    const MESSAGE_TYPE_ONEOF_DECL: i32 = 8;
-    const ENUM_TYPE_VALUE: i32 = 2;
-    const SERVICE_TYPE_METHOD: i32 = 2;
+    const FIELD: i32 = 2;
+    const NESTED_MESSAGE: i32 = 3;
+    const MESSAGE_ENUM: i32 = 4;
+    const ONEOF: i32 = 8;
+    const ENUM_VALUE: i32 = 2;
+    const METHOD: i32 = 2;
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -1235,6 +1235,20 @@ impl TryFrom<i32> for DescriptorPath {
     }
 }
 
+macro_rules! impl_key {
+    ($inner:ident, $key:ident) => {
+        impl crate::ast::access::Key for $inner {
+            type Key = $key;
+            fn key(&self) -> Self::Key {
+                self.key
+            }
+            fn key_mut(&mut self) -> &mut Self::Key {
+                &mut self.key
+            }
+        }
+    };
+}
+
 macro_rules! impl_fsm {
     ($inner:ident) => {
         impl crate::ast::Fsm for $inner {}
@@ -1516,6 +1530,7 @@ macro_rules! node_method_key {
 
 macro_rules! impl_base_traits_and_methods {
     ($node:ident, $key:ident, $inner:ident) => {
+        crate::ast::impl_key!($inner, $key);
         crate::ast::impl_fsm!($inner);
         crate::ast::node_method_new!($node, $key);
         crate::ast::node_method_key!($node, $key);
@@ -1587,6 +1602,7 @@ use impl_fmt;
 use impl_from_fqn;
 use impl_from_key_and_ast;
 use impl_fsm;
+use impl_key;
 use impl_set_uninterpreted_options;
 use impl_state;
 use impl_traits_and_methods;

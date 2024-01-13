@@ -21,6 +21,7 @@ use super::{
 
 #[derive(Debug, Default, Clone)]
 pub(super) struct Inner {
+    key: Key,
     state: State,
     value: ValueInner,
     fqn: FullyQualifiedName,

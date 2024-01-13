@@ -7,6 +7,7 @@ pub struct Oneof<'ast>(Resolver<'ast, Key, Inner>);
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {
+    key: Key,
     state: State,
     fqn: FullyQualifiedName,
     package: Option<package::Key>,

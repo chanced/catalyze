@@ -13,6 +13,7 @@ slotmap::new_key_type! {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {
+    key: Key,
     state: State,
     fqn: FullyQualifiedName,
     reserved_ranges: Vec<ReservedRange>,

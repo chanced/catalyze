@@ -371,6 +371,7 @@ impl<'ast> Import<'ast> {
 #[derive(Debug, Default, Clone, PartialEq)]
 #[doc(hidden)]
 pub(super) struct Inner {
+    key: Key,
     state: State,
     name: String,
     path: PathBuf,
