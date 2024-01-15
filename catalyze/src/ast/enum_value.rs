@@ -2,7 +2,7 @@ use crate::ast::{impl_traits_and_methods, FullyQualifiedName, Resolver, Uninterp
 
 use super::{
     access::{AtPath, NodeKeys},
-    file, package, Comments, Span, State,
+    file, package, Comments, Span,
 };
 
 pub struct EnumValue<'ast>(Resolver<'ast, Key, Inner>);
@@ -15,10 +15,9 @@ impl_traits_and_methods!(EnumValue, Key, Inner);
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {
     key: Key,
-    state: State,
     fqn: FullyQualifiedName,
+    node_path: Box<[i32]>,
     file: file::Key,
-    node_path: Vec<i32>,
     span: Span,
     comments: Option<Comments>,
     package: Option<package::Key>,

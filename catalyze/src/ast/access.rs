@@ -61,7 +61,6 @@ pub trait NodePath {
 pub trait Comments {
     fn comments(&self) -> Option<&super::Comments>;
 }
-
 pub trait Span {
     fn span(&self) -> super::Span;
 }
@@ -74,11 +73,6 @@ pub(crate) trait ReferencesMut {
 
 pub(super) trait NodeKeys {
     fn keys(&self) -> impl Iterator<Item = super::Key>;
-}
-
-pub(super) trait State {
-    fn state(&self) -> super::State;
-    fn state_mut(&mut self) -> &mut super::State;
 }
 
 pub(super) trait AtPath {

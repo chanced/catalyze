@@ -9,9 +9,8 @@ use std::{
 };
 
 use super::{
-    access::{AtPath, NodeKeys},
-    r#enum, extension, impl_traits_and_methods, message, package, service, Comments,
-    FullyQualifiedName, Resolver, State, UninterpretedOption,
+    access::NodeKeys, r#enum, extension, impl_traits_and_methods, message, package, service,
+    Comments, FullyQualifiedName, Resolver, UninterpretedOption,
 };
 
 slotmap::new_key_type! {
@@ -27,11 +26,6 @@ impl<'ast> File<'ast> {
     pub fn path(&self) -> &Path {
         self.0.path.as_ref()
     }
-
-    // #[must_use]
-    // pub fn used_imports(&self) -> &HashSet<String> {
-    //     &self.0.used_imports
-    // }
 
     #[must_use]
     pub fn is_build_target(&self) -> bool {
@@ -318,32 +312,105 @@ impl From<protobuf::descriptor::file_options::OptimizeMode> for OptimizeMode {
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub(super) struct ImportInner {
-    is_used: bool,
-    is_public: bool,
-    is_weak: bool,
-    file: Key,
+pub(super) struct DependentInner {
+    pub(super) is_used: bool,
+    pub(super) is_public: bool,
+    pub(super) is_weak: bool,
+    pub(super) dependent: Key,
+    pub(super) dependency: Key,
+}
+impl DependentInner {
+    pub(super) fn set_is_used(&mut self, is_used: bool) {
+        self.is_used = is_used;
+    }
+}
+pub struct Dependent<'ast> {
+    pub is_used: bool,
+    pub is_public: bool,
+    pub is_weak: bool,
+    /// The `File`
+    pub dependent: File<'ast>,
+    /// The [`File`] containing this import.
+    pub dependency: File<'ast>,
 }
 
-pub struct Import<'ast> {
+impl<'ast> Dependent<'ast> {
+    pub fn as_dependency(self) -> Dependency<'ast> {
+        Dependency {
+            is_used: self.is_used,
+            is_public: self.is_public,
+            is_weak: self.is_weak,
+            dependency: self.dependency,
+            dependent: self.dependent,
+        }
+    }
+    #[must_use]
+    pub fn is_used(self) -> bool {
+        self.is_used
+    }
+    #[must_use]
+    pub fn is_public(self) -> bool {
+        self.is_public
+    }
+    #[must_use]
+    pub fn is_weak(self) -> bool {
+        self.is_weak
+    }
+    #[must_use]
+    pub fn dependent(self) -> File<'ast> {
+        self.dependent
+    }
+    #[must_use]
+    pub fn dependency(self) -> File<'ast> {
+        self.dependency
+    }
+    #[must_use]
+    pub fn as_file(self) -> File<'ast> {
+        self.dependent
+    }
+}
+
+impl<'ast> Deref for Dependent<'ast> {
+    type Target = File<'ast>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.dependent
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub(super) struct DependencyInner {
+    pub(super) is_used: bool,
+    pub(super) is_public: bool,
+    pub(super) is_weak: bool,
+    pub(super) dependency: Key,
+    pub(super) dependent: Key,
+}
+impl DependencyInner {
+    pub(super) fn set_is_used(&mut self, is_used: bool) {
+        self.is_used = is_used;
+    }
+}
+
+pub struct Dependency<'ast> {
     pub is_used: bool,
     pub is_public: bool,
     pub is_weak: bool,
     /// The imported `File`
-    pub import: File<'ast>,
+    pub dependency: File<'ast>,
     /// The [`File`] containing this import.
-    pub imported_by: File<'ast>,
+    pub dependent: File<'ast>,
 }
 
-impl<'ast> Deref for Import<'ast> {
+impl<'ast> Deref for Dependency<'ast> {
     type Target = File<'ast>;
 
     fn deref(&self) -> &Self::Target {
-        &self.import
+        &self.dependency
     }
 }
 
-impl<'ast> Import<'ast> {
+impl<'ast> Dependency<'ast> {
     #[must_use]
     pub fn is_used(self) -> bool {
         self.is_used
@@ -358,15 +425,15 @@ impl<'ast> Import<'ast> {
     }
     #[must_use]
     pub fn import(self) -> File<'ast> {
-        self.import
+        self.dependency
     }
     #[must_use]
     pub fn imported_by(self) -> File<'ast> {
-        self.imported_by
+        self.dependent
     }
     #[must_use]
     pub fn as_file(self) -> File<'ast> {
-        self.import
+        self.dependency
     }
 }
 
@@ -374,7 +441,7 @@ impl<'ast> Import<'ast> {
 #[doc(hidden)]
 pub(super) struct Inner {
     key: Key,
-    state: State,
+
     name: String,
     path: PathBuf,
     package: Option<package::Key>,
@@ -382,21 +449,22 @@ pub(super) struct Inner {
     enums: Vec<r#enum::Key>,
     services: Vec<service::Key>,
     defined_extensions: Vec<extension::Key>,
-    used_imports: Vec<ImportInner>,
-    unused_imports: Vec<ImportInner>,
-    imports: Vec<ImportInner>,
-    public_imports: Vec<ImportInner>,
-    weak_imports: Vec<ImportInner>,
+    dependencies: Vec<DependencyInner>,
+    used_imports: Vec<DependencyInner>,
+    unused_dependencies: Vec<DependencyInner>,
+    transitive_dependencies: Vec<DependencyInner>,
+    public_dependencies: Vec<DependencyInner>,
+    weak_dependencies: Vec<DependencyInner>,
     fqn: FullyQualifiedName,
     package_comments: Option<Comments>,
     comments: Option<Comments>,
-    dependents: Vec<Key>,
-    transitive_dependencies: Vec<Key>,
-    transitive_dependents: Vec<Key>,
+    dependents: Vec<DependentInner>,
+    transitive_dependents: Vec<DependentInner>,
     is_build_target: bool,
     syntax: Syntax,
 
-    node_paths: HashMap<Vec<i32>, super::Key>,
+    nodes_by_path: HashMap<Box<[i32]>, super::Key>,
+    nodes_by_fqn: HashMap<FullyQualifiedName, super::Key>,
 
     ///  Sets the Java package where classes generated from this .proto will be
     ///  placed.  By default, the proto package is used, but this is often
@@ -489,21 +557,37 @@ pub(super) struct Inner {
     ///  The parser stores options it doesn't recognize here.
     uninterpreted_options: Vec<UninterpretedOption>,
 
-    pub(super) unknown_option_fields: protobuf::UnknownFields,
+    unknown_option_fields: protobuf::UnknownFields,
 }
 
 impl NodeKeys for Inner {
     fn keys(&self) -> impl Iterator<Item = super::Key> {
-        self.messages
-            .iter()
-            .copied()
-            .map(Into::into)
+        std::iter::empty()
+            .chain(self.messages.iter().copied().map(Into::into))
             .chain(self.enums.iter().copied().map(Into::into))
             .chain(self.services.iter().copied().map(Into::into))
             .chain(self.defined_extensions.iter().copied().map(Into::into))
     }
 }
 impl Inner {
+    pub(super) fn add_dependent(&mut self, dependent: DependentInner) {
+        self.dependents.push(dependent);
+        self.transitive_dependents.push(dependent);
+    }
+
+    pub(super) fn add_transitive_dependent(&mut self, dependent: DependentInner) {
+        self.transitive_dependents.push(dependent);
+    }
+
+    pub(super) fn set_dependencies(&mut self, imports: Vec<DependencyInner>) {
+        for &import in &imports {
+            self.add_transitive_dependency(import)
+        }
+        self.dependencies = imports;
+    }
+    pub(super) fn add_transitive_dependency(&mut self, import: DependencyInner) {
+        self.transitive_dependencies.push(import);
+    }
     pub(super) fn set_name_and_path(&mut self, name: String) {
         self.path = PathBuf::from(&name);
         self.set_name(name);
@@ -523,35 +607,11 @@ impl Inner {
     pub(super) fn set_defined_extensions(&mut self, defined_extensions: Vec<extension::Key>) {
         self.defined_extensions = defined_extensions;
     }
-    pub(super) fn set_used_imports(&mut self, used_imports: Vec<ImportInner>) {
-        self.used_imports = used_imports;
-    }
-    pub(super) fn set_unused_imports(&mut self, unused_imports: Vec<ImportInner>) {
-        self.unused_imports = unused_imports;
-    }
-    pub(super) fn set_imports(&mut self, imports: Vec<ImportInner>) {
-        self.imports = imports;
-    }
-    pub(super) fn set_public_imports(&mut self, public_imports: Vec<ImportInner>) {
-        self.public_imports = public_imports;
-    }
-    pub(super) fn set_weak_imports(&mut self, weak_imports: Vec<ImportInner>) {
-        self.weak_imports = weak_imports;
-    }
     pub(super) fn set_fqn(&mut self, fqn: FullyQualifiedName) {
         self.fqn = fqn;
     }
     pub(super) fn set_package_comments(&mut self, package_comments: Comments) {
         self.package_comments = Some(package_comments);
-    }
-    pub(super) fn set_dependents(&mut self, dependents: Vec<Key>) {
-        self.dependents = dependents;
-    }
-    pub(super) fn set_transitive_dependencies(&mut self, transitive_dependencies: Vec<Key>) {
-        self.transitive_dependencies = transitive_dependencies;
-    }
-    pub(super) fn set_transitive_dependents(&mut self, transitive_dependents: Vec<Key>) {
-        self.transitive_dependents = transitive_dependents;
     }
     pub(super) fn set_is_build_target(&mut self, is_build_target: bool) {
         self.is_build_target = is_build_target;
@@ -560,6 +620,7 @@ impl Inner {
         self.syntax = parse_syntax(&syntax.unwrap_or_default())?;
         Ok(())
     }
+
     /// Hydrates the data within the descriptor.
     ///
     /// Note: References and nested nodes are not hydrated.

@@ -8,14 +8,17 @@ pub mod message;
 pub mod method;
 pub mod oneof;
 pub mod package;
+pub mod path;
 pub mod reference;
 pub mod service;
 
-mod path;
+mod hydrate;
+mod location;
 
 use std::{
     borrow::Cow,
     fmt,
+    iter::Empty,
     ops::{Deref, Index, IndexMut},
     path::PathBuf,
 };
@@ -27,7 +30,11 @@ use protobuf::descriptor::{
 };
 use slotmap::SlotMap;
 
-use crate::{error::Error, HashMap, HashSet};
+use crate::{
+    ast::file::{DependencyInner, DependentInner},
+    error::Error,
+    HashMap, HashSet,
+};
 use r#enum::{Enum, WellKnownEnum};
 use enum_value::EnumValue;
 use extension::Extension;
@@ -48,7 +55,7 @@ pub struct Span {
     pub end_column: i32,
 }
 impl Span {
-    fn new(span: Vec<i32>) -> Result<Self, Vec<i32>> {
+    fn new(span: &[i32]) -> Result<Self, ()> {
         match span.len() {
             3 => Ok(Self {
                 start_line: span[0],
@@ -62,7 +69,7 @@ impl Span {
                 end_line: span[2],
                 end_column: span[3],
             }),
-            _ => Err(span),
+            _ => Err(()),
         }
     }
     pub fn start_line(&self) -> i32 {
@@ -76,45 +83,6 @@ impl Span {
     }
     pub fn end_column(&self) -> i32 {
         self.end_column
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum State {
-    #[default]
-    Hydrating = 0,
-    Linking = 1,
-    Done = 2,
-}
-impl State {
-    fn next(self) -> Option<Self> {
-        match self {
-            Self::Hydrating => Some(Self::Linking),
-            Self::Linking => Some(Self::Done),
-            Self::Done => None,
-        }
-    }
-}
-trait Fsm: access::State {
-    fn transition(&mut self, next: State) {
-        let current = self.state_mut();
-        if current.next() == Some(next) {
-            *current = next;
-        } else {
-            panic!("invalid state transition; cannot transition to {next:?} from {current:?}",);
-        }
-    }
-    fn done(&mut self) {
-        self.transition(State::Done);
-    }
-    fn is_hydrating(&self) -> bool {
-        self.state() == State::Hydrating
-    }
-    fn is_linking(&self) -> bool {
-        self.state() == State::Linking
-    }
-    fn is_done(&self) -> bool {
-        self.state() == State::Done
     }
 }
 
@@ -194,6 +162,7 @@ enum Key {
     Oneof(oneof::Key),
     Extension(extension::Key),
 }
+
 impl From<package::Key> for Key {
     fn from(key: package::Key) -> Self {
         Self::Package(key)
@@ -384,13 +353,6 @@ where
     fn get_mut_by_fqn(&mut self, fqn: &FullyQualifiedName) -> Option<&mut V> {
         self.lookup.get(fqn).map(|key| &mut self.map[*key])
     }
-    fn insert(&mut self, value: V) -> K {
-        let fqn = value.fqn().clone();
-        let key = self.map.insert(value);
-        self.lookup.insert(fqn, key);
-        self.order.push(key);
-        key
-    }
 }
 
 impl<K, V> Index<K> for Table<K, V>
@@ -414,28 +376,25 @@ where
 impl<K, V> Table<K, V>
 where
     K: slotmap::Key,
-    V: From<FullyQualifiedName>,
+    V: From<FullyQualifiedName> + access::Key<Key = K>,
 {
     pub fn new() -> Self {
         Self {
             map: SlotMap::with_key(),
-            lookup: HashMap::new(),
+            lookup: HashMap::default(),
             order: Vec::new(),
         }
     }
-    pub fn get_or_insert_mut_by_fqn(&mut self, fqn: FullyQualifiedName) -> (K, &mut V) {
+    pub fn get_or_insert_by_fqn(&mut self, fqn: FullyQualifiedName) -> (K, &mut V) {
         let key = *self
             .lookup
             .entry(fqn.clone())
             .or_insert_with(|| self.map.insert(fqn.into()));
-        (key, &mut self.map[key])
-    }
-    pub fn get_or_insert_by_fqn(&mut self, fqn: FullyQualifiedName) -> (K, &V) {
-        let key = *self
-            .lookup
-            .entry(fqn.clone())
-            .or_insert_with(|| self.map.insert(fqn.into()));
-        (key, &self.map[key])
+        let value = &mut self.map[key];
+        if value.key() != key {
+            value.set_key(key);
+        }
+        (key, value)
     }
 }
 
@@ -451,6 +410,7 @@ pub struct Ast {
     fields: Table<field::Key, field::Inner>,
     oneofs: Table<oneof::Key, oneof::Inner>,
     extensions: Table<extension::Key, extension::Inner>,
+    extension_groups: Table<extension::GroupKey, extension::GroupInner>,
     nodes: HashMap<FullyQualifiedName, Key>,
 }
 
@@ -458,17 +418,18 @@ impl Ast {
     fn new(input: Vec<FileDescriptorProto>, targets: &[String]) -> Result<Self, Error> {
         let targets = targets.iter().map(PathBuf::from).collect::<Vec<_>>();
         let mut this = Self::default();
-        for fd in input {
-            this.hydrate_file(fd, &targets)?;
+        let mut all_nodes = HashMap::new();
+        for descriptor in input {
+            this.hydrate_file(hydrate::File {
+                descriptor,
+                all_nodes: &mut all_nodes,
+                targets: &targets,
+            })?;
         }
         Ok(this)
     }
 
-    fn hydrate_file(
-        &mut self,
-        descriptor: FileDescriptorProto,
-        targets: &[PathBuf],
-    ) -> Result<file::Key, Error> {
+    fn hydrate_file(&mut self, hydrate: hydrate::File) -> Result<file::Key, Error> {
         // TODO: remove destruction once complete
         let FileDescriptorProto {
             name,
@@ -484,21 +445,23 @@ impl Ast {
             source_code_info,
             syntax,
             special_fields,
-        } = descriptor;
+        } = hydrate.descriptor;
 
         let package = package.as_ref().map(|pkg| {
             self.packages
-                .get_or_insert_mut_by_fqn(FullyQualifiedName::from_package_name(pkg))
+                .get_or_insert_by_fqn(FullyQualifiedName::from_package_name(pkg))
         });
-        let mut referenced_files = HashSet::new();
 
         let name = name.unwrap_or_default();
         let fqn =
             FullyQualifiedName::new(&name, package.as_ref().map(|(_, pkg)| pkg.fqn().clone()));
-        let is_build_target = targets
+
+        let is_build_target = hydrate
+            .targets
             .iter()
             .any(|target| target.as_os_str() == name.as_str());
-        let (key, file) = self.files.get_or_insert_mut_by_fqn(fqn.clone());
+
+        let (key, file) = self.files.get_or_insert_by_fqn(fqn.clone());
 
         let package = if let Some((pkg_key, pkg)) = package {
             pkg.add_file(key);
@@ -507,48 +470,126 @@ impl Ast {
             None
         };
 
+        file.set_key(key);
         file.set_package(package);
         file.set_name_and_path(name);
         file.set_syntax(syntax)?;
         file.hydrate_options(options.unwrap_or_default(), is_build_target);
 
+        let mut nodes_by_fqn = HashMap::new();
+        let mut nodes_by_path = HashMap::new();
+
+        let mut insert = |fqn: FullyQualifiedName, path: Vec<i32>, key: Key| {
+            nodes_by_fqn.insert(fqn, key);
+            nodes_by_path.insert(path, key);
+        };
+
         let mut messages = Vec::with_capacity(message_type.len());
-        for msg in message_type {
-            let fqn = FullyQualifiedName::new(msg.name(), Some(fqn.clone()));
-            let msg_key = self.hydrate_message(fqn, msg, key, key, package)?;
-            referenced_files.insert(self.messages.get(msg_key).unwrap().file());
-            messages.push(msg_key);
+        for (i, descriptor) in message_type.into_iter().enumerate() {
+            let index = i as i32;
+            let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
+            let node_path = vec![path::File::Message.as_i32(), index];
+            let key = self.hydrate_message(hydrate::Message {
+                fqn: fqn.clone(),
+                descriptor,
+                index,
+                rel_pos: path::File::Message.as_i32(),
+                node_path: node_path.clone(),
+                nodes_by_fqn: &mut nodes_by_fqn,
+                nodes_by_path: &mut nodes_by_path,
+                container: key.into(),
+                file: key,
+                package,
+            })?;
+            insert(fqn, node_path, key.into());
+            messages.push(key);
         }
 
         let mut enums = Vec::with_capacity(enum_type.len());
-        for enm in enum_type {
-            let fqn = FullyQualifiedName::new(enm.name(), Some(fqn.clone()));
-            let enum_key = self.hydrate_enum(fqn, enm, key, key, package)?;
-            enums.push(enum_key);
+        for (i, descriptor) in enum_type.into_iter().enumerate() {
+            let index = i as i32;
+            let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
+            let node_path = vec![path::File::Enum.as_i32(), index];
+            let key = self.hydrate_enum(hydrate::Enum {
+                fqn: fqn.clone(),
+                descriptor,
+                index,
+                rel_pos: path::File::Enum.as_i32(),
+                node_path: node_path.clone(),
+                nodes_by_fqn: &mut nodes_by_fqn,
+                nodes_by_path: &mut nodes_by_path,
+                container: key.into(),
+                file: key,
+                package,
+            })?;
+            insert(fqn, node_path, key.into());
+            enums.push(key);
         }
 
         let mut services = Vec::with_capacity(service.len());
-        for service in service {
-            let fqn = FullyQualifiedName::new(service.name(), Some(fqn.clone()));
-            let svc_key = self.hydrate_service(fqn, service, key, package)?;
-            services.push(svc_key);
+        for (i, descriptor) in service.into_iter().enumerate() {
+            let index = i as i32;
+            let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
+            let node_path = vec![path::File::Service.as_i32(), index];
+            let key = self.hydrate_service(hydrate::Service {
+                fqn: fqn.clone(),
+                descriptor,
+                node_path: node_path.clone(),
+                nodes_by_fqn: &mut nodes_by_fqn,
+                nodes_by_path: &mut nodes_by_path,
+                file: key,
+                index,
+                package,
+            })?;
+            services.push(key);
+            insert(fqn, node_path, key.into());
         }
 
         let mut extensions = Vec::with_capacity(extension.len());
-        for ext in extension {
-            let fqn = FullyQualifiedName::new(ext.name(), Some(fqn.clone()));
-            let ext_key = self.hydrate_extension(fqn, ext, key, key, package)?;
-            extensions.push(ext_key);
+        for (i, descriptor) in extension.into_iter().enumerate() {
+            let index = i as i32;
+            let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
+            let node_path = vec![path::File::Extension.as_i32(), index];
+            let key = self.hydrate_extension(hydrate::Extension {
+                fqn: fqn.clone(),
+                descriptor,
+                index,
+                node_path: node_path.clone(),
+                container: key.into(),
+                file: key,
+                package,
+            })?;
+            insert(fqn, node_path, key.into());
+            extensions.push(key);
         }
+
+        let mut dependencies = Vec::with_capacity(dependency.len());
 
         for (idx, dependency) in dependency.into_iter().enumerate() {
+            let idx = idx as i32;
+            let is_weak = weak_dependency.contains(&idx);
+            let is_public = public_dependency.contains(&idx);
             let fqn = FullyQualifiedName(dependency);
-            // let is_used =
-            todo!()
+            let (dependency_key, dependency_file) = self.files.get_or_insert_by_fqn(fqn.clone());
+            dependency_file.add_dependent(DependentInner {
+                is_used: bool::default(),
+                is_public,
+                is_weak,
+                dependent: key,
+                dependency: dependency_key,
+            });
+            dependencies.push(DependencyInner {
+                is_used: bool::default(),
+                is_public,
+                is_weak,
+                dependent: key,
+                dependency: dependency_key,
+            });
         }
-
         let file = &mut self.files[key];
+        file.set_dependencies(dependencies);
         file.set_messages(messages);
+        file.set_dependencies(dependencies);
         file.set_enums(enums);
         file.set_services(services);
         file.set_defined_extensions(extensions);
@@ -557,155 +598,148 @@ impl Ast {
         todo!()
     }
 
-    fn hydrate_message(
-        &mut self,
-        fqn: FullyQualifiedName,
-        descriptor: DescriptorProto,
-        container: impl Into<ContainerKey>,
-        file: file::Key,
-        package: Option<package::Key>,
-    ) -> Result<message::Key, Error> {
+    fn hydrate_message(&mut self, hydrate: hydrate::Message) -> Result<message::Key, Error> {
+        // TODO: remove destructor once all fields have been used
         let DescriptorProto {
             name,
             field,
-            extension: _,
+            extension,
             nested_type,
             enum_type,
-            extension_range: _,
+            extension_range,
             oneof_decl,
             options,
-            reserved_range: _,
-            reserved_name: _,
-            special_fields: _,
-        } = descriptor;
+            reserved_range,
+            reserved_name,
+            special_fields,
+        } = hydrate.descriptor;
         let name = name.unwrap_or_default();
-        let (key, msg) = self.messages.get_or_insert_mut_by_fqn(fqn.clone());
+        let fqn = hydrate.fqn;
+        let (key, msg) = self.messages.get_or_insert_by_fqn(fqn.clone());
         msg.hydrate_options(options.unwrap_or_default());
-        msg.set_container(container);
+        msg.set_container(hydrate.container);
         msg.set_name(name);
 
-        for nested_msg in nested_type {
-            self.hydrate_message(
-                FullyQualifiedName::new(nested_msg.name(), Some(fqn.clone())),
-                nested_msg,
-                key,
-                file,
-                package,
-            )?;
+        let mut messages = Vec::with_capacity(nested_type.len());
+        for (i, nested) in nested_type.into_iter().enumerate() {
+            let index = i as i32;
+            messages.push(self.hydrate_message(hydrate::Message {
+                index,
+                fqn: FullyQualifiedName::new(nested.name(), Some(fqn.clone())),
+                node_path: path::append(&hydrate.node_path, path::Message::Nested, index),
+                container: key.into(),
+                file: hydrate.file,
+                descriptor: nested,
+                nodes_by_fqn: hydrate.nodes_by_fqn,
+                nodes_by_path: hydrate.nodes_by_path,
+                package: hydrate.package,
+                rel_pos: path::Message::Nested.as_i32(),
+            })?);
         }
-        for enm in enum_type {
+        let mut enums = Vec::with_capacity(enum_type.len());
+        for (i, enm) in enum_type.into_iter().enumerate() {
+            let index = i as i32;
             let fqn = FullyQualifiedName::new(enm.name(), Some(fqn.clone()));
-            self.hydrate_enum(fqn, enm, key, file, package)?;
+            let node_path = path::append(&hydrate.node_path, path::Message::Enum, index);
+            let key = self.hydrate_enum(hydrate::Enum {
+                index,
+                fqn: fqn.clone(),
+                node_path: node_path.clone(),
+                container: key.into(),
+                file: hydrate.file,
+                descriptor: enm,
+                nodes_by_fqn: hydrate.nodes_by_fqn,
+                nodes_by_path: hydrate.nodes_by_path,
+                package: hydrate.package,
+                rel_pos: path::Message::Enum.as_i32(),
+            })?;
+            enums.push(key);
+            hydrate.nodes_by_fqn.insert(fqn, key.into());
+            hydrate.nodes_by_path.insert(node_path, key.into());
         }
-        for oneof in oneof_decl {
-            let fqn = FullyQualifiedName::new(oneof.name(), Some(fqn.clone()));
-            self.hydrate_oneof(fqn, oneof, key, file, package)?;
+        for (i, descriptor) in oneof_decl.into_iter().enumerate() {
+            let index = i as i32;
+            let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
+            let oneof_key = self.hydrate_oneof(hydrate::Oneof {
+                index,
+                fqn: fqn.clone(),
+                node_path: path::append(&hydrate.node_path, path::Message::Oneof, index),
+                file: hydrate.file,
+                descriptor,
+                message: key,
+                package: hydrate.package,
+            })?;
         }
-        for field in field {
-            let fqn = FullyQualifiedName::new(field.name(), Some(fqn.clone()));
-            self.hydrate_field(fqn, field, key, file, package)?;
+        for (i, descriptor) in field.into_iter().enumerate() {
+            let index = i as i32;
+            let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
+            let field_key = self.hydrate_field(hydrate::Field {
+                descriptor,
+                file: hydrate.file,
+                fqn: fqn.clone(),
+                message: key,
+                package: hydrate.package,
+                index,
+                node_path: path::append(&hydrate.node_path, path::Message::Oneof, index),
+            })?;
         }
+
+        Ok(key)
+    }
+
+    fn hydrate_enum(&mut self, hydrate: hydrate::Enum) -> Result<r#enum::Key, Error> {
+        todo!()
+    }
+    fn hydrate_service(&mut self, hydrate: hydrate::Service) -> Result<service::Key, Error> {
         todo!()
     }
 
-    fn hydrate_enum(
-        &self,
-        _fqn: FullyQualifiedName,
-        _descriptor: EnumDescriptorProto,
-        _container_key: impl Into<ContainerKey>,
-        _file: file::Key,
-        _package: Option<package::Key>,
-    ) -> Result<r#enum::Key, Error> {
+    fn hydrate_extension(&mut self, hydrate: hydrate::Extension) -> Result<extension::Key, Error> {
         todo!()
     }
 
-    fn hydrate_extension(
-        &self,
-        _fqn: FullyQualifiedName,
-        _descriptor: FieldDescriptorProto,
-        _container_key: impl Into<ContainerKey>,
-        _file: file::Key,
-        _package: Option<package::Key>,
-    ) -> Result<extension::Key, Error> {
+    fn hydrate_enum_value(&mut self, hydrate: hydrate::EnumValue) -> Result<r#enum::Key, Error> {
         todo!()
     }
 
-    fn hydrate_service(
-        &self,
-        _fqn: FullyQualifiedName,
-        _descriptor: ServiceDescriptorProto,
-        _file: file::Key,
-        _package: Option<package::Key>,
-    ) -> Result<service::Key, Error> {
-        todo!()
-    }
-
-    fn hydrate_enum_value(
-        &self,
-        _fqn: FullyQualifiedName,
-        _descriptor: EnumValueDescriptorProto,
-        _enum_key: r#enum::Key,
-        _file: file::Key,
-        _package: Option<package::Key>,
-    ) -> Result<r#enum::Key, Error> {
-        todo!()
-    }
-
-    fn hydrate_field(
-        &self,
-        _fqn: FullyQualifiedName,
-        _descriptor: FieldDescriptorProto,
-        _msg_key: message::Key,
-        _file: file::Key,
-        _package: Option<package::Key>,
-    ) -> Result<field::Key, Error> {
+    fn hydrate_field(&mut self, hydrate: hydrate::Field) -> Result<field::Key, Error> {
         todo!()
     }
 
     fn hydrate_oneof(
-        &self,
-        _fqn: FullyQualifiedName,
-        _descriptor: OneofDescriptorProto,
-        _message_key: message::Key,
-        _file: file::Key,
-        _package: Option<package::Key>,
-    ) -> Result<oneof::Key, Error> {
+        &mut self,
+        hydrate: hydrate::Oneof,
+    ) -> Result<(oneof::Key, Box<dyn Iterator<Item = Key>>), Error> {
         todo!()
     }
 
-    fn hydrate_method(
-        &self,
-        _fqn: FullyQualifiedName,
-        _descriptor: MethodDescriptorProto,
-        _service_key: service::Key,
-        _file: file::Key,
-        _package: Option<package::Key>,
-    ) -> Result<method::Key, Error> {
+    fn hydrate_method(&mut self, hydrate: hydrate::Message) -> Result<method::Key, Error> {
         todo!()
     }
 }
 
 macro_rules! impl_resolve {
-    ($($col: ident -> $mod: ident,)+) => {
+
+    ($($col:ident => ($key:ident, $inner:ident),)+) => {
         $(
-            impl Get<$mod::Key, $mod::Inner> for Ast {
-                fn get(& self, key: $mod::Key) -> &$mod::Inner {
+            impl Get<$key, $inner> for Ast {
+                fn get(& self, key: $key) -> &$inner {
                     &self.$col[key]
                 }
             }
-            impl<'ast> Resolve<$mod::Inner> for Resolver<'ast, $mod::Key, $mod::Inner>
+            impl<'ast> Resolve<$inner> for Resolver<'ast, $key, $inner>
             {
-                fn resolve(&self) -> &$mod::Inner {
+                fn resolve(&self) -> &$inner {
                     self.ast.get(self.key.clone())
                 }
             }
-            impl<'ast> Deref for Resolver<'ast, $mod::Key, $mod::Inner>{
-                type Target = $mod::Inner;
+            impl<'ast> Deref for Resolver<'ast, $key, $inner>{
+                type Target = $inner;
                 fn deref(&self) -> &Self::Target {
                     self.resolve()
                 }
             }
-            impl<'ast> fmt::Debug for Resolver<'ast, $mod::Key, $mod::Inner>
+            impl<'ast> fmt::Debug for Resolver<'ast, $key, $inner>
             {
                 fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                     f.debug_tuple("Resolver")
@@ -718,17 +752,31 @@ macro_rules! impl_resolve {
     };
 }
 
+use r#enum::{Inner as EnumInner, Key as EnumKey};
+use enum_value::{Inner as EnumValueInner, Key as EnumValueKey};
+use extension::{
+    GroupInner as ExtensionGroupInner, GroupKey as ExtensionGroupKey, Inner as ExtensionInner,
+    Key as ExtensionKey,
+};
+use field::{Inner as FieldInner, Key as FieldKey};
+use file::{Inner as FileInner, Key as FileKey};
+use message::{Inner as MessageInner, Key as MessageKey};
+use method::{Inner as MethodInner, Key as MethodKey};
+use oneof::{Inner as OneofInner, Key as OneofKey};
+use package::{Inner as PackageInner, Key as PackageKey};
+use service::{Inner as ServiceInner, Key as ServiceKey};
 impl_resolve!(
-    packages -> package,
-    files -> file,
-    messages -> message,
-    enums -> r#enum,
-    enum_values -> enum_value,
-    oneofs -> oneof,
-    services -> service,
-    methods -> method,
-    fields -> field,
-    extensions -> extension,
+    packages => (PackageKey, PackageInner),
+    files => (FileKey, FileInner),
+    messages => (MessageKey, MessageInner),
+    enums => (EnumKey, EnumInner),
+    enum_values => (EnumValueKey, EnumValueInner),
+    oneofs => (OneofKey, OneofInner),
+    services => (ServiceKey, ServiceInner),
+    methods => (MethodKey, MethodInner),
+    fields => (FieldKey, FieldInner),
+    extensions => (ExtensionKey, ExtensionInner),
+    extension_groups => (ExtensionGroupKey, ExtensionGroupInner),
 );
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1103,6 +1151,20 @@ pub struct Comments {
 }
 
 impl Comments {
+    pub fn new_maybe(
+        leading: Option<String>,
+        trailing: Option<String>,
+        leading_detacted: Vec<String>,
+    ) -> Option<Self> {
+        if leading.is_none() && trailing.is_none() && leading_detacted.is_empty() {
+            return None;
+        }
+        Some(Self {
+            leading,
+            trailing,
+            leading_detached: leading_detacted,
+        })
+    }
     /// Any comment immediately preceding the node, without any
     /// whitespace between it and the comment.
     pub fn leading(&self) -> Option<&str> {
@@ -1122,135 +1184,6 @@ impl Comments {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(i32)]
-enum FileDescriptorPath {
-    /// file name, relative to root of source tree
-    Name = 1,
-    /// FileDescriptorProto.package
-    Package = 2,
-    /// Names of files imported by this file.
-    Dependency = 3,
-
-    /// Indexes of the public imported files in the dependency list above.
-    PublicDependency = 10,
-
-    /// Indexes of the weak imported files in the dependency list.
-    /// For Google-internal migration only. Do not use.
-    WeakDependency = 11,
-
-    // All top-level definitions in this file.
-    MessageType = 4,
-    /// FileDescriptorProto.enum_type
-    EnumType = 5,
-    /// FileDescriptorProto.service
-    Service = 6,
-    /// FileDescriptorProto.extension
-    Extension = 7,
-
-    Options = 8,
-    /// This field contains optional information about the original source code.
-    /// You may safely remove this entire field without harming runtime
-    /// functionality of the descriptors -- the information is needed only by
-    /// development tools.
-    SourceCodeInfo = 9,
-
-    /// FileDescriptorProto.syntax
-    Syntax = 12,
-}
-impl FileDescriptorPath {
-    pub const fn as_i32(self) -> i32 {
-        self as i32
-    }
-
-    const NAME: i32 = Self::Name.as_i32();
-    const PACKAGE: i32 = Self::Package.as_i32();
-    const DEPENDENCY: i32 = Self::Dependency.as_i32();
-    const PUBLIC_DEPENDENCY: i32 = Self::PublicDependency.as_i32();
-    const WEAK_DEPENDENCY: i32 = Self::WeakDependency.as_i32();
-    const MESSAGE_TYPE: i32 = Self::MessageType.as_i32();
-    const ENUM_TYPE: i32 = Self::EnumType.as_i32();
-    const SERVICE: i32 = Self::Service.as_i32();
-    const EXTENSION: i32 = Self::Extension.as_i32();
-    const OPTIONS: i32 = Self::Options.as_i32();
-    const SOURCE_CODE_INFO: i32 = Self::SourceCodeInfo.as_i32();
-    const SYNTAX: i32 = Self::Syntax.as_i32();
-}
-
-impl TryFrom<i32> for FileDescriptorPath {
-    type Error = i32;
-
-    fn try_from(v: i32) -> Result<Self, Self::Error> {
-        match v {
-            Self::NAME => Ok(Self::Name),
-            Self::PACKAGE => Ok(Self::Package),
-            Self::DEPENDENCY => Ok(Self::Dependency),
-            Self::PUBLIC_DEPENDENCY => Ok(Self::PublicDependency),
-            Self::WEAK_DEPENDENCY => Ok(Self::WeakDependency),
-            Self::MESSAGE_TYPE => Ok(Self::MessageType),
-            Self::ENUM_TYPE => Ok(Self::EnumType),
-            Self::SERVICE => Ok(Self::Service),
-            Self::EXTENSION => Ok(Self::Extension),
-            Self::OPTIONS => Ok(Self::Options),
-            Self::SOURCE_CODE_INFO => Ok(Self::SourceCodeInfo),
-            Self::SYNTAX => Ok(Self::Syntax),
-            _ => Err(v),
-        }
-    }
-}
-
-impl PartialEq<i32> for FileDescriptorPath {
-    fn eq(&self, other: &i32) -> bool {
-        *other == *self as i32
-    }
-}
-impl PartialEq<FileDescriptorPath> for i32 {
-    fn eq(&self, other: &FileDescriptorPath) -> bool {
-        *other == *self
-    }
-}
-
-/// Paths for nodes in a [`DescriptorProto`]
-#[derive(Clone, PartialEq, Eq, Copy)]
-enum DescriptorPath {
-    /// DescriptorProto.field
-    Field = 2,
-    /// DescriptorProto.nested_type
-    NestedType = 3,
-    /// DescriptorProto.enum_type
-    EnumType = 4,
-    Extension = 6,
-
-    /// DescriptorProto.oneof_decl
-    OneofDecl = 8,
-}
-
-impl DescriptorPath {
-    pub const fn as_i32(self) -> i32 {
-        self as i32
-    }
-    const FIELD: i32 = Self::Field.as_i32();
-    const NESTED_TYPE: i32 = Self::NestedType.as_i32();
-    const ENUM_TYPE: i32 = Self::EnumType.as_i32();
-    const EXTENSION: i32 = Self::Extension.as_i32();
-    const ONEOF_DECL: i32 = Self::OneofDecl.as_i32();
-}
-
-impl TryFrom<i32> for DescriptorPath {
-    type Error = i32;
-
-    fn try_from(v: i32) -> Result<Self, Self::Error> {
-        match v {
-            Self::FIELD => Ok(Self::Field),
-            Self::NESTED_TYPE => Ok(Self::NestedType),
-            Self::ENUM_TYPE => Ok(Self::EnumType),
-            Self::EXTENSION => Ok(Self::Extension),
-            Self::ONEOF_DECL => Ok(Self::OneofDecl),
-            _ => Err(v),
-        }
-    }
-}
-
 macro_rules! impl_key {
     ($inner:ident, $key:ident) => {
         impl crate::ast::access::Key for $inner {
@@ -1262,14 +1195,19 @@ macro_rules! impl_key {
                 &mut self.key
             }
         }
+        impl $inner {
+            pub(super) fn set_key(&mut self, key: $key) {
+                self.key = key;
+            }
+        }
     };
 }
 
-macro_rules! impl_fsm {
-    ($inner:ident) => {
-        impl crate::ast::Fsm for $inner {}
-    };
-}
+// macro_rules! impl_fsm {
+//     ($inner:ident) => {
+//         impl crate::ast::Fsm for $inner {}
+//     };
+// }
 macro_rules! impl_access {
     ($node: ident, $key: ident, $inner: ident) => {
         impl<'ast> crate::ast::Resolve<$inner> for $node<'ast> {
@@ -1316,18 +1254,6 @@ macro_rules! impl_access_fqn {
     };
 }
 
-macro_rules! impl_state {
-    ($inner:ident) => {
-        impl crate::ast::access::State for $inner {
-            fn state(&self) -> crate::ast::State {
-                self.state
-            }
-            fn state_mut(&mut self) -> &mut crate::ast::State {
-                &mut self.state
-            }
-        }
-    };
-}
 macro_rules! impl_from_fqn {
     ($inner:ident) => {
         impl From<crate::ast::FullyQualifiedName> for $inner {
@@ -1595,12 +1521,12 @@ macro_rules! impl_node_path {
         }
         impl<'ast> $node<'ast> {
             pub fn node_path(&self) -> &[i32] {
-                &self.0.node_path
+                crate::ast::access::NodePath::node_path(self)
             }
         }
         impl $inner {
             pub(super) fn set_node_path(&mut self, path: Vec<i32>) {
-                self.node_path = path;
+                self.node_path = path.into();
             }
         }
     };
@@ -1609,7 +1535,6 @@ macro_rules! impl_node_path {
 macro_rules! impl_base_traits_and_methods {
     ($node:ident, $key:ident, $inner:ident) => {
         crate::ast::impl_key!($inner, $key);
-        crate::ast::impl_fsm!($inner);
         crate::ast::node_method_new!($node, $key);
         crate::ast::node_method_key!($node, $key);
         crate::ast::node_method_ast!($node);
@@ -1621,7 +1546,8 @@ macro_rules! impl_base_traits_and_methods {
         crate::ast::impl_fmt!($node, $key, $inner);
         crate::ast::impl_from_fqn!($inner);
         crate::ast::impl_access_name!($node, $inner);
-        crate::ast::impl_state!($inner);
+        // crate::ast::impl_state!($inner);
+        // crate::ast::impl_fsm!($inner);
     };
 }
 macro_rules! impl_traits_and_methods {
@@ -1689,18 +1615,17 @@ use impl_eq;
 use impl_fmt;
 use impl_from_fqn;
 use impl_from_key_and_ast;
-use impl_fsm;
 use impl_key;
 use impl_node_path;
 use impl_set_uninterpreted_options;
 use impl_span;
-use impl_state;
 use impl_traits_and_methods;
 use inner_method_file;
 use inner_method_package;
 use node_method_ast;
 use node_method_key;
 use node_method_new;
+// use impl_state;
 
 #[cfg(test)]
 mod tests {

@@ -1,0 +1,10 @@
+message SubMessage{}
+
+message SampleMessage {
+  // oneof comments 
+  oneof test_oneof {
+	// field oneof comments 
+    string name = 4;
+    SubMessage sub_message = 9;
+  }
+}

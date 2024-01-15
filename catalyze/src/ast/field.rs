@@ -16,16 +16,16 @@ use super::{
     message::{self, Message},
     package,
     reference::{ReferenceInner, References},
-    Comments, Span, State,
+    Comments, Span,
 };
 
 #[derive(Debug, Default, Clone)]
 pub(super) struct Inner {
     key: Key,
-    state: State,
+
     value: ValueInner,
     fqn: FullyQualifiedName,
-    node_path: Vec<i32>,
+    node_path: Box<[i32]>,
     span: Span,
     comments: Option<Comments>,
     name: String,

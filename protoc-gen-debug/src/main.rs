@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use std::{
-    fs::{create_dir_all, File},
+    fs::{self, File},
     io::{stdin, stdout, Read, Write},
     path::PathBuf,
 };
@@ -15,12 +15,13 @@ macro_rules! exit {
     ($($arg:tt)*) => {
         eprint!("[protoc-gen-debug] ");
         eprint!($($arg)*);
-        eprintln!();
+        eprintln!("");
         std::process::exit(1);
     }
 }
 
 fn main() {
+    eprintln!("protoc-gen-debug v{}", env!("CARGO_PKG_VERSION"));
     let mut buf = Vec::new();
     stdin().read_to_end(&mut buf).unwrap_or_else(|e| {
         exit!("Failed to read stdin: {}", e);
@@ -28,21 +29,31 @@ fn main() {
     let request = CodeGeneratorRequest::parse_from_bytes(&buf).unwrap_or_else(|e| {
         exit!("Failed to parse CodeGeneratorRequest: {e}");
     });
-    eprintln!("{request:#?}");
 
     let mut path = request.parameter();
     if path.is_empty() {
         path = ".";
     }
-    create_dir_all(path).unwrap_or_else(|e| {
-        exit!("Failed to create output directory \"{path}\": {}", e);
+    let path = PathBuf::from(path);
+
+    fs::create_dir_all(&path).unwrap_or_else(|e| {
+        exit!("Failed to create output directory: {e}");
     });
 
-    File::create(PathBuf::from(request.parameter()).join("code_generator_request.pb.bin"))
+    File::create(path.join("code_generator_request.bin"))
         .unwrap_or_else(|e| {
             exit!("Failed to create output file: {e}");
         })
         .write_all(&buf)
+        .unwrap_or_else(|e| {
+            exit!("Failed to write request to disk: {e}");
+        });
+
+    File::create(path.join("code_generator_request.txt"))
+        .unwrap_or_else(|e| {
+            exit!("Failed to create output file: {e}");
+        })
+        .write_all(format!("{:#?}", request).as_bytes())
         .unwrap_or_else(|e| {
             exit!("Failed to write request to disk: {e}");
         });

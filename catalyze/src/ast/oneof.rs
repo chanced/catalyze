@@ -1,6 +1,6 @@
 use super::{
     access::NodeKeys, field, file, impl_traits_and_methods, package, Comments, FullyQualifiedName,
-    Resolver, Span, State, UninterpretedOption,
+    Resolver, Span, UninterpretedOption,
 };
 
 pub struct Oneof<'ast>(Resolver<'ast, Key, Inner>);
@@ -8,10 +8,10 @@ pub struct Oneof<'ast>(Resolver<'ast, Key, Inner>);
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {
     key: Key,
-    state: State,
+
     fqn: FullyQualifiedName,
     package: Option<package::Key>,
-    node_path: Vec<i32>,
+    node_path: Box<[i32]>,
     span: Span,
     comments: Option<Comments>,
     file: file::Key,

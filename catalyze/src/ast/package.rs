@@ -1,7 +1,7 @@
 use super::{
     access::NodeKeys,
     file::{self, File},
-    impl_traits_and_methods, FullyQualifiedName, Resolver, State,
+    impl_traits_and_methods, FullyQualifiedName, Resolver,
 };
 
 use std::fmt::Debug;
@@ -32,18 +32,18 @@ impl<'ast> Comments<'ast> {
 #[derive(PartialEq, Default, Clone, Debug)]
 pub(super) struct Inner {
     key: Key,
-    state: State,
+
     fqn: FullyQualifiedName,
     comments: Vec<CommentsInner>,
     name: String,
     is_well_known: bool,
     files: Vec<file::Key>,
 }
+
 impl Inner {
     pub fn new(name: impl AsRef<str>) -> Self {
         Self {
             key: Key::default(),
-            state: State::Hydrating,
             name: name.as_ref().to_owned(),
             is_well_known: name.as_ref() == Package::WELL_KNOWN,
             files: Vec::default(),

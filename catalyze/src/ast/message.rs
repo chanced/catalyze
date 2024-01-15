@@ -6,10 +6,9 @@ use super::{
     oneof::{self},
     package,
     reference::{ReferenceInner, References},
-    Comments, ContainerKey, FullyQualifiedName, ReservedRange, Resolver, Span, State,
-    UninterpretedOption,
+    Comments, ContainerKey, FullyQualifiedName, ReservedRange, Resolver, Span, UninterpretedOption,
 };
-use protobuf::descriptor::MessageOptions;
+use protobuf::descriptor::{descriptor_proto, MessageOptions};
 
 slotmap::new_key_type! {
     pub(super) struct Key;
@@ -18,9 +17,10 @@ slotmap::new_key_type! {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Inner {
     key: Key,
-    state: State,
+
     fqn: FullyQualifiedName,
-    node_path: Vec<i32>,
+    index: i32,
+    node_path: Box<[i32]>,
     span: Span,
     comments: Option<Comments>,
     name: String,
@@ -33,6 +33,7 @@ pub(super) struct Inner {
     synthetic_oneofs: Vec<oneof::Key>,
     defined_extensions: Vec<extension::Key>,
     applied_extensions: Vec<extension::Key>,
+    extension_ranges: Vec<ExtensionRange>,
     dependents: Vec<file::Key>,
     referenced_by: Vec<ReferenceInner>,
     references: Vec<ReferenceInner>,
@@ -436,6 +437,45 @@ impl std::str::FromStr for WellKnownMessage {
             Self::UINT64_VALUE => Ok(Self::UInt64Value),
             Self::VALUE => Ok(Self::Value),
             _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtensionRange {
+    pub start: i32,
+    pub end: i32,
+    pub uninterpreted_options: Vec<UninterpretedOption>,
+}
+
+impl ExtensionRange {
+    pub fn start(&self) -> i32 {
+        self.start
+    }
+    pub fn end(&self) -> i32 {
+        self.end
+    }
+    pub fn uninterpreted_options(&self) -> &[UninterpretedOption] {
+        &self.uninterpreted_options
+    }
+}
+impl access::UninterpretedOptions for ExtensionRange {
+    fn uninterpreted_options(&self) -> &[UninterpretedOption] {
+        &self.uninterpreted_options
+    }
+}
+impl From<descriptor_proto::ExtensionRange> for ExtensionRange {
+    fn from(descriptor: descriptor_proto::ExtensionRange) -> Self {
+        Self {
+            start: descriptor.start(),
+            end: descriptor.end(),
+            uninterpreted_options: descriptor
+                .options
+                .unwrap_or_default()
+                .uninterpreted_option
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }

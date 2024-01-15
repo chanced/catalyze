@@ -3,21 +3,53 @@ use crate::ast::{impl_traits_and_methods, FullyQualifiedName, Resolver, Uninterp
 use super::{
     access::NodeKeys,
     field::{TypeInner, ValueInner},
-    file, package,
+    file, message, package,
     reference::{ReferenceInner, References},
-    Comments, Span, State,
+    Comments, Span,
 };
 
 pub use super::field::{CType, JsType, Label};
 
 slotmap::new_key_type! {
     pub(super) struct Key;
+    pub(super) struct GroupKey;
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(super) struct GroupInner {
+    span: Span,
+    comments: Option<Comments>,
+    extensions: Vec<Key>,
+}
+
+/// A set of [`Extension`] which are defined together in a single message-like
+/// structure.
+///
+/// ```proto
+/// extend Foo {
+///    optional int32 bar = 126;
+///    optional int32 baz = 127;
+/// }
+/// ```
+///
+/// In the above example, `bar` and `baz` would be included the same group.
+///
+/// Note that `Group` is not a [`node`](crate::ast::Node) in the AST, but rather
+/// a construct used to organize the [`Extension`] as they are defined in the
+/// protobuf. As such, the group does not have a [`FullyQualifiedName`].  It
+/// does, however, have a [`Span`] and possibly [`Comments`].
+pub struct Group<'ast>(Resolver<'ast, GroupKey, GroupInner>);
+
+impl<'ast> Group<'ast> {
+    pub fn comments(&self) -> Option<&Comments> {
+        self.0.comments.as_ref()
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {
+    group: GroupKey,
     key: Key,
-    state: State,
     value: ValueInner,
     fqn: FullyQualifiedName,
     node_path: Vec<i32>,
@@ -37,7 +69,7 @@ pub(super) struct Inner {
     type_name: Option<String>,
     ///  For extensions, this is the name of the type being extended.  It is
     ///  resolved in the same manner as type_name.
-    extendee: Option<String>,
+    extendee: message::Key,
     ///  For numeric types, contains the original text representation of the
     /// value.  For booleans, "true" or "false".
     ///  For strings, contains the default text contents (not escaped in any
