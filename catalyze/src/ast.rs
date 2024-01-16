@@ -33,7 +33,7 @@ use slotmap::SlotMap;
 use crate::{
     ast::file::{DependencyInner, DependentInner},
     error::Error,
-    HashMap, HashSet,
+    to_i32, HashMap, HashSet,
 };
 use r#enum::{Enum, WellKnownEnum};
 use enum_value::EnumValue;
@@ -428,7 +428,7 @@ impl Ast {
         }
         Ok(this)
     }
-
+    #[allow(clippy::too_many_lines)]
     fn hydrate_file(&mut self, hydrate: hydrate::File) -> Result<file::Key, Error> {
         // TODO: remove destruction once complete
         let FileDescriptorProto {
@@ -479,14 +479,9 @@ impl Ast {
         let mut nodes_by_fqn = HashMap::new();
         let mut nodes_by_path = HashMap::new();
 
-        let mut insert = |fqn: FullyQualifiedName, path: Vec<i32>, key: Key| {
-            nodes_by_fqn.insert(fqn, key);
-            nodes_by_path.insert(path, key);
-        };
-
         let mut messages = Vec::with_capacity(message_type.len());
         for (i, descriptor) in message_type.into_iter().enumerate() {
-            let index = i as i32;
+            let index = to_i32(i);
             let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
             let node_path = vec![path::File::Message.as_i32(), index];
             let key = self.hydrate_message(hydrate::Message {
@@ -501,13 +496,14 @@ impl Ast {
                 file: key,
                 package,
             })?;
-            insert(fqn, node_path, key.into());
+            nodes_by_fqn.insert(fqn, key.into());
+            nodes_by_path.insert(node_path, key.into());
             messages.push(key);
         }
 
         let mut enums = Vec::with_capacity(enum_type.len());
         for (i, descriptor) in enum_type.into_iter().enumerate() {
-            let index = i as i32;
+            let index = to_i32(i);
             let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
             let node_path = vec![path::File::Enum.as_i32(), index];
             let key = self.hydrate_enum(hydrate::Enum {
@@ -522,13 +518,14 @@ impl Ast {
                 file: key,
                 package,
             })?;
-            insert(fqn, node_path, key.into());
+            nodes_by_fqn.insert(fqn, key.into());
+            nodes_by_path.insert(node_path, key.into());
             enums.push(key);
         }
 
         let mut services = Vec::with_capacity(service.len());
         for (i, descriptor) in service.into_iter().enumerate() {
-            let index = i as i32;
+            let index = to_i32(i);
             let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
             let node_path = vec![path::File::Service.as_i32(), index];
             let key = self.hydrate_service(hydrate::Service {
@@ -542,12 +539,13 @@ impl Ast {
                 package,
             })?;
             services.push(key);
-            insert(fqn, node_path, key.into());
+            nodes_by_fqn.insert(fqn, key.into());
+            nodes_by_path.insert(node_path, key.into());
         }
 
         let mut extensions = Vec::with_capacity(extension.len());
         for (i, descriptor) in extension.into_iter().enumerate() {
-            let index = i as i32;
+            let index = to_i32(i);
             let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
             let node_path = vec![path::File::Extension.as_i32(), index];
             let key = self.hydrate_extension(hydrate::Extension {
@@ -559,16 +557,17 @@ impl Ast {
                 file: key,
                 package,
             })?;
-            insert(fqn, node_path, key.into());
+            nodes_by_fqn.insert(fqn, key.into());
+            nodes_by_path.insert(node_path, key.into());
             extensions.push(key);
         }
 
         let mut dependencies = Vec::with_capacity(dependency.len());
 
-        for (idx, dependency) in dependency.into_iter().enumerate() {
-            let idx = idx as i32;
-            let is_weak = weak_dependency.contains(&idx);
-            let is_public = public_dependency.contains(&idx);
+        for (i, dependency) in dependency.into_iter().enumerate() {
+            let index = to_i32(i);
+            let is_weak = weak_dependency.contains(&index);
+            let is_public = public_dependency.contains(&index);
             let fqn = FullyQualifiedName(dependency);
             let (dependency_key, dependency_file) = self.files.get_or_insert_by_fqn(fqn.clone());
             dependency_file.add_dependent(DependentInner {
@@ -589,7 +588,6 @@ impl Ast {
         let file = &mut self.files[key];
         file.set_dependencies(dependencies);
         file.set_messages(messages);
-        file.set_dependencies(dependencies);
         file.set_enums(enums);
         file.set_services(services);
         file.set_defined_extensions(extensions);
@@ -622,7 +620,7 @@ impl Ast {
 
         let mut messages = Vec::with_capacity(nested_type.len());
         for (i, nested) in nested_type.into_iter().enumerate() {
-            let index = i as i32;
+            let index = to_i32(i);
             messages.push(self.hydrate_message(hydrate::Message {
                 index,
                 fqn: FullyQualifiedName::new(nested.name(), Some(fqn.clone())),
@@ -638,7 +636,7 @@ impl Ast {
         }
         let mut enums = Vec::with_capacity(enum_type.len());
         for (i, enm) in enum_type.into_iter().enumerate() {
-            let index = i as i32;
+            let index = to_i32(i);
             let fqn = FullyQualifiedName::new(enm.name(), Some(fqn.clone()));
             let node_path = path::append(&hydrate.node_path, path::Message::Enum, index);
             let key = self.hydrate_enum(hydrate::Enum {
@@ -658,7 +656,7 @@ impl Ast {
             hydrate.nodes_by_path.insert(node_path, key.into());
         }
         for (i, descriptor) in oneof_decl.into_iter().enumerate() {
-            let index = i as i32;
+            let index = to_i32(i);
             let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
             let oneof_key = self.hydrate_oneof(hydrate::Oneof {
                 index,
@@ -671,7 +669,7 @@ impl Ast {
             })?;
         }
         for (i, descriptor) in field.into_iter().enumerate() {
-            let index = i as i32;
+            let index = to_i32(i);
             let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
             let field_key = self.hydrate_field(hydrate::Field {
                 descriptor,

@@ -1,0 +1,156 @@
+// leading comments
+
+// syntax comments
+syntax = "proto2";
+
+// package comments
+package commented;
+
+
+// Message0 comments
+message Message0 {
+  // Message0EmbeddedEnum comments
+  enum Message0EmbeddedEnum {
+    // Zero - Messaeg0EmbeddedEnum
+    Zero = 0;
+    // One - Messaeg0EmbeddedEnum
+    One = 1;
+    // Two - Messaeg0EmbeddedEnum
+    Two = 2;
+  }
+  // optional field comments
+  optional string field = 1;
+
+  // repeated field comments
+  repeated string repeated_field = 2;
+
+  // required field comments
+  required string required_field = 3;
+}
+
+// Message1 comments
+message Message1{
+    // extensions range comments
+    extensions 1000 to max;
+}
+
+// Message2 comments
+message Message2 {
+  // Message2EmbeddedMessage comments
+  message Message2EmbeddedMessage {
+    // Message2DeepEnum comments
+    enum Message2DeepEnum {
+      // Zero - Message2DeepEnum
+      Zero = 0;
+      // One - Message2DeepEnum
+      One = 1;
+      // Two - Message2DeepEnum
+      Two = 2;
+    }
+    // Message2EmbeddedMessage comments
+    message Message2EmbeddedMessage {
+      // Nested message field comments
+      optional string field = 1;
+    }
+    // Nested message field
+    optional Message0 nested_message = 1;
+  }
+  // field comments
+  optional string field = 1;
+}
+// Message2 trailing comments
+
+
+// Extend0 Message1
+extend Message1 {
+  // Extend0 Field0 comments
+  optional string extend0_field0 = 103339;
+  // Extend0 Field1 comments
+  optional string extend0_field1 = 103340;
+    // Extend0 Field2 comments
+  optional string extend0_field2 = 103341;
+}
+
+
+// Message3 comments
+message Message3 {
+  // Message3 field 0
+  required string name = 1;
+  // Message3 field 1
+  repeated string lines = 2;
+
+  // oneof0 comments 
+  oneof oneof0 {
+    // oneof0 field 0 comments
+    string path = 4;
+    // oneof0 field 1 comments
+    Message0 msg = 9;
+  }
+}
+
+// Enum0 comments
+enum Enum0 {
+    // Enum0 Zero
+    Enum0_Zero = 0;
+    // Enum0 One
+    Enum0_One = 1;
+    // Enum0 Two
+    Enum0_Two = 2;
+}
+
+// Enum1 comments
+enum Enum1 {
+    // Enum1 Zero
+    Enum1_Zero = 0;
+    // Enum1 Zero
+    Enum1_One = 1;
+    // Enum1 Zero
+    Enum1_Two = 2;
+}
+
+// Service0 comments
+service Service0 {
+  // Service0 Method0 comments
+  rpc Method0 (Message0) returns (Message0);
+  // Service0 Method1 comments
+  rpc Method1(Message1) returns (Message1);
+  // Serivce0 Method2 comments
+  rpc Method2(stream Message2) returns (Message2);
+}
+// trailing service comments
+
+
+
+// Message4 comments
+message Message4 {
+  // Message4 Extend0 comments
+  extend Message1 {
+    // Message4 Extend0 Field0 comments
+    optional string extended_field = 13393;
+  }
+
+}
+
+// Extend1 Message1
+extend Message1 {
+  // Extend1 Field0 comments
+  optional string extend1_field0 = 113339;
+  // Extend1 Field1 comments
+  optional string extend1_field1 = 113340;
+    // Extend1 Field2 comments
+  optional string extend1_field2 = 113341;
+}
+
+
+// Extend2 Message1
+extend Message1 {
+  // Extend2 Field0 comments
+  optional string extend2_field0 = 123339;
+  // Extend2 Field1 comments
+  optional string extend2_field1 = 123340;
+    // Extend2 Field2 comments
+  optional string extend2_field2 = 123341;
+}
+
+
+// trailing comments

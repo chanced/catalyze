@@ -2,35 +2,29 @@ use std::{collections::BTreeMap, iter::Peekable};
 
 use protobuf::descriptor::{source_code_info::Location as ProtoLoc, SourceCodeInfo};
 
-use crate::error::Error;
+use crate::{error::Error, to_i32};
 
 use super::{path, Comments, Span};
 
 type Iter = Peekable<std::vec::IntoIter<ProtoLoc>>;
 
-pub(super) struct Location {
-    pub(super) span: Span,
-    pub(super) comments: Option<Comments>,
-}
-
-pub(super) struct File {
-    pub(super) syntax: Option<Location>,
-    pub(super) package: Option<Location>,
-    pub(super) messages: Vec<Message>,
-    pub(super) enums: Vec<Enum>,
-    pub(super) services: Vec<Service>,
-    pub(super) extensions: Vec<ExtensionGroup>,
-}
-impl File {
-    pub(super) fn new(info: SourceCodeInfo) -> Result<Self, Error> {
-        todo!()
+fn iterate_next<T>(prefix: &[i32], locations: &mut Iter) -> Option<(ProtoLoc, T)>
+where
+    T: From<i32>,
+{
+    let peeked = locations.peek()?;
+    let subpath = peeked.path.get(..prefix.len())?;
+    // len check is required because of how extension groups are pathed
+    if subpath != &prefix[..subpath.len()] || peeked.path.len() == prefix.len() {
+        return None;
     }
+    locations.next().and_then(|next| {
+        let next_path = next.path.get(prefix.len()).map(|&n| T::from(n))?;
+        Some((next, next_path))
+    })
 }
-
-fn extract_path_span_and_comments(
-    loc: ProtoLoc,
-) -> Result<(Vec<i32>, Span, Option<Comments>), Error> {
-    let span = Span::new(&loc.span).map_err(|_| Error::invalid_span(&loc))?;
+fn extract(loc: ProtoLoc) -> Result<(Vec<i32>, Span, Option<Comments>), Error> {
+    let span = Span::new(&loc.span).map_err(|()| Error::invalid_span(&loc))?;
     let comments = Comments::new_maybe(
         loc.leading_comments,
         loc.trailing_comments,
@@ -39,6 +33,77 @@ fn extract_path_span_and_comments(
     Ok((loc.path, span, comments))
 }
 
+#[derive(Debug)]
+pub(super) struct Location {
+    pub(super) span: Span,
+    pub(super) comments: Option<Comments>,
+}
+
+#[derive(Debug)]
+pub(super) struct File {
+    pub(super) syntax: Option<Location>,
+    pub(super) package: Option<Location>,
+    pub(super) dependencies: Vec<Location>,
+    pub(super) messages: Vec<Message>,
+    pub(super) enums: Vec<Enum>,
+    pub(super) services: Vec<Service>,
+    pub(super) extensions: Vec<ExtensionGroup>,
+}
+impl File {
+    pub(super) fn new(info: SourceCodeInfo) -> Result<Self, Error> {
+        let mut locations = info.location.into_iter().peekable();
+        let mut package = None;
+        let mut syntax = None;
+        let mut messages = Vec::new();
+        let mut enums = Vec::new();
+        let mut services = Vec::new();
+        let mut dependencies = Vec::new();
+        let mut extensions = Vec::new();
+
+        let (path, span, comments) = extract(locations.next().unwrap())?;
+
+        while let Some(next) = locations.next() {
+            match path::File::from_i32(next.path[0]) {
+                path::File::Syntax => {
+                    let (_, span, comments) = extract(next)?;
+                    syntax = Some(Location { span, comments });
+                }
+                path::File::Dependency => {
+                    let (_, span, comments) = extract(next)?;
+                    dependencies.push(Location { span, comments });
+                }
+                path::File::Package => {
+                    let (_, span, comments) = extract(next)?;
+                    package = Some(Location { span, comments });
+                }
+                path::File::Message => {
+                    messages.push(Message::new(next, &mut locations)?);
+                }
+                path::File::Enum => {
+                    enums.push(Enum::new(next, &mut locations)?);
+                }
+                path::File::Service => {
+                    services.push(Service::new(next, &mut locations)?);
+                }
+                path::File::Extension => {
+                    extensions.push(ExtensionGroup::new(next, &mut locations)?);
+                }
+                _ => continue,
+            }
+        }
+        Ok(Self {
+            syntax,
+            package,
+            dependencies,
+            messages,
+            enums,
+            services,
+            extensions,
+        })
+    }
+}
+
+#[derive(Debug)]
 pub(super) struct Message {
     pub(super) location: Location,
     pub(super) messages: Vec<Message>,
@@ -48,37 +113,34 @@ pub(super) struct Message {
     pub(super) fields: Vec<Field>,
 }
 
-fn iterate_next(prefix: &[i32], locations: &mut Iter) -> Option<ProtoLoc> {
-    let Some(next) = locations.peek() else {
-        return None;
-    };
-    if next.path[..prefix.len()] == prefix[..] {
-        locations.next()
-    } else {
-        None
-    }
-}
 impl Message {
     fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, Error> {
-        let (path, span, comments) = extract_path_span_and_comments(node)?;
+        let (path, span, comments) = extract(node)?;
+
         let mut messages = Vec::new();
         let mut enums = Vec::new();
         let mut extensions = Vec::new();
         let mut oneofs = Vec::new();
         let mut fields = Vec::new();
 
-        while let Some(next) = iterate_next(&path, locations) {
-            match path::Message::from(next.path[path.len()]) {
+        while let Some((next, next_path)) = iterate_next(&path, locations) {
+            match next_path {
                 path::Message::Field => {
                     fields.push(Field::new(next, locations)?);
                 }
                 path::Message::Nested => {
-                    messages.push(Message::new(next, locations)?);
+                    messages.push(Self::new(next, locations)?);
                 }
-                path::Message::Enum => todo!(),
-                path::Message::Extension => todo!(),
-                path::Message::Oneof => todo!(),
-                path::Message::Unknown(_) => todo!(),
+                path::Message::Enum => {
+                    enums.push(Enum::new(next, locations)?);
+                }
+                path::Message::Extension => {
+                    extensions.push(ExtensionGroup::new(next, locations)?);
+                }
+                path::Message::Oneof => {
+                    oneofs.push(Oneof::new(next, locations)?);
+                }
+                path::Message::Unknown(_) => continue,
             }
         }
         Ok(Self {
@@ -92,178 +154,320 @@ impl Message {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct ExtensionGroup {
     pub(super) location: Location,
-    pub(super) field: Vec<Field>,
-    pub(super) extension_groups: Vec<ExtensionGroup>,
+    pub(super) extensions: Vec<Field>,
+}
+impl ExtensionGroup {
+    fn new(
+        node: ProtoLoc,
+        locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
+    ) -> Result<Self, Error> {
+        let mut extensions = Vec::new();
+        let (mut path, span, comments) = extract(node)?;
+        while let Some((next, _)) = iterate_next::<i32>(&path, locations) {
+            extensions.push(Field::new(next, locations)?);
+        }
+        Ok(Self {
+            location: Location { span, comments },
+            extensions,
+        })
+    }
 }
 
+#[derive(Debug)]
 pub(super) struct Field {
     pub(super) location: Location,
 }
 impl Field {
     fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, Error> {
-        let (path, span, comments) = extract_path_span_and_comments(node)?;
+        let (path, span, comments) = extract(node)?;
+        while iterate_next::<i32>(&path, locations).is_some() {}
         Ok(Self {
             location: Location { span, comments },
         })
     }
 }
 
+#[derive(Debug)]
 pub(super) struct Oneof {
     pub(super) location: Location,
 }
+impl Oneof {
+    fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, Error> {
+        let (path, span, comments) = extract(node)?;
+        while iterate_next::<i32>(&path, locations).is_some() {}
+        Ok(Self {
+            location: Location { span, comments },
+        })
+    }
+}
+
+#[derive(Debug)]
 pub(super) struct Enum {
     pub(super) location: Location,
     pub(super) values: Vec<EnumValue>,
 }
+impl Enum {
+    fn new(
+        node: ProtoLoc,
+        locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
+    ) -> Result<Self, Error> {
+        let (path, span, comments) = extract(node)?;
+        let mut values = Vec::new();
+        while let Some((next, next_path)) = iterate_next(&path, locations) {
+            match next_path {
+                path::Enum::Value => {
+                    values.push(EnumValue::new(next, locations)?);
+                }
+                path::Enum::Unknown(_) => continue,
+            }
+        }
+        Ok(Self {
+            location: Location { span, comments },
+            values,
+        })
+    }
+}
+#[derive(Debug)]
 pub(super) struct EnumValue {
     pub(super) location: Location,
 }
+impl EnumValue {
+    fn new(
+        node: ProtoLoc,
+        locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
+    ) -> Result<Self, Error> {
+        let (path, span, comments) = extract(node)?;
+        while iterate_next::<i32>(&path, locations).is_some() {}
+        Ok(Self {
+            location: Location { span, comments },
+        })
+    }
+}
+#[derive(Debug)]
 pub(super) struct Service {
     pub(super) location: Location,
     pub(super) methods: Vec<Method>,
 }
+impl Service {
+    fn new(
+        node: ProtoLoc,
+        locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
+    ) -> Result<Self, Error> {
+        let (path, span, comments) = extract(node)?;
+        let mut methods = Vec::new();
+        while let Some((next, next_path)) = iterate_next(&path, locations) {
+            match next_path {
+                path::Service::Method => {
+                    methods.push(Method::new(next, locations)?);
+                }
+                path::Service::Mixin | path::Service::Unknown(_) => continue,
+            }
+        }
+        Ok(Self {
+            location: Location { span, comments },
+            methods,
+        })
+    }
+}
 
+#[derive(Debug)]
 pub(super) struct Method {
     pub(super) location: Location,
+}
+impl Method {
+    fn new(
+        node: ProtoLoc,
+        locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
+    ) -> Result<Self, Error> {
+        let (path, span, comments) = extract(node)?;
+        while iterate_next::<i32>(&path, locations).is_some() {}
+        Ok(Self {
+            location: Location { span, comments },
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use protobuf::{descriptor::SourceCodeInfo, SpecialFields};
+    use itertools::Itertools;
+    use protobuf::{
+        descriptor::SourceCodeInfo, plugin::CodeGeneratorRequest, Message, SpecialFields,
+    };
 
     use super::*;
 
-    fn construct_info() -> SourceCodeInfo {
-        use protobuf::descriptor::source_code_info::Location;
-        SourceCodeInfo {
-            location: vec![
-                Location {
-                    path: vec![],
-                    span: vec![0, 0, 9, 1],
-                    leading_comments: None,
-                    trailing_comments: None,
-                    leading_detached_comments: vec![],
-                    special_fields: SpecialFields::default(),
-                },
-                Location {
-                    path: vec![4, 0],
-                    span: vec![0, 0, 20],
-                    leading_comments: None,
-                    trailing_comments: None,
-                    leading_detached_comments: vec![],
-                    special_fields: SpecialFields::default(),
-                },
-                Location {
-                    path: vec![4, 0, 1],
-                    span: vec![0, 8, 18],
-                    leading_comments: None,
-                    trailing_comments: None,
-                    leading_detached_comments: vec![],
-                    special_fields: SpecialFields::default(),
-                },
-                Location {
-                    path: vec![4, 1],
-                    span: vec![2, 0, 9, 1],
-                    leading_comments: None,
-                    trailing_comments: None,
-                    leading_detached_comments: vec![],
-                    special_fields: SpecialFields::default(),
-                },
-                Location {
-                    path: vec![4, 1, 1],
-                    span: vec![2, 8, 21],
-                    leading_comments: None,
-                    trailing_comments: None,
-                    leading_detached_comments: vec![],
-                    special_fields: SpecialFields::default(),
-                },
-                Location {
-                    path: vec![4, 1, 8, 0],
-                    span: vec![4, 2, 8, 3],
-                    leading_comments: Some(" oneof comments \n".to_string()),
-                    trailing_comments: None,
-                    leading_detached_comments: vec![],
-                    special_fields: SpecialFields::default(),
-                },
-                Location {
-                    path: vec![4, 1, 8, 0, 1],
-                    span: vec![4, 8, 18],
-                    leading_comments: None,
-                    trailing_comments: None,
-                    leading_detached_comments: vec![],
-                    special_fields: SpecialFields::default(),
-                },
-                Location {
-                    path: vec![4, 1, 2, 0],
-                    span: vec![6, 4, 20],
-                    leading_comments: Some(" field oneof comments \n".to_string()),
-                    trailing_comments: None,
-                    leading_detached_comments: vec![],
-                    special_fields: SpecialFields::default(),
-                },
-                Location {
-                    path: vec![4, 1, 2, 0, 5],
-                    span: vec![6, 4, 10],
-                    leading_comments: None,
-                    trailing_comments: None,
-                    leading_detached_comments: vec![],
-                    special_fields: SpecialFields::default(),
-                },
-                Location {
-                    path: vec![4, 1, 2, 0, 1],
-                    span: vec![6, 11, 15],
-                    leading_comments: None,
-                    trailing_comments: None,
-                    leading_detached_comments: vec![],
-                    special_fields: SpecialFields::default(),
-                },
-                Location {
-                    path: vec![4, 1, 2, 0, 3],
-                    span: vec![6, 18, 19],
-                    leading_comments: None,
-                    trailing_comments: None,
-                    leading_detached_comments: vec![],
-                    special_fields: SpecialFields::default(),
-                },
-                Location {
-                    path: vec![4, 1, 2, 1],
-                    span: vec![7, 4, 31],
-                    leading_comments: None,
-                    trailing_comments: None,
-                    leading_detached_comments: vec![],
-                    special_fields: SpecialFields::default(),
-                },
-                Location {
-                    path: vec![4, 1, 2, 1, 6],
-                    span: vec![7, 4, 14],
-                    leading_comments: None,
-                    trailing_comments: None,
-                    leading_detached_comments: vec![],
-                    special_fields: SpecialFields::default(),
-                },
-                Location {
-                    path: vec![4, 1, 2, 1, 1],
-                    span: vec![7, 15, 26],
-                    leading_comments: None,
-                    trailing_comments: None,
-                    leading_detached_comments: vec![],
-                    special_fields: SpecialFields::default(),
-                },
-                Location {
-                    path: vec![4, 1, 2, 1, 3],
-                    span: vec![7, 29, 30],
-                    leading_comments: None,
-                    trailing_comments: None,
-                    leading_detached_comments: vec![],
-                    special_fields: SpecialFields::default(),
-                },
-            ],
-            special_fields: SpecialFields::default(),
-        }
+    #[test]
+    fn test_new() {
+        let f = File::new(construct_info()).unwrap();
+        assert_eq!(f.enums.len(), 2);
+        assert_eq!(
+            f.enums[0]
+                .location
+                .comments
+                .as_ref()
+                .unwrap()
+                .leading
+                .as_deref()
+                .unwrap()
+                .trim(),
+            "Enum0 comments"
+        );
+        assert_eq!(
+            f.enums[0].values[0]
+                .location
+                .comments
+                .as_ref()
+                .unwrap()
+                .leading
+                .as_deref()
+                .unwrap()
+                .trim(),
+            "Enum0 Zero"
+        );
+        assert_eq!(
+            f.enums[0].values[1]
+                .location
+                .comments
+                .as_ref()
+                .unwrap()
+                .leading
+                .as_deref()
+                .unwrap()
+                .trim(),
+            "Enum0 One"
+        );
+
+        assert_eq!(
+            f.enums[1]
+                .location
+                .comments
+                .as_ref()
+                .unwrap()
+                .leading()
+                .unwrap()
+                .trim(),
+            "Enum1 comments"
+        );
+
+        assert_eq!(f.messages.len(), 5);
+        assert_eq!(
+            f.messages[0]
+                .location
+                .comments
+                .as_ref()
+                .unwrap()
+                .leading()
+                .unwrap()
+                .trim(),
+            "Message0 comments"
+        );
+        assert_eq!(
+            f.messages[3]
+                .location
+                .comments
+                .as_ref()
+                .unwrap()
+                .leading()
+                .unwrap()
+                .trim(),
+            "Message3 comments"
+        );
+
+        assert_eq!(
+            f.messages[0].enums[0]
+                .location
+                .comments
+                .as_ref()
+                .unwrap()
+                .leading()
+                .unwrap()
+                .trim(),
+            "Message0EmbeddedEnum comments"
+        );
+
+        assert_eq!(
+            f.messages[0].enums[0].values[1]
+                .location
+                .comments
+                .as_ref()
+                .unwrap()
+                .leading()
+                .unwrap()
+                .trim(),
+            "One - Messaeg0EmbeddedEnum"
+        );
+
+        assert_eq!(
+            f.messages[3].fields[0]
+                .location
+                .comments
+                .as_ref()
+                .unwrap()
+                .leading()
+                .unwrap()
+                .trim(),
+            "Message3 field 0"
+        );
+        assert_eq!(
+            f.messages[3].fields[1]
+                .location
+                .comments
+                .as_ref()
+                .unwrap()
+                .leading()
+                .unwrap()
+                .trim(),
+            "Message3 field 1"
+        );
+        assert_eq!(
+            f.messages[3].oneofs[0]
+                .location
+                .comments
+                .as_ref()
+                .unwrap()
+                .leading()
+                .unwrap()
+                .trim(),
+            "oneof0 comments"
+        );
+        println!(
+            "{:#?}",
+            f.extensions
+                .iter()
+                .map(|e| e
+                    .location
+                    .comments
+                    .as_ref()
+                    .unwrap()
+                    .leading()
+                    .unwrap()
+                    .trim())
+                .collect_vec()
+        );
+        assert_eq!(f.extensions.len(), 3);
+        assert_eq!(
+            f.extensions[0]
+                .location
+                .comments
+                .as_ref()
+                .unwrap()
+                .leading()
+                .unwrap()
+                .trim(),
+            "Extend0 Message1"
+        );
     }
 
-    #[test]
-    fn test_name() {}
+    fn construct_info() -> SourceCodeInfo {
+        //  protoc --plugin=protoc-gen-debug=target/release/protoc-gen-debug \
+        // --debug_out=. --debug_opt=./fixtures/cgr/commented \
+        // --proto_path=./fixtures/protos ./fixtures/protos/commented/commented.proto
+
+        let bytes = include_bytes!("../../../fixtures/cgr/commented/code_generator_request.bin");
+        let mut cgr = CodeGeneratorRequest::parse_from_bytes(bytes).unwrap();
+        cgr.proto_file[0].source_code_info.take().unwrap()
+    }
 }

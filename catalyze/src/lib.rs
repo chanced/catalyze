@@ -22,6 +22,8 @@
 )]
 #![cfg_attr(test, allow(clippy::too_many_lines))]
 
+use std::fmt::Display;
+
 pub use protobuf;
 
 pub mod ast;
@@ -30,3 +32,13 @@ pub mod generator;
 
 type HashMap<K, V> = ahash::HashMap<K, V>;
 type HashSet<V> = ahash::HashSet<V>;
+
+fn to_i32<T>(value: T) -> i32
+where
+    T: TryInto<i32>,
+    T::Error: Display,
+{
+    value
+        .try_into()
+        .unwrap_or_else(|err| panic!("value cannot be converted to i32: {err}"))
+}

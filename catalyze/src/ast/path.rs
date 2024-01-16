@@ -9,11 +9,11 @@ pub(super) fn append(path: &[i32], kind: impl Into<i32>, index: i32) -> Vec<i32>
     path
 }
 
-pub(super) fn new(kind: impl Into<i32>, index: usize) -> Vec<i32> {
-    vec![kind.into(), index as i32]
+pub(super) fn new(kind: impl Into<i32>, index: i32) -> Vec<i32> {
+    vec![kind.into(), index]
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum File {
     /// file name, relative to root of source tree
@@ -209,6 +209,11 @@ pub enum Enum {
     Unknown(i32),
 }
 
+impl From<i32> for Enum {
+    fn from(value: i32) -> Self {
+        Self::from_i32(value)
+    }
+}
 impl Enum {
     const VALUE: i32 = 2;
     pub fn as_i32(self) -> i32 {
@@ -249,6 +254,11 @@ pub enum Service {
     Mixin = 6,
 
     Unknown(i32),
+}
+impl From<i32> for Service {
+    fn from(value: i32) -> Self {
+        Self::from_i32(value)
+    }
 }
 impl Service {
     const METHOD: i32 = 2;

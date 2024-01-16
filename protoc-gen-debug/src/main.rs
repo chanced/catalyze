@@ -21,7 +21,6 @@ macro_rules! exit {
 }
 
 fn main() {
-    eprintln!("protoc-gen-debug v{}", env!("CARGO_PKG_VERSION"));
     let mut buf = Vec::new();
     stdin().read_to_end(&mut buf).unwrap_or_else(|e| {
         exit!("Failed to read stdin: {}", e);
