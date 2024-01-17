@@ -1,3 +1,5 @@
+use super::uninterpreted::UninterpretedOption;
+
 pub trait References<'ast> {
     fn references(&'ast self) -> super::reference::References<'ast>;
 }
@@ -32,7 +34,7 @@ pub trait Name {
 /// A trait which returns a slice of
 /// [`UninterpretedOption`](super::UninterpretedOption)s.
 pub trait UninterpretedOptions {
-    fn uninterpreted_options(&self) -> &[super::UninterpretedOption];
+    fn uninterpreted_options(&self) -> &[UninterpretedOption];
 }
 
 /// A trait implemented by nodes with reserved names and ranges.

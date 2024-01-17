@@ -11,21 +11,20 @@ pub mod package;
 pub mod path;
 pub mod reference;
 pub mod service;
+pub mod uninterpreted;
 
 mod hydrate;
 mod location;
 
 use std::{
-    borrow::Cow,
     fmt,
-    iter::Empty,
     ops::{Deref, Index, IndexMut},
     path::PathBuf,
 };
 
 use ahash::{HashMapExt, HashSetExt};
 use protobuf::descriptor::{
-    DescriptorProto, EnumDescriptorProto, EnumValueDescriptorProto, FieldDescriptorProto,
+    self, DescriptorProto, EnumDescriptorProto, EnumValueDescriptorProto, FieldDescriptorProto,
     FileDescriptorProto, MethodDescriptorProto, OneofDescriptorProto, ServiceDescriptorProto,
 };
 use slotmap::SlotMap;
@@ -149,6 +148,7 @@ where
     }
 }
 impl<'ast, K, I> Eq for Resolver<'ast, K, I> where K: Eq {}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Key {
     Package(package::Key),
@@ -398,321 +398,54 @@ where
     }
 }
 
+type PackageTable = Table<package::Key, package::Inner>;
+type FileTable = Table<file::Key, file::Inner>;
+type MessageTable = Table<message::Key, message::Inner>;
+type EnumTable = Table<r#enum::Key, r#enum::Inner>;
+type EnumValueTable = Table<enum_value::Key, enum_value::Inner>;
+type ServiceTable = Table<service::Key, service::Inner>;
+type MethodTable = Table<method::Key, method::Inner>;
+type FieldTable = Table<field::Key, field::Inner>;
+type OneofTable = Table<oneof::Key, oneof::Inner>;
+type ExtensionTable = Table<extension::Key, extension::Inner>;
+type ExtensionGroupTable = Table<extension::GroupKey, extension::GroupInner>;
+
 #[derive(Debug, Default)]
 pub struct Ast {
-    packages: Table<package::Key, package::Inner>,
-    files: Table<file::Key, file::Inner>,
-    messages: Table<message::Key, message::Inner>,
-    enums: Table<r#enum::Key, r#enum::Inner>,
-    enum_values: Table<enum_value::Key, enum_value::Inner>,
-    services: Table<service::Key, service::Inner>,
-    methods: Table<method::Key, method::Inner>,
-    fields: Table<field::Key, field::Inner>,
-    oneofs: Table<oneof::Key, oneof::Inner>,
-    extensions: Table<extension::Key, extension::Inner>,
-    extension_groups: Table<extension::GroupKey, extension::GroupInner>,
+    packages: PackageTable,
+    files: FileTable,
+    messages: MessageTable,
+    enums: EnumTable,
+    enum_values: EnumValueTable,
+    services: ServiceTable,
+    methods: MethodTable,
+    fields: FieldTable,
+    oneofs: OneofTable,
+    extensions: ExtensionTable,
+    extension_groups: ExtensionGroupTable,
     nodes: HashMap<FullyQualifiedName, Key>,
 }
 
 impl Ast {
-    fn new(input: Vec<FileDescriptorProto>, targets: &[String]) -> Result<Self, Error> {
-        let targets = targets.iter().map(PathBuf::from).collect::<Vec<_>>();
+    fn new(file_descriptors: Vec<FileDescriptorProto>, targets: &[String]) -> Result<Self, Error> {
+        // let targets = targets.iter().map(PathBuf::from).collect::<Vec<_>>();
         let mut this = Self::default();
-        let mut all_nodes = HashMap::new();
-        for descriptor in input {
-            this.hydrate_file(hydrate::File {
-                descriptor,
-                all_nodes: &mut all_nodes,
-                targets: &targets,
-            })?;
-        }
-        Ok(this)
-    }
-    #[allow(clippy::too_many_lines)]
-    fn hydrate_file(&mut self, hydrate: hydrate::File) -> Result<file::Key, Error> {
-        // TODO: remove destruction once complete
-        let FileDescriptorProto {
-            name,
-            package,
-            dependency,
-            public_dependency,
-            weak_dependency,
-            message_type,
-            enum_type,
-            service,
-            extension,
-            options,
-            source_code_info,
-            syntax,
-            special_fields,
-        } = hydrate.descriptor;
-
-        let package = package.as_ref().map(|pkg| {
-            self.packages
-                .get_or_insert_by_fqn(FullyQualifiedName::from_package_name(pkg))
-        });
-
-        let name = name.unwrap_or_default();
-        let fqn =
-            FullyQualifiedName::new(&name, package.as_ref().map(|(_, pkg)| pkg.fqn().clone()));
-
-        let is_build_target = hydrate
-            .targets
-            .iter()
-            .any(|target| target.as_os_str() == name.as_str());
-
-        let (key, file) = self.files.get_or_insert_by_fqn(fqn.clone());
-
-        let package = if let Some((pkg_key, pkg)) = package {
-            pkg.add_file(key);
-            Some(pkg_key)
-        } else {
-            None
+        let mut nodes = AstTables {
+            by_fqn: &mut this.nodes,
+            packages: &mut this.packages,
+            files: &mut this.files,
+            messages: &mut this.messages,
+            enums: &mut this.enums,
+            enum_values: &mut this.enum_values,
+            services: &mut this.services,
+            methods: &mut this.methods,
+            fields: &mut this.fields,
+            oneofs: &mut this.oneofs,
+            extensions: &mut this.extensions,
+            extension_groups: &mut this.extension_groups,
         };
-
-        file.set_key(key);
-        file.set_package(package);
-        file.set_name_and_path(name);
-        file.set_syntax(syntax)?;
-        file.hydrate_options(options.unwrap_or_default(), is_build_target);
-
-        let mut nodes_by_fqn = HashMap::new();
-        let mut nodes_by_path = HashMap::new();
-
-        let mut messages = Vec::with_capacity(message_type.len());
-        for (i, descriptor) in message_type.into_iter().enumerate() {
-            let index = to_i32(i);
-            let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
-            let node_path = vec![path::File::Message.as_i32(), index];
-            let key = self.hydrate_message(hydrate::Message {
-                fqn: fqn.clone(),
-                descriptor,
-                index,
-                rel_pos: path::File::Message.as_i32(),
-                node_path: node_path.clone(),
-                nodes_by_fqn: &mut nodes_by_fqn,
-                nodes_by_path: &mut nodes_by_path,
-                container: key.into(),
-                file: key,
-                package,
-            })?;
-            nodes_by_fqn.insert(fqn, key.into());
-            nodes_by_path.insert(node_path, key.into());
-            messages.push(key);
-        }
-
-        let mut enums = Vec::with_capacity(enum_type.len());
-        for (i, descriptor) in enum_type.into_iter().enumerate() {
-            let index = to_i32(i);
-            let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
-            let node_path = vec![path::File::Enum.as_i32(), index];
-            let key = self.hydrate_enum(hydrate::Enum {
-                fqn: fqn.clone(),
-                descriptor,
-                index,
-                rel_pos: path::File::Enum.as_i32(),
-                node_path: node_path.clone(),
-                nodes_by_fqn: &mut nodes_by_fqn,
-                nodes_by_path: &mut nodes_by_path,
-                container: key.into(),
-                file: key,
-                package,
-            })?;
-            nodes_by_fqn.insert(fqn, key.into());
-            nodes_by_path.insert(node_path, key.into());
-            enums.push(key);
-        }
-
-        let mut services = Vec::with_capacity(service.len());
-        for (i, descriptor) in service.into_iter().enumerate() {
-            let index = to_i32(i);
-            let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
-            let node_path = vec![path::File::Service.as_i32(), index];
-            let key = self.hydrate_service(hydrate::Service {
-                fqn: fqn.clone(),
-                descriptor,
-                node_path: node_path.clone(),
-                nodes_by_fqn: &mut nodes_by_fqn,
-                nodes_by_path: &mut nodes_by_path,
-                file: key,
-                index,
-                package,
-            })?;
-            services.push(key);
-            nodes_by_fqn.insert(fqn, key.into());
-            nodes_by_path.insert(node_path, key.into());
-        }
-
-        let mut extensions = Vec::with_capacity(extension.len());
-        for (i, descriptor) in extension.into_iter().enumerate() {
-            let index = to_i32(i);
-            let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
-            let node_path = vec![path::File::Extension.as_i32(), index];
-            let key = self.hydrate_extension(hydrate::Extension {
-                fqn: fqn.clone(),
-                descriptor,
-                index,
-                node_path: node_path.clone(),
-                container: key.into(),
-                file: key,
-                package,
-            })?;
-            nodes_by_fqn.insert(fqn, key.into());
-            nodes_by_path.insert(node_path, key.into());
-            extensions.push(key);
-        }
-
-        let mut dependencies = Vec::with_capacity(dependency.len());
-
-        for (i, dependency) in dependency.into_iter().enumerate() {
-            let index = to_i32(i);
-            let is_weak = weak_dependency.contains(&index);
-            let is_public = public_dependency.contains(&index);
-            let fqn = FullyQualifiedName(dependency);
-            let (dependency_key, dependency_file) = self.files.get_or_insert_by_fqn(fqn.clone());
-            dependency_file.add_dependent(DependentInner {
-                is_used: bool::default(),
-                is_public,
-                is_weak,
-                dependent: key,
-                dependency: dependency_key,
-            });
-            dependencies.push(DependencyInner {
-                is_used: bool::default(),
-                is_public,
-                is_weak,
-                dependent: key,
-                dependency: dependency_key,
-            });
-        }
-        let file = &mut self.files[key];
-        file.set_dependencies(dependencies);
-        file.set_messages(messages);
-        file.set_enums(enums);
-        file.set_services(services);
-        file.set_defined_extensions(extensions);
-        file.set_package(package);
-        // TODO: comments
-        todo!()
-    }
-
-    fn hydrate_message(&mut self, hydrate: hydrate::Message) -> Result<message::Key, Error> {
-        // TODO: remove destructor once all fields have been used
-        let DescriptorProto {
-            name,
-            field,
-            extension,
-            nested_type,
-            enum_type,
-            extension_range,
-            oneof_decl,
-            options,
-            reserved_range,
-            reserved_name,
-            special_fields,
-        } = hydrate.descriptor;
-        let name = name.unwrap_or_default();
-        let fqn = hydrate.fqn;
-        let (key, msg) = self.messages.get_or_insert_by_fqn(fqn.clone());
-        msg.hydrate_options(options.unwrap_or_default());
-        msg.set_container(hydrate.container);
-        msg.set_name(name);
-
-        let mut messages = Vec::with_capacity(nested_type.len());
-        for (i, nested) in nested_type.into_iter().enumerate() {
-            let index = to_i32(i);
-            messages.push(self.hydrate_message(hydrate::Message {
-                index,
-                fqn: FullyQualifiedName::new(nested.name(), Some(fqn.clone())),
-                node_path: path::append(&hydrate.node_path, path::Message::Nested, index),
-                container: key.into(),
-                file: hydrate.file,
-                descriptor: nested,
-                nodes_by_fqn: hydrate.nodes_by_fqn,
-                nodes_by_path: hydrate.nodes_by_path,
-                package: hydrate.package,
-                rel_pos: path::Message::Nested.as_i32(),
-            })?);
-        }
-        let mut enums = Vec::with_capacity(enum_type.len());
-        for (i, enm) in enum_type.into_iter().enumerate() {
-            let index = to_i32(i);
-            let fqn = FullyQualifiedName::new(enm.name(), Some(fqn.clone()));
-            let node_path = path::append(&hydrate.node_path, path::Message::Enum, index);
-            let key = self.hydrate_enum(hydrate::Enum {
-                index,
-                fqn: fqn.clone(),
-                node_path: node_path.clone(),
-                container: key.into(),
-                file: hydrate.file,
-                descriptor: enm,
-                nodes_by_fqn: hydrate.nodes_by_fqn,
-                nodes_by_path: hydrate.nodes_by_path,
-                package: hydrate.package,
-                rel_pos: path::Message::Enum.as_i32(),
-            })?;
-            enums.push(key);
-            hydrate.nodes_by_fqn.insert(fqn, key.into());
-            hydrate.nodes_by_path.insert(node_path, key.into());
-        }
-        for (i, descriptor) in oneof_decl.into_iter().enumerate() {
-            let index = to_i32(i);
-            let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
-            let oneof_key = self.hydrate_oneof(hydrate::Oneof {
-                index,
-                fqn: fqn.clone(),
-                node_path: path::append(&hydrate.node_path, path::Message::Oneof, index),
-                file: hydrate.file,
-                descriptor,
-                message: key,
-                package: hydrate.package,
-            })?;
-        }
-        for (i, descriptor) in field.into_iter().enumerate() {
-            let index = to_i32(i);
-            let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
-            let field_key = self.hydrate_field(hydrate::Field {
-                descriptor,
-                file: hydrate.file,
-                fqn: fqn.clone(),
-                message: key,
-                package: hydrate.package,
-                index,
-                node_path: path::append(&hydrate.node_path, path::Message::Oneof, index),
-            })?;
-        }
-
-        Ok(key)
-    }
-
-    fn hydrate_enum(&mut self, hydrate: hydrate::Enum) -> Result<r#enum::Key, Error> {
-        todo!()
-    }
-    fn hydrate_service(&mut self, hydrate: hydrate::Service) -> Result<service::Key, Error> {
-        todo!()
-    }
-
-    fn hydrate_extension(&mut self, hydrate: hydrate::Extension) -> Result<extension::Key, Error> {
-        todo!()
-    }
-
-    fn hydrate_enum_value(&mut self, hydrate: hydrate::EnumValue) -> Result<r#enum::Key, Error> {
-        todo!()
-    }
-
-    fn hydrate_field(&mut self, hydrate: hydrate::Field) -> Result<field::Key, Error> {
-        todo!()
-    }
-
-    fn hydrate_oneof(
-        &mut self,
-        hydrate: hydrate::Oneof,
-    ) -> Result<(oneof::Key, Box<dyn Iterator<Item = Key>>), Error> {
-        todo!()
-    }
-
-    fn hydrate_method(&mut self, hydrate: hydrate::Message) -> Result<method::Key, Error> {
-        todo!()
+        hydrate::run(file_descriptors, targets, &mut nodes)?;
+        Ok(this)
     }
 }
 
@@ -938,189 +671,14 @@ impl fmt::Display for FullyQualifiedName {
     }
 }
 
-/// A message representing an option that parser does not recognize.
-#[derive(Debug, Clone, PartialEq)]
-pub struct UninterpretedOption {
-    name: Vec<NamePart>,
-    identifier_value: Option<String>,
-    positive_int_value: Option<u64>,
-    negative_int_value: Option<i64>,
-    double_value: Option<f64>,
-    string_value: Option<Vec<u8>>,
-    aggregate_value: Option<String>,
-}
-
-impl From<protobuf::descriptor::UninterpretedOption> for UninterpretedOption {
-    fn from(option: protobuf::descriptor::UninterpretedOption) -> Self {
-        Self {
-            name: option.name.into_iter().map(Into::into).collect::<Vec<_>>(),
-            identifier_value: option.identifier_value,
-            positive_int_value: option.positive_int_value,
-            negative_int_value: option.negative_int_value,
-            double_value: option.double_value,
-            string_value: option.string_value,
-            aggregate_value: option.aggregate_value,
-        }
-    }
-}
-
-impl UninterpretedOption {
-    #[must_use]
-    pub fn name(&self) -> &[NamePart] {
-        self.name.as_ref()
-    }
-
-    #[must_use]
-    pub const fn identifier_value(&self) -> Option<&String> {
-        self.identifier_value.as_ref()
-    }
-
-    #[must_use]
-    pub const fn negative_int_value(&self) -> Option<i64> {
-        self.negative_int_value
-    }
-
-    #[must_use]
-    pub const fn double_value(&self) -> Option<f64> {
-        self.double_value
-    }
-
-    #[must_use]
-    pub fn string_value(&self) -> Option<&[u8]> {
-        self.string_value.as_deref()
-    }
-
-    #[must_use]
-    pub fn aggregate_value(&self) -> Option<&str> {
-        self.aggregate_value.as_deref()
-    }
-}
-
-//  The name of the uninterpreted option.  Each string represents a segment in
-///  a dot-separated name.
-///
-///  E.g.,`{ ["foo", false], ["bar.baz", true], ["qux", false] }` represents
-///  `"foo.(bar.baz).qux"`.
-#[derive(PartialEq, Eq, Hash, Clone, Default, Debug)]
-pub struct NamePart {
-    pub value: String,
-    pub is_extension: bool,
-}
-
-impl NamePart {
-    #[must_use]
-    pub fn value(&self) -> &str {
-        &self.value
-    }
-    /// true if a segment represents an extension (denoted with parentheses in
-    ///  options specs in .proto files).
-    #[must_use]
-    pub const fn is_extension(&self) -> bool {
-        self.is_extension
-    }
-
-    /// Returns the formatted value of the `NamePart`
-    ///
-    /// If `is_extension` is `true`, the formatted value will be wrapped in
-    /// parentheses.
-    #[must_use]
-    pub fn formatted_value(&self) -> Cow<'_, str> {
-        if self.is_extension {
-            Cow::Owned(format!("({})", self.value()))
-        } else {
-            Cow::Borrowed(self.value())
-        }
-    }
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.value
-    }
-}
-
-impl AsRef<str> for NamePart {
-    fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl fmt::Display for NamePart {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.is_extension {
-            write!(f, "({})", self.value())
-        } else {
-            write!(f, "{}", self.value())
-        }
-    }
-}
-
-impl From<protobuf::descriptor::uninterpreted_option::NamePart> for NamePart {
-    fn from(part: protobuf::descriptor::uninterpreted_option::NamePart) -> Self {
-        Self {
-            is_extension: part.is_extension.unwrap_or(false),
-            value: part.name_part.unwrap_or_default(),
-        }
-    }
-}
-
-impl From<&protobuf::descriptor::uninterpreted_option::NamePart> for NamePart {
-    fn from(part: &protobuf::descriptor::uninterpreted_option::NamePart) -> Self {
-        Self::from(part.clone())
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct NameParts {
-    parts: Vec<NamePart>,
-}
-
-impl std::fmt::Display for NameParts {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.formatted())
-    }
-}
-
-impl<'a> std::iter::IntoIterator for &'a NameParts {
-    type Item = &'a NamePart;
-    type IntoIter = std::slice::Iter<'a, NamePart>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.parts.iter()
-    }
-}
-
-impl NameParts {
-    pub fn iter(&self) -> std::slice::Iter<'_, NamePart> {
-        self.parts.iter()
-    }
-    #[must_use]
-    pub fn get(&self, idx: usize) -> Option<&NamePart> {
-        self.parts.get(idx)
-    }
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.parts.len()
-    }
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.parts.is_empty()
-    }
-    #[must_use]
-    pub fn contains(&self, part: &str) -> bool {
-        self.parts.iter().any(|p| p.value == part)
-    }
-    #[must_use]
-    pub fn formatted(&self) -> String {
-        itertools::join(self.iter().map(|v| v.formatted_value()), ".")
-    }
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReservedRange {
     pub start: Option<i32>,
     pub end: Option<i32>,
 }
 
-impl From<protobuf::descriptor::descriptor_proto::ReservedRange> for ReservedRange {
-    fn from(range: protobuf::descriptor::descriptor_proto::ReservedRange) -> Self {
+impl From<descriptor::descriptor_proto::ReservedRange> for ReservedRange {
+    fn from(range: descriptor::descriptor_proto::ReservedRange) -> Self {
         Self {
             start: range.start,
             end: range.end,
@@ -1388,7 +946,7 @@ macro_rules! impl_set_uninterpreted_options {
         impl $inner {
             pub(super) fn set_uninterpreted_options<T>(&mut self, opts: impl IntoIterator<Item = T>)
             where
-                T: Into<crate::ast::UninterpretedOption>,
+                T: Into<crate::ast::uninterpreted::UninterpretedOption>,
             {
                 self.uninterpreted_options = opts.into_iter().map(Into::into).collect();
             }
@@ -1623,6 +1181,8 @@ use inner_method_package;
 use node_method_ast;
 use node_method_key;
 use node_method_new;
+
+use self::hydrate::{AstTables, Nodes};
 // use impl_state;
 
 #[cfg(test)]

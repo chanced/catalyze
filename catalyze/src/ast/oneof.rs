@@ -1,6 +1,6 @@
 use super::{
-    access::NodeKeys, field, file, impl_traits_and_methods, package, Comments, FullyQualifiedName,
-    Resolver, Span, UninterpretedOption,
+    access::NodeKeys, field, file, impl_traits_and_methods, package,
+    uninterpreted::UninterpretedOption, Comments, FullyQualifiedName, Resolver, Span,
 };
 
 pub struct Oneof<'ast>(Resolver<'ast, Key, Inner>);

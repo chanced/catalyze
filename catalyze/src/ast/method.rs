@@ -4,7 +4,8 @@ use super::{
     message::{self, Message},
     package,
     reference::{ReferenceInner, References},
-    Comments, FullyQualifiedName, Resolver, Span, UninterpretedOption,
+    uninterpreted::UninterpretedOption,
+    Comments, FullyQualifiedName, Resolver, Span,
 };
 
 slotmap::new_key_type! {

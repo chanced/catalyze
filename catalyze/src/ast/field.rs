@@ -1,5 +1,8 @@
 use crate::{
-    ast::{impl_traits_and_methods, Ast, FullyQualifiedName, Resolver, UninterpretedOption},
+    ast::{
+        impl_traits_and_methods, uninterpreted::UninterpretedOption, Ast, FullyQualifiedName,
+        Resolver,
+    },
     error::Error,
 };
 use ::std::vec::Vec;

@@ -10,7 +10,7 @@ use std::{
 
 use super::{
     access::NodeKeys, r#enum, extension, impl_traits_and_methods, message, package, service,
-    Comments, FullyQualifiedName, Resolver, UninterpretedOption,
+    uninterpreted::UninterpretedOption, Comments, FullyQualifiedName, Resolver,
 };
 
 slotmap::new_key_type! {
@@ -448,7 +448,8 @@ pub(super) struct Inner {
     messages: Vec<message::Key>,
     enums: Vec<r#enum::Key>,
     services: Vec<service::Key>,
-    defined_extensions: Vec<extension::Key>,
+    extensions: Vec<extension::Key>,
+    extension_groups: Vec<extension::GroupKey>,
     dependencies: Vec<DependencyInner>,
     used_imports: Vec<DependencyInner>,
     unused_dependencies: Vec<DependencyInner>,
@@ -566,9 +567,10 @@ impl NodeKeys for Inner {
             .chain(self.messages.iter().copied().map(Into::into))
             .chain(self.enums.iter().copied().map(Into::into))
             .chain(self.services.iter().copied().map(Into::into))
-            .chain(self.defined_extensions.iter().copied().map(Into::into))
+            .chain(self.extensions.iter().copied().map(Into::into))
     }
 }
+
 impl Inner {
     pub(super) fn add_dependent(&mut self, dependent: DependentInner) {
         self.dependents.push(dependent);
@@ -581,7 +583,7 @@ impl Inner {
 
     pub(super) fn set_dependencies(&mut self, imports: Vec<DependencyInner>) {
         for &import in &imports {
-            self.add_transitive_dependency(import)
+            self.add_transitive_dependency(import);
         }
         self.dependencies = imports;
     }
@@ -605,7 +607,7 @@ impl Inner {
         self.services = services;
     }
     pub(super) fn set_defined_extensions(&mut self, defined_extensions: Vec<extension::Key>) {
-        self.defined_extensions = defined_extensions;
+        self.extensions = defined_extensions;
     }
     pub(super) fn set_fqn(&mut self, fqn: FullyQualifiedName) {
         self.fqn = fqn;
@@ -653,6 +655,15 @@ impl Inner {
             .map(Into::into)
             .collect();
         self.unknown_option_fields = opts.special_fields.unknown_fields().clone();
+    }
+
+    pub(crate) fn set_nodes_by_path(&mut self, mut nodes: HashMap<Box<[i32]>, super::Key>) {
+        nodes.shrink_to_fit();
+        self.nodes_by_path = nodes;
+    }
+    pub(crate) fn set_nodes_by_fqn(&mut self, mut nodes: HashMap<FullyQualifiedName, super::Key>) {
+        nodes.shrink_to_fit();
+        self.nodes_by_fqn = nodes;
     }
 }
 

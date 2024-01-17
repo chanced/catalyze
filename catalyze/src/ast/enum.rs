@@ -1,6 +1,9 @@
-use crate::ast::{
-    impl_traits_and_methods, ContainerKey, FullyQualifiedName, ReservedRange, Resolver,
-    UninterpretedOption,
+use crate::{
+    ast::{
+        impl_traits_and_methods, uninterpreted::UninterpretedOption, ContainerKey,
+        FullyQualifiedName, ReservedRange, Resolver,
+    },
+    error::Error,
 };
 
 use std::fmt;
@@ -33,6 +36,14 @@ pub(super) struct Inner {
     enum_values: Vec<super::enum_value::Key>,
     uninterpreted_options: Vec<UninterpretedOption>,
 }
+impl Inner {
+    pub(crate) fn hydrate_options(
+        &self,
+        unwrap_or_default: protobuf::descriptor::EnumOptions,
+    ) -> Result<(), Error> {
+        todo!()
+    }
+}
 
 impl NodeKeys for Inner {
     fn keys(&self) -> impl Iterator<Item = super::Key> {
@@ -42,12 +53,6 @@ impl NodeKeys for Inner {
 
 pub struct Enum<'ast>(Resolver<'ast, Key, Inner>);
 impl_traits_and_methods!(Enum, Key, Inner);
-
-// impl Access<Inner> for Enum<'_> {
-//     fn access(&self) -> &Inner {
-//         self.0.access()
-//     }
-// }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WellKnownEnum {

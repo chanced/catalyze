@@ -6,7 +6,8 @@ use super::{
     oneof::{self},
     package,
     reference::{ReferenceInner, References},
-    Comments, ContainerKey, FullyQualifiedName, ReservedRange, Resolver, Span, UninterpretedOption,
+    uninterpreted::UninterpretedOption,
+    Comments, ContainerKey, FullyQualifiedName, ReservedRange, Resolver, Span,
 };
 use protobuf::descriptor::{descriptor_proto, MessageOptions};
 

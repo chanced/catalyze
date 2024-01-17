@@ -1,4 +1,6 @@
-use crate::ast::{impl_traits_and_methods, FullyQualifiedName, Resolver, UninterpretedOption};
+use crate::ast::{
+    impl_traits_and_methods, uninterpreted::UninterpretedOption, FullyQualifiedName, Resolver,
+};
 
 use super::{
     access::{AtPath, NodeKeys},

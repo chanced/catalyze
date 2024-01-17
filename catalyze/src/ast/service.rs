@@ -1,6 +1,6 @@
 use super::{
-    access::NodeKeys, file, impl_traits_and_methods, package, Comments, FullyQualifiedName,
-    Resolver, Span, UninterpretedOption,
+    access::NodeKeys, file, impl_traits_and_methods, package, uninterpreted::UninterpretedOption,
+    Comments, FullyQualifiedName, Resolver, Span,
 };
 
 slotmap::new_key_type! {

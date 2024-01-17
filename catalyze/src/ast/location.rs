@@ -1,8 +1,8 @@
-use std::{collections::BTreeMap, iter::Peekable};
+use std::iter::Peekable;
 
 use protobuf::descriptor::{source_code_info::Location as ProtoLoc, SourceCodeInfo};
 
-use crate::{error::Error, to_i32};
+use crate::error::Error;
 
 use super::{path, Comments, Span};
 
@@ -23,20 +23,30 @@ where
         Some((next, next_path))
     })
 }
-fn extract(loc: ProtoLoc) -> Result<(Vec<i32>, Span, Option<Comments>), Error> {
+fn extract(loc: ProtoLoc) -> Result<(Box<[i32]>, Span, Option<Comments>), Error> {
     let span = Span::new(&loc.span).map_err(|()| Error::invalid_span(&loc))?;
     let comments = Comments::new_maybe(
         loc.leading_comments,
         loc.trailing_comments,
         loc.leading_detached_comments,
     );
-    Ok((loc.path, span, comments))
+    Ok((loc.path.into(), span, comments))
 }
 
 #[derive(Debug)]
 pub(super) struct Location {
+    pub(super) path: Box<[i32]>,
     pub(super) span: Span,
     pub(super) comments: Option<Comments>,
+}
+impl Location {
+    pub(super) fn new(path: Box<[i32]>, span: Span, comments: Option<Comments>) -> Self {
+        Self {
+            path,
+            span,
+            comments,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -65,16 +75,28 @@ impl File {
         while let Some(next) = locations.next() {
             match path::File::from_i32(next.path[0]) {
                 path::File::Syntax => {
-                    let (_, span, comments) = extract(next)?;
-                    syntax = Some(Location { span, comments });
+                    let (path, span, comments) = extract(next)?;
+                    syntax = Some(Location {
+                        path,
+                        span,
+                        comments,
+                    });
                 }
                 path::File::Dependency => {
                     let (_, span, comments) = extract(next)?;
-                    dependencies.push(Location { span, comments });
+                    dependencies.push(Location {
+                        path,
+                        span,
+                        comments,
+                    });
                 }
                 path::File::Package => {
                     let (_, span, comments) = extract(next)?;
-                    package = Some(Location { span, comments });
+                    package = Some(Location {
+                        path,
+                        span,
+                        comments,
+                    });
                 }
                 path::File::Message => {
                     messages.push(Message::new(next, &mut locations)?);
@@ -105,7 +127,7 @@ impl File {
 
 #[derive(Debug)]
 pub(super) struct Message {
-    pub(super) location: Location,
+    pub(super) detail: Location,
     pub(super) messages: Vec<Message>,
     pub(super) enums: Vec<Enum>,
     pub(super) extensions: Vec<ExtensionGroup>,
@@ -144,7 +166,7 @@ impl Message {
             }
         }
         Ok(Self {
-            location: Location { span, comments },
+            detail: Location::new(path, span, comments),
             messages,
             fields,
             enums,
@@ -156,7 +178,7 @@ impl Message {
 
 #[derive(Debug)]
 pub(super) struct ExtensionGroup {
-    pub(super) location: Location,
+    pub(super) detail: Location,
     pub(super) extensions: Vec<Field>,
 }
 impl ExtensionGroup {
@@ -170,7 +192,7 @@ impl ExtensionGroup {
             extensions.push(Field::new(next, locations)?);
         }
         Ok(Self {
-            location: Location { span, comments },
+            detail: Location::new(path, span, comments),
             extensions,
         })
     }
@@ -178,14 +200,18 @@ impl ExtensionGroup {
 
 #[derive(Debug)]
 pub(super) struct Field {
-    pub(super) location: Location,
+    pub(super) detail: Location,
 }
 impl Field {
     fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, Error> {
         let (path, span, comments) = extract(node)?;
         while iterate_next::<i32>(&path, locations).is_some() {}
         Ok(Self {
-            location: Location { span, comments },
+            detail: Location {
+                path,
+                span,
+                comments,
+            },
         })
     }
 }
@@ -199,14 +225,14 @@ impl Oneof {
         let (path, span, comments) = extract(node)?;
         while iterate_next::<i32>(&path, locations).is_some() {}
         Ok(Self {
-            location: Location { span, comments },
+            location: Location::new(path, span, comments),
         })
     }
 }
 
 #[derive(Debug)]
 pub(super) struct Enum {
-    pub(super) location: Location,
+    pub(super) detail: Location,
     pub(super) values: Vec<EnumValue>,
 }
 impl Enum {
@@ -225,7 +251,7 @@ impl Enum {
             }
         }
         Ok(Self {
-            location: Location { span, comments },
+            detail: Location::new(path, span, comments),
             values,
         })
     }
@@ -242,13 +268,13 @@ impl EnumValue {
         let (path, span, comments) = extract(node)?;
         while iterate_next::<i32>(&path, locations).is_some() {}
         Ok(Self {
-            location: Location { span, comments },
+            location: Location::new(path, span, comments),
         })
     }
 }
 #[derive(Debug)]
 pub(super) struct Service {
-    pub(super) location: Location,
+    pub(super) detail: Location,
     pub(super) methods: Vec<Method>,
 }
 impl Service {
@@ -267,7 +293,7 @@ impl Service {
             }
         }
         Ok(Self {
-            location: Location { span, comments },
+            detail: Location::new(path, span, comments),
             methods,
         })
     }
@@ -275,7 +301,7 @@ impl Service {
 
 #[derive(Debug)]
 pub(super) struct Method {
-    pub(super) location: Location,
+    pub(super) detail: Location,
 }
 impl Method {
     fn new(
@@ -285,7 +311,7 @@ impl Method {
         let (path, span, comments) = extract(node)?;
         while iterate_next::<i32>(&path, locations).is_some() {}
         Ok(Self {
-            location: Location { span, comments },
+            detail: Location::new(path, span, comments),
         })
     }
 }
@@ -293,9 +319,7 @@ impl Method {
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
-    use protobuf::{
-        descriptor::SourceCodeInfo, plugin::CodeGeneratorRequest, Message, SpecialFields,
-    };
+    use protobuf::{descriptor::SourceCodeInfo, plugin::CodeGeneratorRequest, Message};
 
     use super::*;
 
@@ -305,7 +329,7 @@ mod tests {
         assert_eq!(f.enums.len(), 2);
         assert_eq!(
             f.enums[0]
-                .location
+                .detail
                 .comments
                 .as_ref()
                 .unwrap()
@@ -342,7 +366,7 @@ mod tests {
 
         assert_eq!(
             f.enums[1]
-                .location
+                .detail
                 .comments
                 .as_ref()
                 .unwrap()
@@ -355,7 +379,7 @@ mod tests {
         assert_eq!(f.messages.len(), 5);
         assert_eq!(
             f.messages[0]
-                .location
+                .detail
                 .comments
                 .as_ref()
                 .unwrap()
@@ -366,7 +390,7 @@ mod tests {
         );
         assert_eq!(
             f.messages[3]
-                .location
+                .detail
                 .comments
                 .as_ref()
                 .unwrap()
@@ -378,7 +402,7 @@ mod tests {
 
         assert_eq!(
             f.messages[0].enums[0]
-                .location
+                .detail
                 .comments
                 .as_ref()
                 .unwrap()
@@ -402,7 +426,7 @@ mod tests {
 
         assert_eq!(
             f.messages[3].fields[0]
-                .location
+                .detail
                 .comments
                 .as_ref()
                 .unwrap()
@@ -413,7 +437,7 @@ mod tests {
         );
         assert_eq!(
             f.messages[3].fields[1]
-                .location
+                .detail
                 .comments
                 .as_ref()
                 .unwrap()
@@ -438,7 +462,7 @@ mod tests {
             f.extensions
                 .iter()
                 .map(|e| e
-                    .location
+                    .detail
                     .comments
                     .as_ref()
                     .unwrap()
@@ -450,7 +474,7 @@ mod tests {
         assert_eq!(f.extensions.len(), 3);
         assert_eq!(
             f.extensions[0]
-                .location
+                .detail
                 .comments
                 .as_ref()
                 .unwrap()
