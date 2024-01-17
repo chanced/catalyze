@@ -39,8 +39,13 @@ pub trait UninterpretedOptions {
 
 /// A trait implemented by nodes with reserved names and ranges.
 pub trait Reserved {
-    fn reserved_names(&self) -> &[String];
-    fn reserved_ranges(&self) -> &[super::ReservedRange];
+    fn reserved(&self) -> &super::Reserved;
+    fn reserved_names(&self) -> &[String] {
+        self.reserved().names
+    }
+    fn reserved_ranges(&self) -> &[super::ReservedRange] {
+        self.reserved().ranges
+    }
 }
 
 /// A trait implemented by all nodes, returning the

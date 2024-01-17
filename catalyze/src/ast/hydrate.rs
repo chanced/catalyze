@@ -1,4 +1,4 @@
-use std::{iter::once, path::PathBuf};
+use std::{iter::once, path::PathBuf, sync::atomic::AtomicBool};
 
 use ahash::HashMapExt;
 use protobuf::descriptor::{
@@ -14,10 +14,10 @@ use crate::{
 };
 
 use super::{
-    r#enum, enum_value, extension, field, file, location, message, method, oneof, package, path,
-    service, ContainerKey, EnumTable, EnumValueTable, ExtensionGroupTable, ExtensionTable,
-    FieldTable, FileTable, FullyQualifiedName, Key, MessageTable, MethodTable, OneofTable,
-    PackageTable, ServiceTable,
+    r#enum, enum_value, extension, extension_block, field, file, location, message, method, oneof,
+    package, path, service, ContainerKey, EnumTable, EnumValueTable, ExtensionBlockTable,
+    ExtensionTable, FieldTable, FileTable, FullyQualifiedName, FullyQualifiedNames, Key,
+    MessageTable, MethodTable, OneofTable, PackageTable, ServiceTable,
 };
 
 type Hydrated<K> = (K, FullyQualifiedName, Box<[i32]>);
@@ -25,152 +25,151 @@ type Hydrated<K> = (K, FullyQualifiedName, Box<[i32]>);
 pub(super) fn run(
     descriptors: Vec<FileDescriptorProto>,
     targets: &[String],
-    nodes: &mut AstTables,
+    fqns: &mut FullyQualifiedNames,
+    ast_tables: &mut AstTables,
 ) -> Result<Vec<file::Key>, Error> {
-    let all_nodes_by_fqn = nodes.by_fqn;
     let mut files = Vec::with_capacity(descriptors.len());
-    let mut nodes_by_fqn = HashMap::new();
-    let mut nodes_by_path = HashMap::new();
+    let mut by_fqn = HashMap::new();
+    let mut all_by_fqn = ast_tables.by_fqn;
+    ast_tables.by_fqn = &mut by_fqn;
     for (i, descriptor) in descriptors.into_iter().enumerate() {
-        nodes.by_fqn = &mut nodes_by_fqn;
         let (key, fqn, path) = hydrate_file(File {
+            fqns,
             descriptor,
             targets,
-            nodes,
+            ast_tables,
         })?;
         files.push(key);
-        let key = key.into();
-        all_nodes_by_fqn.extend(once((fqn, key)).chain(nodes_by_fqn.drain()));
+        all_by_fqn.extend(once((fqn, key.into())).chain(by_fqn.drain()));
     }
     Ok(files)
 }
 
-fn is_build_target(targets: &[PathBuf], name: &str) -> bool {
-    targets.iter().any(|target| target.as_os_str() == name)
+fn is_build_target(targets: &[String], name: &str) -> bool {
+    targets.iter().any(|target| target == name)
 }
 
-fn hydrate_package(package: Option<String>, packages: &mut PackageTable) -> Option<package::Key> {
-    package.map(|pkg| {
-        let fqn = FullyQualifiedName::from_package_name(&pkg);
-        let (key, pkg) = packages.get_or_insert_by_fqn(fqn);
-        pkg.set_name(pkg);
-        key
-    })
+fn hydrate_package(
+    package: Option<String>,
+    packages: &mut PackageTable,
+    fqns: &mut FullyQualifiedNames,
+) -> (Option<package::Key>, Option<FullyQualifiedName>) {
+    let Some(package) = package else {
+        return (None, None);
+    };
+    let fqn = fqns.for_package(&package);
+    let (key, pkg) = packages.get_or_insert_by_fqn(fqn.clone());
+    pkg.set_name(package);
+    (Some(key), Some(fqn))
 }
 
 fn hydrate_file(hydrate: File) -> Result<Hydrated<file::Key>, Error> {
     let File {
+        fqns,
         descriptor,
         targets,
-        nodes,
+        ast_tables,
     } = hydrate;
-    let FileDescriptorProto {
-        name,
-        package,
-        dependency,
-        public_dependency,
-        weak_dependency,
-        message_type,
-        enum_type,
-        service,
-        extension,
-        options,
-        source_code_info,
-        syntax,
-        special_fields,
-    } = descriptor;
-
-    let locations = location::File::new(source_code_info.unwrap_or_else(|| {
-        panic!("source_code_info not found on FileDescriptorProto for \"{name:?}\"")
+    // TODO: handle SpecialFields
+    let mut by_path = HashMap::default();
+    let tables = &mut Tables::new(ast_tables, &mut by_path);
+    let name = descriptor.name.unwrap();
+    let locations = location::File::new(descriptor.source_code_info.unwrap_or_else(|| {
+        panic!("source_code_info not found on FileDescriptorProto for \"{name}\"")
     }))?;
-
-    let name = name.unwrap();
-    let fqn = FullyQualifiedName::new(&name, package.as_ref().map(|(_, pkg)| pkg.fqn().clone()));
-
-    let (key, file) = nodes.files.get_or_insert_by_fqn(fqn.clone());
-
-    let package = hydrate_package(package, nodes.packages);
-
-    let mut nodes_by_fqn = HashMap::default();
-    let mut nodes_by_path = HashMap::default();
+    let (package, package_fqn) = hydrate_package(descriptor.package, tables.packages, fqns);
+    let fqn = fqns.create(&name, package_fqn);
+    let (key, file) = tables.files.get_or_insert_by_fqn(fqn.clone());
     let mut messages = hydrate_messages(
-        message_type,
+        descriptor.message_type,
         locations.messages,
-        nodes,
+        tables,
+        fqns,
         fqn.clone(),
         key.into(),
         key,
         package,
     )?;
     let mut enums = hydrate_enums(
-        enum_type,
+        descriptor.enum_type,
         locations.enums,
-        nodes,
+        tables,
+        fqns,
         fqn.clone(),
         key.into(),
         key,
         package,
     )?;
     let services = hydrate_services(
-        service,
+        descriptor.service,
         locations.services,
-        hydrate.nodes,
+        tables,
+        fqns,
         fqn.clone(),
         key.into(),
         key,
         package,
     )?;
-    let (extension_groups, extensions) = hydrate_extensions(
-        extension,
+    let (extension_blocks, extensions) = hydrate_extensions(
+        descriptor.extension,
         locations.extensions,
-        nodes,
+        tables,
+        fqns,
         fqn.clone(),
         key.into(),
         key.into(),
         package,
     )?;
     let dependencies = hydrate_dependencies(
-        dependency,
-        public_dependency,
-        weak_dependency,
-        nodes,
+        descriptor.dependency,
+        descriptor.public_dependency,
+        descriptor.weak_dependency,
+        tables,
+        fqns,
         fqn.clone(),
         key.into(),
         package,
     )?;
+    let file = &mut tables.files[key];
 
-    let file = &mut nodes.files[key];
-
-    file.hydrate_options(options.unwrap_or_default(), is_build_target(targets, &name));
-    file.set_package(package);
-    file.set_name_and_path(name);
-    file.set_syntax(syntax)?;
-    file.set_dependencies(dependencies);
-    file.set_messages(messages);
-    file.set_enums(enums);
-    file.set_services(services);
-    file.set_defined_extensions(extensions);
-    file.set_package(package);
-    todo!()
+    file.hydrate(file::Hydrate {
+        key,
+        name,
+        syntax: descriptor.syntax,
+        options: descriptor.options,
+        package,
+        messages,
+        enums,
+        services,
+        extensions,
+        extension_blocks,
+        dependencies,
+        package_comments: locations.package,
+        comments: locations.syntax,
+        is_build_target,
+    })
 }
 
 fn hydrate_dependencies(
     dependencies_by_fqn: Vec<String>,
     public_dependencies: Vec<i32>,
     weak_dependencies: Vec<i32>,
-    nodes: &mut Nodes,
+    tables: &mut Tables,
+    fqns: &mut FullyQualifiedNames,
     file_fqn: FullyQualifiedName,
     dependent: file::Key,
     package: Option<package::Key>,
-) -> Result<Vec<DependencyInner>, Error> {
-    let mut dependencies = Vec::with_capacity(dependencies_by_fqn.len());
+) -> Result<file::DependenciesInner, Error> {
+    let mut all = Vec::with_capacity(dependencies_by_fqn.len());
+    let mut weak = Vec::with_capacity(weak_dependencies.len());
+    let mut public = Vec::with_capacity(public_dependencies.len());
 
     for (i, dependency) in dependencies_by_fqn.into_iter().enumerate() {
         let index = to_i32(i);
         let is_weak = weak_dependencies.contains(&index);
         let is_public = public_dependencies.contains(&index);
-        let fqn = FullyQualifiedName(dependency);
-        let (dependency_key, dependency_file) = nodes.files.get_or_insert_by_fqn(fqn.clone());
+        let fqn = fqns.insert(FullyQualifiedName::from(dependency));
+        let (dependency_key, dependency_file) = tables.files.get_or_insert_by_fqn(fqn.clone());
 
         dependency_file.add_dependent(DependentInner {
             is_used: bool::default(),
@@ -179,51 +178,28 @@ fn hydrate_dependencies(
             dependent,
             dependency: dependency_key,
         });
-        dependencies.push(DependencyInner {
+        all.push(DependencyInner {
             is_used: bool::default(),
             is_public,
             is_weak,
             dependent,
             dependency: dependency_key,
         });
+        if is_public {
+            public.push(dependency_key);
+        }
+        if is_weak {
+            weak.push(dependency_key);
+        }
     }
-    todo!()
-}
-
-fn hydrate_extensions(
-    descriptors: Vec<FieldDescriptorProto>,
-    locations: Vec<location::ExtensionGroup>,
-    nodes: &mut Nodes,
-    container_fqn: FullyQualifiedName,
-    container: ContainerKey,
-    file: file::Key,
-    package: Option<package::Key>,
-) -> Result<(Vec<extension::GroupKey>, Vec<extension::Key>), Error> {
-    // let mut services = Vec::with_capacity(service.len());
-    // for (i, descriptor) in nodes.service.into_iter().enumerate() {
-    //     let index = to_i32(i);
-    //     let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
-    //     let node_path = vec![path::File::Service.as_i32(), index];
-    //     let key = hydrate_service(Service {
-    //         fqn: fqn.clone(),
-    //         descriptor,
-    //         location: locations.services[i],
-    //         nodes,
-    //         file: key,
-    //         index,
-    //         package,
-    //     })?;
-    //     services.push(key);
-    //     nodes_by_fqn.insert(fqn, key.into());
-    //     nodes_by_path.insert(node_path, key.into());
-    // }
-    todo!()
+    Ok(file::DependenciesInner { all, public, weak })
 }
 
 fn hydrate_enums(
     descriptors: Vec<EnumDescriptorProto>,
     locations: Vec<location::Enum>,
-    nodes: &mut Nodes,
+    tables: &mut Tables,
+    fqns: &mut FullyQualifiedNames,
     container_fqn: FullyQualifiedName,
     container: ContainerKey,
     file: file::Key,
@@ -242,10 +218,10 @@ fn hydrate_enums(
             container,
             file,
             package,
-            nodes,
+            tables,
         })?;
-        nodes.by_fqn.insert(fqn, key.into());
-        nodes.by_path.insert(path, key.into());
+        tables.by_fqn.insert(fqn, key.into());
+        tables.by_path.insert(path, key.into());
         enums.push(key);
     }
     Ok(enums)
@@ -260,7 +236,7 @@ fn hydrate_enum(hydrate: Enum) -> Result<Hydrated<r#enum::Key>, Error> {
         container,
         file,
         package,
-        nodes,
+        tables,
     } = hydrate;
     let EnumDescriptorProto {
         name,
@@ -272,37 +248,36 @@ fn hydrate_enum(hydrate: Enum) -> Result<Hydrated<r#enum::Key>, Error> {
     } = descriptor;
 
     let name = name.unwrap_or_default();
-    let (key, enm) = nodes.enums.get_or_insert_by_fqn(fqn.clone());
-    enm.hydrate_options(options.unwrap_or_default());
-    enm.set_container(container);
-    enm.set_name(name);
-    let enum_values = hydrate_enum_values(
+    let (key, enm) = tables.enums.get_or_insert_by_fqn(fqn.clone());
+    let values = hydrate_enum_values(
         value,
         location.enum_values,
-        nodes,
+        tables,
         fqn.clone(),
         key.into(),
         file,
         package,
     )?;
-    Ok(key)
+    enm.hydrate(values, options, reserved_name, reserved_range)
 }
 
 fn hydrate_enum_values(
     descriptors: Vec<EnumValueDescriptorProto>,
     locations: Vec<location::EnumValue>,
-    nodes: &mut Nodes<'_>,
+    tables: &mut Tables<'_>,
     container_fqn: FullyQualifiedName,
     container: ContainerKey,
     file: file::Key,
     package: Option<package::Key>,
 ) -> Result<Vec<enum_value::Key>, Error> {
+    todo!()
 }
 
 fn hydrate_messages(
     descriptors: Vec<DescriptorProto>,
     locations: Vec<location::Message>,
-    nodes: &mut Nodes,
+    tables: &mut Tables,
+    fqns: &mut FullyQualifiedNames,
     container_fqn: FullyQualifiedName,
     container: ContainerKey,
     file: file::Key,
@@ -322,10 +297,10 @@ fn hydrate_messages(
             container,
             file,
             package,
-            nodes,
+            tables,
         })?;
-        nodes.by_fqn.insert(fqn, key.into());
-        nodes.by_path.insert(node_path, key.into());
+        tables.by_fqn.insert(fqn, key.into());
+        tables.by_path.insert(node_path, key.into());
         messages.push(key);
     }
     Ok(messages)
@@ -342,7 +317,7 @@ pub(super) fn hydrate_message(hydrate: Message) -> Result<message::Key, Error> {
         container,
         file,
         package,
-        nodes,
+        tables: nodes,
     } = hydrate;
 
     let DescriptorProto {
@@ -380,7 +355,8 @@ pub(super) fn hydrate_message(hydrate: Message) -> Result<message::Key, Error> {
 fn hydrate_services(
     descriptors: Vec<ServiceDescriptorProto>,
     locations: Vec<location::Service>,
-    nodes: &mut Nodes,
+    tables: &mut Tables,
+    fqns: &mut FullyQualifiedNames,
     container_fqn: FullyQualifiedName,
     container: ContainerKey,
     file: file::Key,
@@ -390,19 +366,19 @@ fn hydrate_services(
     for (i, descriptor) in descriptors.into_iter().enumerate() {
         let index = to_i32(i);
         let fqn = FullyQualifiedName::new(descriptor.name(), Some(container_fqn));
-        let node_path = vec![path::File::Service.as_i32(), index];
+        let node_path = Box::new([path::File::Service.as_i32(), index]);
         let (key, fqn, path) = hydrate_service(Service {
             fqn: fqn.clone(),
             descriptor,
             location: locations[i],
-            nodes,
+            tables,
             file,
             index,
             package,
         })?;
         services.push(key);
-        nodes.by_fqn.insert(fqn, key.into());
-        nodes.by_path.insert(node_path, key.into());
+        tables.by_fqn.insert(fqn, key.into());
+        tables.by_path.insert(node_path, key.into());
     }
     todo!()
 }
@@ -414,7 +390,7 @@ fn hydrate_service(hydrate: Service) -> Result<Hydrated<service::Key>, Error> {
 fn hydrate_methods(
     descriptors: Vec<MethodDescriptorProto>,
     locations: Vec<location::Method>,
-    nodes: &mut Nodes,
+    nodes: &mut Tables,
     container_fqn: FullyQualifiedName,
     container: ContainerKey,
     file: file::Key,
@@ -430,7 +406,7 @@ fn hydrate_method(hydrate: Method) -> Result<Hydrated<method::Key>, Error> {
 fn hydrate_fields(
     descriptors: Vec<FieldDescriptorProto>,
     locations: Vec<location::Field>,
-    nodes: &mut Nodes,
+    nodes: &mut Tables,
     container_fqn: FullyQualifiedName,
     container: ContainerKey,
     file: file::Key,
@@ -446,7 +422,7 @@ fn hydrate_field(hydrate: Field) -> Result<Hydrated<field::Key>, Error> {
 fn hydrate_oneofs(
     descriptors: Vec<OneofDescriptorProto>,
     locations: Vec<location::Oneof>,
-    nodes: &mut Nodes,
+    nodes: &mut Tables,
     container_fqn: FullyQualifiedName,
     container: ContainerKey,
     file: file::Key,
@@ -459,137 +435,209 @@ fn hydrate_oneof(hydrate: Oneof) -> Result<Hydrated<oneof::Key>, Error> {
     todo!()
 }
 
+fn hydrate_extensions(
+    descriptors: Vec<FieldDescriptorProto>,
+    locations: Vec<location::ExtensionBlock>,
+    tables: &mut Tables,
+    fqns: &mut FullyQualifiedNames,
+    container_fqn: FullyQualifiedName,
+    container: ContainerKey,
+    file: file::Key,
+    package: Option<package::Key>,
+) -> Result<(Vec<extension_block::Key>, Vec<extension::Key>), Error> {
+    // let mut services = Vec::with_capacity(service.len());
+    // for (i, descriptor) in nodes.service.into_iter().enumerate() {
+    //     let index = to_i32(i);
+    //     let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
+    //     let node_path = vec![path::File::Service.as_i32(), index];
+    //     let key = hydrate_service(Service {
+    //         fqn: fqn.clone(),
+    //         descriptor,
+    //         location: locations.services[i],
+    //         nodes,
+    //         file: key,
+    //         index,
+    //         package,
+    //     })?;
+    //     services.push(key);
+    //     nodes_by_fqn.insert(fqn, key.into());
+    //     nodes_by_path.insert(node_path, key.into());
+    // }
+    todo!()
+}
 #[derive(Debug)]
 pub(super) struct AstTables<'hydrate> {
-    pub(super) by_fqn: &'hydrate mut HashMap<FullyQualifiedName, Key>,
-    pub(super) packages: &'hydrate mut PackageTable,
-    pub(super) files: &'hydrate mut FileTable,
-    pub(super) messages: &'hydrate mut MessageTable,
-    pub(super) enums: &'hydrate mut EnumTable,
-    pub(super) enum_values: &'hydrate mut EnumValueTable,
-    pub(super) services: &'hydrate mut ServiceTable,
-    pub(super) methods: &'hydrate mut MethodTable,
-    pub(super) fields: &'hydrate mut FieldTable,
-    pub(super) oneofs: &'hydrate mut OneofTable,
-    pub(super) extensions: &'hydrate mut ExtensionTable,
-    pub(super) extension_groups: &'hydrate mut ExtensionGroupTable,
+    by_fqn: &'hydrate mut HashMap<FullyQualifiedName, Key>,
+    packages: &'hydrate mut PackageTable,
+    files: &'hydrate mut FileTable,
+    messages: &'hydrate mut MessageTable,
+    enums: &'hydrate mut EnumTable,
+    enum_values: &'hydrate mut EnumValueTable,
+    services: &'hydrate mut ServiceTable,
+    methods: &'hydrate mut MethodTable,
+    fields: &'hydrate mut FieldTable,
+    oneofs: &'hydrate mut OneofTable,
+    extensions: &'hydrate mut ExtensionTable,
+    extension_blocks: &'hydrate mut ExtensionBlockTable,
+}
+impl<'hydrate> AstTables<'hydrate> {
+    pub(crate) fn new(ast: &'hydrate mut super::Ast) -> AstTables<'hydrate> {
+        AstTables {
+            by_fqn: &mut ast.nodes,
+            packages: &mut ast.packages,
+            files: &mut ast.files,
+            messages: &mut ast.messages,
+            enums: &mut ast.enums,
+            enum_values: &mut ast.enum_values,
+            services: &mut ast.services,
+            methods: &mut ast.methods,
+            fields: &mut ast.fields,
+            oneofs: &mut ast.oneofs,
+            extensions: &mut ast.extensions,
+            extension_blocks: &mut ast.extension_blocks,
+        }
+    }
 }
 #[derive(Debug)]
-pub(super) struct Nodes<'hydrate> {
-    pub(super) by_fqn: &'hydrate mut HashMap<FullyQualifiedName, Key>,
-    pub(super) by_path: &'hydrate mut HashMap<Box<[i32]>, Key>,
-    pub(super) packages: &'hydrate mut PackageTable,
-    pub(super) files: &'hydrate mut FileTable,
-    pub(super) messages: &'hydrate mut MessageTable,
-    pub(super) enums: &'hydrate mut EnumTable,
-    pub(super) enum_values: &'hydrate mut EnumValueTable,
-    pub(super) services: &'hydrate mut ServiceTable,
-    pub(super) methods: &'hydrate mut MethodTable,
-    pub(super) fields: &'hydrate mut FieldTable,
-    pub(super) oneofs: &'hydrate mut OneofTable,
-    pub(super) extensions: &'hydrate mut ExtensionTable,
-    pub(super) extension_groups: &'hydrate mut ExtensionGroupTable,
+struct Tables<'hydrate> {
+    by_fqn: &'hydrate mut HashMap<FullyQualifiedName, Key>,
+    by_path: &'hydrate mut HashMap<Box<[i32]>, Key>,
+    packages: &'hydrate mut PackageTable,
+    files: &'hydrate mut FileTable,
+    messages: &'hydrate mut MessageTable,
+    enums: &'hydrate mut EnumTable,
+    enum_values: &'hydrate mut EnumValueTable,
+    services: &'hydrate mut ServiceTable,
+    methods: &'hydrate mut MethodTable,
+    fields: &'hydrate mut FieldTable,
+    oneofs: &'hydrate mut OneofTable,
+    extensions: &'hydrate mut ExtensionTable,
+    extension_blocks: &'hydrate mut ExtensionBlockTable,
 }
 
-pub(super) struct File<'hydrate> {
-    pub(super) descriptor: FileDescriptorProto,
-    pub(super) targets: &'hydrate [PathBuf],
-    pub(super) nodes: &'hydrate mut Nodes<'hydrate>,
+impl<'hydrate> Tables<'hydrate> {
+    fn new(
+        ast_tables: &'hydrate mut AstTables,
+        by_path: &'hydrate mut HashMap<Box<[i32]>, Key>,
+    ) -> Tables<'hydrate> {
+        Tables {
+            by_fqn: &mut ast_tables.by_fqn,
+            by_path,
+            packages: ast_tables.packages,
+            files: ast_tables.files,
+            messages: ast_tables.messages,
+            enums: ast_tables.enums,
+            enum_values: ast_tables.enum_values,
+            services: ast_tables.services,
+            methods: ast_tables.methods,
+            fields: ast_tables.fields,
+            oneofs: ast_tables.oneofs,
+            extensions: ast_tables.extensions,
+            extension_blocks: ast_tables.extension_blocks,
+        }
+    }
 }
 
-pub(super) struct Enum<'hydrate> {
-    pub(super) fqn: FullyQualifiedName,
-    pub(super) descriptor: EnumDescriptorProto,
-    pub(super) index: i32,
-    pub(super) location: location::Enum,
-    pub(super) container: ContainerKey,
-    pub(super) file: file::Key,
-    pub(super) package: Option<package::Key>,
-    pub(super) nodes: &'hydrate mut Nodes<'hydrate>,
+struct File<'hydrate> {
+    fqns: &'hydrate mut FullyQualifiedNames,
+    descriptor: FileDescriptorProto,
+    targets: &'hydrate [String],
+    ast_tables: &'hydrate mut AstTables<'hydrate>,
 }
 
-pub(super) struct EnumValue<'hydrate> {
-    pub(super) fqn: FullyQualifiedName,
-    pub(super) descriptor: EnumValueDescriptorProto,
-    pub(super) index: i32,
-    pub(super) location: location::EnumValue,
-    pub(super) r#enum: r#enum::Key,
-    pub(super) file: file::Key,
-    pub(super) package: Option<package::Key>,
-    pub(super) nodes: &'hydrate mut Nodes<'hydrate>,
+struct Enum<'hydrate> {
+    fqn: FullyQualifiedName,
+    descriptor: EnumDescriptorProto,
+    index: i32,
+    location: location::Enum,
+    container: ContainerKey,
+    file: file::Key,
+    package: Option<package::Key>,
+    tables: &'hydrate mut Tables<'hydrate>,
 }
 
-pub(super) struct Message<'hydrate> {
-    pub(super) fqn: FullyQualifiedName,
-    pub(super) descriptor: DescriptorProto,
-    pub(super) index: i32,
-    pub(super) location: location::Message,
-    pub(super) container: ContainerKey,
-    pub(super) file: file::Key,
-    pub(super) package: Option<package::Key>,
-    pub(super) nodes: &'hydrate mut Nodes<'hydrate>,
+struct EnumValue<'hydrate> {
+    fqn: FullyQualifiedName,
+    descriptor: EnumValueDescriptorProto,
+    index: i32,
+    location: location::EnumValue,
+    r#enum: r#enum::Key,
+    file: file::Key,
+    package: Option<package::Key>,
+    tables: &'hydrate mut Tables<'hydrate>,
 }
 
-pub(super) struct ExtensionGroup<'hydrate> {
-    pub(super) file: file::Key,
-    pub(super) package: Option<package::Key>,
-    pub(super) container: ContainerKey,
-    pub(super) extensions: &'hydrate mut std::vec::IntoIter<FieldDescriptorProto>,
-    pub(super) location: location::ExtensionGroup,
-    pub(super) nodes: &'hydrate mut Nodes<'hydrate>,
+struct Message<'hydrate> {
+    fqn: FullyQualifiedName,
+    descriptor: DescriptorProto,
+    index: i32,
+    location: location::Message,
+    container: ContainerKey,
+    file: file::Key,
+    package: Option<package::Key>,
+    tables: &'hydrate mut Tables<'hydrate>,
 }
 
-pub(super) struct Extension<'hydrate> {
-    pub(super) fqn: FullyQualifiedName,
-    pub(super) descriptor: FieldDescriptorProto,
-    pub(super) index: i32,
-    pub(super) location: location::Field,
-    pub(super) container: ContainerKey,
-    pub(super) file: file::Key,
-    pub(super) group: extension::GroupKey,
-    pub(super) package: Option<package::Key>,
-    pub(super) nodes: &'hydrate mut Nodes<'hydrate>,
+struct ExtensionBlock<'hydrate> {
+    file: file::Key,
+    package: Option<package::Key>,
+    container: ContainerKey,
+    extensions: &'hydrate mut std::vec::IntoIter<FieldDescriptorProto>,
+    location: location::ExtensionBlock,
+    tables: &'hydrate mut Tables<'hydrate>,
 }
 
-pub(super) struct Service<'hydrate> {
-    pub(super) fqn: FullyQualifiedName,
-    pub(super) descriptor: ServiceDescriptorProto,
-    pub(super) index: i32,
-    pub(super) location: location::Service,
-    pub(super) file: file::Key,
-    pub(super) package: Option<package::Key>,
-    pub(super) nodes: &'hydrate mut Nodes<'hydrate>,
+struct Extension<'hydrate> {
+    fqn: FullyQualifiedName,
+    descriptor: FieldDescriptorProto,
+    index: i32,
+    location: location::Field,
+    container: ContainerKey,
+    file: file::Key,
+    block: extension::BlockKey,
+    package: Option<package::Key>,
+    tables: &'hydrate mut Tables<'hydrate>,
 }
 
-pub(super) struct Field<'hydrate> {
-    pub(super) fqn: FullyQualifiedName,
-    pub(super) descriptor: FieldDescriptorProto,
-    pub(super) index: i32,
-    pub(super) location: location::Field,
-    pub(super) message: message::Key,
-    pub(super) file: file::Key,
-    pub(super) package: Option<package::Key>,
-    pub(super) nodes: &'hydrate mut Nodes<'hydrate>,
+struct Service<'hydrate> {
+    fqn: FullyQualifiedName,
+    descriptor: ServiceDescriptorProto,
+    index: i32,
+    location: location::Service,
+    file: file::Key,
+    package: Option<package::Key>,
+    tables: &'hydrate mut Tables<'hydrate>,
 }
 
-pub(super) struct Oneof<'hydrate> {
-    pub(super) fqn: FullyQualifiedName,
-    pub(super) descriptor: OneofDescriptorProto,
-    pub(super) index: i32,
-    pub(super) location: location::Oneof,
-    pub(super) message: message::Key,
-    pub(super) file: file::Key,
-    pub(super) package: Option<package::Key>,
-    pub(super) nodes: &'hydrate mut Nodes<'hydrate>,
+struct Field<'hydrate> {
+    fqn: FullyQualifiedName,
+    descriptor: FieldDescriptorProto,
+    index: i32,
+    location: location::Field,
+    message: message::Key,
+    file: file::Key,
+    package: Option<package::Key>,
+    tables: &'hydrate mut Tables<'hydrate>,
 }
 
-pub(super) struct Method<'hydrate> {
-    pub(super) fqn: FullyQualifiedName,
-    pub(super) descriptor: MethodDescriptorProto,
-    pub(super) index: i32,
-    pub(super) location: location::Method,
-    pub(super) service_key: service::Key,
-    pub(super) file: file::Key,
-    pub(super) package: Option<package::Key>,
-    pub(super) nodes: &'hydrate mut Nodes<'hydrate>,
+struct Oneof<'hydrate> {
+    fqn: FullyQualifiedName,
+    descriptor: OneofDescriptorProto,
+    index: i32,
+    location: location::Oneof,
+    message: message::Key,
+    file: file::Key,
+    package: Option<package::Key>,
+    tables: &'hydrate mut Tables<'hydrate>,
+}
+
+struct Method<'hydrate> {
+    fqn: FullyQualifiedName,
+    descriptor: MethodDescriptorProto,
+    index: i32,
+    location: location::Method,
+    service_key: service::Key,
+    file: file::Key,
+    package: Option<package::Key>,
+    nodes: &'hydrate mut Tables<'hydrate>,
 }

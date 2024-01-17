@@ -2,6 +2,7 @@ pub mod access;
 pub mod r#enum;
 pub mod enum_value;
 pub mod extension;
+pub mod extension_block;
 pub mod field;
 pub mod file;
 pub mod message;
@@ -20,6 +21,7 @@ use std::{
     fmt,
     ops::{Deref, Index, IndexMut},
     path::PathBuf,
+    sync::Arc,
 };
 
 use ahash::{HashMapExt, HashSetExt};
@@ -408,7 +410,7 @@ type MethodTable = Table<method::Key, method::Inner>;
 type FieldTable = Table<field::Key, field::Inner>;
 type OneofTable = Table<oneof::Key, oneof::Inner>;
 type ExtensionTable = Table<extension::Key, extension::Inner>;
-type ExtensionGroupTable = Table<extension::GroupKey, extension::GroupInner>;
+type ExtensionBlockTable = Table<extension_block::Key, extension_block::Inner>;
 
 #[derive(Debug, Default)]
 pub struct Ast {
@@ -422,55 +424,42 @@ pub struct Ast {
     fields: FieldTable,
     oneofs: OneofTable,
     extensions: ExtensionTable,
-    extension_groups: ExtensionGroupTable,
+    extension_blocks: ExtensionBlockTable,
     nodes: HashMap<FullyQualifiedName, Key>,
+    fqn: FullyQualifiedNames,
 }
 
 impl Ast {
     fn new(file_descriptors: Vec<FileDescriptorProto>, targets: &[String]) -> Result<Self, Error> {
-        // let targets = targets.iter().map(PathBuf::from).collect::<Vec<_>>();
         let mut this = Self::default();
-        let mut nodes = AstTables {
-            by_fqn: &mut this.nodes,
-            packages: &mut this.packages,
-            files: &mut this.files,
-            messages: &mut this.messages,
-            enums: &mut this.enums,
-            enum_values: &mut this.enum_values,
-            services: &mut this.services,
-            methods: &mut this.methods,
-            fields: &mut this.fields,
-            oneofs: &mut this.oneofs,
-            extensions: &mut this.extensions,
-            extension_groups: &mut this.extension_groups,
-        };
-        hydrate::run(file_descriptors, targets, &mut nodes)?;
+        let mut nodes = AstTables::new(&mut this);
+        hydrate::run(file_descriptors, targets, &mut this.fqn, &mut nodes)?;
         Ok(this)
     }
 }
 
 macro_rules! impl_resolve {
 
-    ($($col:ident => ($key:ident, $inner:ident),)+) => {
+    ($($col:ident -> $mod:ident,)+) => {
         $(
-            impl Get<$key, $inner> for Ast {
-                fn get(& self, key: $key) -> &$inner {
+            impl Get<$mod::Key, $mod::Inner> for Ast {
+                fn get(&self, key: $mod::Key) -> &$mod::Inner {
                     &self.$col[key]
                 }
             }
-            impl<'ast> Resolve<$inner> for Resolver<'ast, $key, $inner>
+            impl<'ast> Resolve<$mod::Inner> for Resolver<'ast, $mod::Key, $mod::Inner>
             {
-                fn resolve(&self) -> &$inner {
+                fn resolve(&self) -> &$mod::Inner {
                     self.ast.get(self.key.clone())
                 }
             }
-            impl<'ast> Deref for Resolver<'ast, $key, $inner>{
-                type Target = $inner;
+            impl<'ast> Deref for Resolver<'ast, $mod::Key, $mod::Inner>{
+                type Target = $mod::Inner;
                 fn deref(&self) -> &Self::Target {
                     self.resolve()
                 }
             }
-            impl<'ast> fmt::Debug for Resolver<'ast, $key, $inner>
+            impl<'ast> fmt::Debug for Resolver<'ast, $mod::Key, $mod::Inner>
             {
                 fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                     f.debug_tuple("Resolver")
@@ -483,31 +472,18 @@ macro_rules! impl_resolve {
     };
 }
 
-use r#enum::{Inner as EnumInner, Key as EnumKey};
-use enum_value::{Inner as EnumValueInner, Key as EnumValueKey};
-use extension::{
-    GroupInner as ExtensionGroupInner, GroupKey as ExtensionGroupKey, Inner as ExtensionInner,
-    Key as ExtensionKey,
-};
-use field::{Inner as FieldInner, Key as FieldKey};
-use file::{Inner as FileInner, Key as FileKey};
-use message::{Inner as MessageInner, Key as MessageKey};
-use method::{Inner as MethodInner, Key as MethodKey};
-use oneof::{Inner as OneofInner, Key as OneofKey};
-use package::{Inner as PackageInner, Key as PackageKey};
-use service::{Inner as ServiceInner, Key as ServiceKey};
 impl_resolve!(
-    packages => (PackageKey, PackageInner),
-    files => (FileKey, FileInner),
-    messages => (MessageKey, MessageInner),
-    enums => (EnumKey, EnumInner),
-    enum_values => (EnumValueKey, EnumValueInner),
-    oneofs => (OneofKey, OneofInner),
-    services => (ServiceKey, ServiceInner),
-    methods => (MethodKey, MethodInner),
-    fields => (FieldKey, FieldInner),
-    extensions => (ExtensionKey, ExtensionInner),
-    extension_groups => (ExtensionGroupKey, ExtensionGroupInner),
+    packages -> package,
+    files -> file,
+    messages -> message,
+    enums -> r#enum,
+    enum_values -> enum_value,
+    oneofs -> oneof,
+    services -> service,
+    methods -> method,
+    fields -> field,
+    extensions -> extension,
+    extension_blocks -> extension_block,
 );
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -616,8 +592,43 @@ impl Node<'_> {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FullyQualifiedName(String);
+#[derive(Default, Debug, Clone)]
+struct FullyQualifiedNames(HashSet<Arc<str>>);
+
+impl FullyQualifiedNames {
+    fn new() -> Self {
+        Self(HashSet::default())
+    }
+
+    fn create(&mut self, value: &str, container: Option<FullyQualifiedName>) -> FullyQualifiedName {
+        self.insert(FullyQualifiedName::new(value, container))
+    }
+    fn for_package(&mut self, package_name: &str) -> FullyQualifiedName {
+        self.insert(FullyQualifiedName::from_package_name(package_name))
+    }
+
+    fn insert(&mut self, fqn: FullyQualifiedName) -> FullyQualifiedName {
+        if let Some(fqn) = self.0.get(&fqn.0) {
+            return FullyQualifiedName(fqn.clone());
+        }
+        self.0.insert(fqn.0.clone());
+        fqn
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FullyQualifiedName(Arc<str>);
+
+impl Default for FullyQualifiedName {
+    fn default() -> Self {
+        Self("".into())
+    }
+}
+impl From<String> for FullyQualifiedName {
+    fn from(value: String) -> Self {
+        Self(value.into())
+    }
+}
 
 impl FullyQualifiedName {
     pub fn new(value: impl AsRef<str>, container: Option<Self>) -> Self {
@@ -632,7 +643,7 @@ impl FullyQualifiedName {
         if container.is_empty() {
             return Self(value.into());
         }
-        Self(format!("{container}.{value}"))
+        Self(format!("{container}.{value}").into())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -646,17 +657,22 @@ impl FullyQualifiedName {
         if value.is_empty() {
             return;
         }
+        let mut existing = self.0.to_string();
         if !self.0.is_empty() {
-            self.0.push('.');
+            existing.push('.');
         }
-        self.0.push_str(value);
+        existing.push_str(value);
+        self.0 = existing.into();
     }
     fn from_package_name(package_name: impl AsRef<str>) -> Self {
-        let package_name = package_name.as_ref();
+        let mut package_name = package_name.as_ref();
         if package_name.is_empty() {
             return Self::default();
         }
-        Self(format!(".{package_name}"))
+        if !package_name.starts_with('.') {
+            package_name = &format!(".{package_name}");
+        }
+        return Self(package_name.into());
     }
 }
 impl AsRef<str> for FullyQualifiedName {
@@ -668,6 +684,24 @@ impl AsRef<str> for FullyQualifiedName {
 impl fmt::Display for FullyQualifiedName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Reserved {
+    pub names: Vec<String>,
+    pub ranges: Vec<ReservedRange>,
+}
+
+impl Reserved {
+    #[must_use]
+    pub fn names(&self) -> &[String] {
+        &self.names
+    }
+
+    #[must_use]
+    pub fn ranges(&self) -> &[ReservedRange] {
+        &self.ranges
     }
 }
 
@@ -890,13 +924,13 @@ macro_rules! impl_access_reserved {
             pub fn reserved_ranges(&self) -> &[crate::ast::ReservedRange] {
                 &self.0.reserved_ranges
             }
-        }
-        impl<'ast> crate::ast::access::Reserved for $node<'ast> {
-            fn reserved_names(&self) -> &[String] {
+            pub fn reserved(&self) -> &crate::ast::Reserved {
                 &self.0.reserved_names
             }
-            fn reserved_ranges(&self) -> &[crate::ast::ReservedRange] {
-                &self.0.reserved_ranges
+        }
+        impl<'ast> crate::ast::access::Reserved for $node<'ast> {
+            fn reserved(&self) -> &crate::ast::Reserved {
+                &self.0.reserved_names
             }
         }
     };
@@ -1182,7 +1216,7 @@ use node_method_ast;
 use node_method_key;
 use node_method_new;
 
-use self::hydrate::{AstTables, Nodes};
+use self::hydrate::AstTables;
 // use impl_state;
 
 #[cfg(test)]

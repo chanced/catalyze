@@ -437,6 +437,29 @@ impl<'ast> Dependency<'ast> {
     }
 }
 
+pub(super) struct DependenciesInner {
+    pub(super) all: Vec<DependencyInner>,
+    pub(super) public: Vec<DependencyInner>,
+    pub(super) weak: Vec<DependencyInner>,
+}
+
+pub(super) struct Hydrate {
+    pub(super) key: Key,
+    pub(super) name: String,
+    pub(super) syntax: Option<String>,
+    pub(super) options: FileOptions,
+    pub(super) package: Option<package::Key>,
+    pub(super) messages: Vec<message::Key>,
+    pub(super) enums: Vec<r#enum::Key>,
+    pub(super) services: Vec<service::Key>,
+    pub(super) extensions: Vec<extension::Key>,
+    pub(super) extension_blocks: Vec<extension::BlockKey>,
+    pub(super) dependencies: DependenciesInner,
+    pub(super) package_comments: Option<Comments>,
+    pub(super) comments: Option<Comments>,
+    pub(super) is_build_target: bool,
+}
+
 #[derive(Debug, Default, Clone, PartialEq)]
 #[doc(hidden)]
 pub(super) struct Inner {
@@ -449,13 +472,11 @@ pub(super) struct Inner {
     enums: Vec<r#enum::Key>,
     services: Vec<service::Key>,
     extensions: Vec<extension::Key>,
-    extension_groups: Vec<extension::GroupKey>,
-    dependencies: Vec<DependencyInner>,
+    extension_blocks: Vec<extension::BlockKey>,
+    dependencies: DependenciesInner,
     used_imports: Vec<DependencyInner>,
     unused_dependencies: Vec<DependencyInner>,
     transitive_dependencies: Vec<DependencyInner>,
-    public_dependencies: Vec<DependencyInner>,
-    weak_dependencies: Vec<DependencyInner>,
     fqn: FullyQualifiedName,
     package_comments: Option<Comments>,
     comments: Option<Comments>,
@@ -581,33 +602,12 @@ impl Inner {
         self.transitive_dependents.push(dependent);
     }
 
-    pub(super) fn set_dependencies(&mut self, imports: Vec<DependencyInner>) {
-        for &import in &imports {
-            self.add_transitive_dependency(import);
-        }
-        self.dependencies = imports;
-    }
     pub(super) fn add_transitive_dependency(&mut self, import: DependencyInner) {
         self.transitive_dependencies.push(import);
     }
     pub(super) fn set_name_and_path(&mut self, name: String) {
         self.path = PathBuf::from(&name);
         self.set_name(name);
-    }
-    pub(super) fn set_path(&mut self, path: PathBuf) {
-        self.path = path;
-    }
-    pub(super) fn set_messages(&mut self, messages: Vec<message::Key>) {
-        self.messages = messages;
-    }
-    pub(super) fn set_enums(&mut self, enums: Vec<r#enum::Key>) {
-        self.enums = enums;
-    }
-    pub(super) fn set_services(&mut self, services: Vec<service::Key>) {
-        self.services = services;
-    }
-    pub(super) fn set_defined_extensions(&mut self, defined_extensions: Vec<extension::Key>) {
-        self.extensions = defined_extensions;
     }
     pub(super) fn set_fqn(&mut self, fqn: FullyQualifiedName) {
         self.fqn = fqn;
@@ -618,9 +618,38 @@ impl Inner {
     pub(super) fn set_is_build_target(&mut self, is_build_target: bool) {
         self.is_build_target = is_build_target;
     }
-    pub(super) fn set_syntax(&mut self, syntax: Option<String>) -> Result<(), Error> {
-        self.syntax = parse_syntax(&syntax.unwrap_or_default())?;
-        Ok(())
+
+    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Key, Error> {
+        let Hydrate {
+            key,
+            name,
+            syntax,
+            options,
+            package,
+            messages,
+            enums,
+            services,
+            extensions,
+            extension_blocks,
+            dependencies,
+            package_comments,
+            comments,
+            is_build_target,
+        } = hydrate;
+        self.hydrate_options(options, is_build_target);
+        self.set_name_and_path(name);
+        self.syntax = Syntax::parse(&syntax.unwrap_or_default())?;
+        self.package = package;
+        self.messages = messages;
+        self.enums = enums;
+        self.services = services;
+        self.extensions = extensions;
+        self.extension_blocks = extension_blocks;
+        self.dependencies = dependencies;
+        self.package_comments = package_comments;
+        self.comments = comments;
+        self.is_build_target = is_build_target;
+        Ok(key)
     }
 
     /// Hydrates the data within the descriptor.

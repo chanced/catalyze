@@ -59,7 +59,7 @@ impl fmt::Display for NamePart {
 impl From<descriptor::uninterpreted_option::NamePart> for NamePart {
     fn from(part: descriptor::uninterpreted_option::NamePart) -> Self {
         let is_extension = part.is_extension.unwrap_or(false);
-        let value = part.name_part.unwrap_or_default().into();
+        let value: Box<str> = part.name_part.unwrap_or_default().into();
         let formatted_value = if is_extension {
             format!("({})", &value).into()
         } else {
@@ -116,7 +116,7 @@ impl NameParts {
     }
     #[must_use]
     pub fn contains(&self, part: &str) -> bool {
-        self.parts.iter().any(|p| p.value == part)
+        self.parts.iter().any(|p| p.value() == part)
     }
     #[must_use]
     pub fn formatted(&self) -> String {
@@ -127,7 +127,7 @@ impl NameParts {
 /// A message representing an option that parser does not recognize.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UninterpretedOption {
-    name: Vec<NamePart>,
+    name: Box<[NamePart]>,
     value: UninterpretedValue,
 }
 

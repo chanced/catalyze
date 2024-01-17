@@ -7,7 +7,7 @@ use super::{
     package,
     reference::{ReferenceInner, References},
     uninterpreted::UninterpretedOption,
-    Comments, ContainerKey, FullyQualifiedName, ReservedRange, Resolver, Span,
+    Comments, ContainerKey, FullyQualifiedName, Reserved, ReservedRange, Resolver, Span,
 };
 use protobuf::descriptor::{descriptor_proto, MessageOptions};
 
@@ -39,12 +39,7 @@ pub(super) struct Inner {
     referenced_by: Vec<ReferenceInner>,
     references: Vec<ReferenceInner>,
 
-    reserved_ranges: Vec<ReservedRange>,
-    ///  Reserved field names, which may not be used by fields in the same
-    /// message.  
-    ///
-    /// A given name may only be reserved once.
-    reserved_names: Vec<String>,
+    reserved: Reserved,
 
     message_set_wire_format: bool,
     ///  Disables the generation of the standard "descriptor()" accessor, which

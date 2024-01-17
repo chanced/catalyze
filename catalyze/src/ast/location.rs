@@ -57,7 +57,7 @@ pub(super) struct File {
     pub(super) messages: Vec<Message>,
     pub(super) enums: Vec<Enum>,
     pub(super) services: Vec<Service>,
-    pub(super) extensions: Vec<ExtensionGroup>,
+    pub(super) extensions: Vec<ExtensionBlock>,
 }
 impl File {
     pub(super) fn new(info: SourceCodeInfo) -> Result<Self, Error> {
@@ -108,7 +108,7 @@ impl File {
                     services.push(Service::new(next, &mut locations)?);
                 }
                 path::File::Extension => {
-                    extensions.push(ExtensionGroup::new(next, &mut locations)?);
+                    extensions.push(ExtensionBlock::new(next, &mut locations)?);
                 }
                 _ => continue,
             }
@@ -130,7 +130,7 @@ pub(super) struct Message {
     pub(super) detail: Location,
     pub(super) messages: Vec<Message>,
     pub(super) enums: Vec<Enum>,
-    pub(super) extensions: Vec<ExtensionGroup>,
+    pub(super) extensions: Vec<ExtensionBlock>,
     pub(super) oneofs: Vec<Oneof>,
     pub(super) fields: Vec<Field>,
 }
@@ -157,7 +157,7 @@ impl Message {
                     enums.push(Enum::new(next, locations)?);
                 }
                 path::Message::Extension => {
-                    extensions.push(ExtensionGroup::new(next, locations)?);
+                    extensions.push(ExtensionBlock::new(next, locations)?);
                 }
                 path::Message::Oneof => {
                     oneofs.push(Oneof::new(next, locations)?);
@@ -177,11 +177,11 @@ impl Message {
 }
 
 #[derive(Debug)]
-pub(super) struct ExtensionGroup {
+pub(super) struct ExtensionBlock {
     pub(super) detail: Location,
     pub(super) extensions: Vec<Field>,
 }
-impl ExtensionGroup {
+impl ExtensionBlock {
     fn new(
         node: ProtoLoc,
         locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,

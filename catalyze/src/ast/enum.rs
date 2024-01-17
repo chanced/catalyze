@@ -1,14 +1,18 @@
+use protobuf::descriptor::EnumOptions;
+
 use crate::{
     ast::{
         impl_traits_and_methods, uninterpreted::UninterpretedOption, ContainerKey,
-        FullyQualifiedName, ReservedRange, Resolver,
+        FullyQualifiedName, Resolver,
     },
     error::Error,
 };
 
 use std::fmt;
 
-use super::{access::NodeKeys, file, package, reference::ReferrerKey, Comments, Span};
+use super::{
+    access::NodeKeys, enum_value, file, package, reference::ReferrerKey, Comments, Reserved, Span,
+};
 
 slotmap::new_key_type! {
     pub(super) struct Key;
@@ -21,33 +25,39 @@ pub(super) struct Inner {
     node_path: Box<[i32]>,
     span: Span,
     comments: Option<Comments>,
-    reserved_ranges: Vec<ReservedRange>,
-    ///  Reserved field names, which may not be used by fields in the same
-    /// message.  
-    ///
-    /// A given name may only be reserved once.
-    reserved_names: Vec<String>,
+    reserved: Reserved,
     package: Option<package::Key>,
     file: file::Key,
     container: ContainerKey,
     name: String,
     referenced_by: Vec<ReferrerKey>,
-
-    enum_values: Vec<super::enum_value::Key>,
+    values: Vec<super::enum_value::Key>,
     uninterpreted_options: Vec<UninterpretedOption>,
 }
 impl Inner {
-    pub(crate) fn hydrate_options(
-        &self,
-        unwrap_or_default: protobuf::descriptor::EnumOptions,
-    ) -> Result<(), Error> {
+    fn hydrate_options(&mut self, options: EnumOptions) -> Result<(), Error> {
+        let EnumOptions {
+            allow_alias,
+            deprecated,
+            uninterpreted_option,
+            special_fields,
+        } = options;
+    }
+
+    pub(crate) fn hydrate(
+        &mut self,
+        values: Vec<enum_value::Key>,
+        options: protobuf::MessageField<EnumOptions>,
+        reserved_name: Vec<String>,
+        reserved_range: Vec<protobuf::descriptor::enum_descriptor_proto::EnumReservedRange>,
+    ) -> Result<(Key, FullyQualifiedName, Box<[i32]>), Error> {
         todo!()
     }
 }
 
 impl NodeKeys for Inner {
     fn keys(&self) -> impl Iterator<Item = super::Key> {
-        self.enum_values.iter().copied().map(super::Key::EnumValue)
+        self.values.iter().copied().map(super::Key::EnumValue)
     }
 }
 
