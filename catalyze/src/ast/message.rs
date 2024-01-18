@@ -1,64 +1,86 @@
+use std::iter;
+
 use super::{
     access::{self, NodeKeys},
-    container, r#enum, extension,
+    container, r#enum, extension, extension_block,
     field::{self},
-    file, impl_traits_and_methods, message,
+    file, impl_traits_and_methods, location, message, node,
     oneof::{self},
     package,
     reference::{ReferenceInner, References},
     reserved::Reserved,
     uninterpreted::UninterpretedOption,
-    Comments, FullyQualifiedName, Resolver, Span,
+    Comments, FullyQualifiedName, Hydrated, Resolver, Set, Span,
 };
-use protobuf::descriptor::{descriptor_proto, MessageOptions};
+use protobuf::{
+    descriptor::{descriptor_proto, MessageOptions},
+    SpecialFields,
+};
 
 slotmap::new_key_type! {
     pub(super) struct Key;
+}
+
+pub(super) struct Hydrate {
+    pub(super) name: Box<str>,
+    pub(super) package: Option<package::Key>,
+    pub(super) location: location::Location,
+    pub(super) options: protobuf::MessageField<MessageOptions>,
+    pub(super) reserved_ranges: Vec<descriptor_proto::ReservedRange>,
+    pub(super) reserved_names: Vec<String>,
+    pub(super) extension_range: Vec<descriptor_proto::ExtensionRange>,
+    pub(super) special_fields: protobuf::SpecialFields,
+    pub(super) messages: Vec<Hydrated<message::Key>>,
+    pub(super) enums: Vec<Hydrated<r#enum::Key>>,
+    pub(super) fields: Vec<Hydrated<field::Key>>,
+    pub(super) oneofs: Vec<Hydrated<oneof::Key>>,
+    pub(super) extensions: Vec<Hydrated<extension::Key>>,
+    pub(super) extension_blocks: Vec<extension_block::Key>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Inner {
     key: Key,
     fqn: FullyQualifiedName,
+    name: Box<str>,
     node_path: Box<[i32]>,
     span: Span,
     comments: Option<Comments>,
-    name: Box<str>,
     container: container::Key,
-    fields: Vec<field::Key>,
-    enums: Vec<r#enum::Key>,
-    messages: Vec<message::Key>,
-    oneofs: Vec<oneof::Key>,
-    real_oneofs: Vec<oneof::Key>,
-    synthetic_oneofs: Vec<oneof::Key>,
-    defined_extensions: Vec<extension::Key>,
-    applied_extensions: Vec<extension::Key>,
-    extension_ranges: Vec<ExtensionRange>,
-    dependents: Vec<file::Key>,
+    package: Option<package::Key>,
+    file: file::Key,
+
+    extensions: Set<extension::Key>,
+    extension_blocks: Vec<extension_block::Key>,
+
+    fields: Set<field::Key>,
+    enums: Set<r#enum::Key>,
+    messages: Set<message::Key>,
+    oneofs: Set<oneof::Key>,
+    real_oneofs: Set<oneof::Key>,
+    synthetic_oneofs: Set<oneof::Key>,
+
+    defined_extensions: Set<extension::Key>,
+    applied_extensions: Set<extension::Key>,
+
+    dependents: Set<file::Key>,
+
     referenced_by: Vec<ReferenceInner>,
     references: Vec<ReferenceInner>,
 
+    extension_ranges: Vec<ExtensionRange>,
     reserved: Reserved,
-
     message_set_wire_format: bool,
-    ///  Disables the generation of the standard "descriptor()" accessor, which
-    /// can  conflict with a field of the same name.  This is meant to make
-    /// migration  from proto1 easier; new code should avoid fields named
-    /// "descriptor".
     no_standard_descriptor_accessor: bool,
-    ///  Is this message deprecated?
-    ///
-    ///  Depending on the target platform, this can emit Deprecated annotations
-    ///  for the message, or it will be completely ignored; in the very least,
-    ///  this is a formalization for deprecating messages.
     deprecated: bool,
     map_entry: bool,
-    ///  The parser stores options it doesn't recognize here. See above.
-    uninterpreted_options: Vec<UninterpretedOption>,
-    unkown_option_fields: protobuf::UnknownFields,
 
-    package: Option<package::Key>,
-    file: file::Key,
+    uninterpreted_options: Vec<UninterpretedOption>,
+
+    unknown_fields: protobuf::UnknownFields,
+
+    special_fields: SpecialFields,
+    options_special_fields: SpecialFields,
 }
 
 impl super::access::ReferencesMut for Inner {
@@ -70,68 +92,73 @@ impl super::access::ReferencesMut for Inner {
 }
 
 impl NodeKeys for Inner {
-    fn keys(&self) -> impl Iterator<Item = super::node::Key> {
-        self.fields
-            .iter()
-            .copied()
-            .map(super::node::Key::Field)
-            .chain(self.enums.iter().copied().map(super::node::Key::Enum))
-            .chain(self.messages.iter().copied().map(super::node::Key::Message))
-            .chain(self.oneofs.iter().copied().map(super::node::Key::Oneof))
+    fn keys(&self) -> impl Iterator<Item = node::Key> {
+        iter::empty()
+            .chain(self.fields.iter().copied().map(node::Key::Field))
+            .chain(self.enums.iter().copied().map(node::Key::Enum))
+            .chain(self.messages.iter().copied().map(node::Key::Message))
+            .chain(self.oneofs.iter().copied().map(node::Key::Oneof))
             .chain(
                 self.defined_extensions
                     .iter()
                     .copied()
-                    .map(super::node::Key::Extension),
+                    .map(node::Key::Extension),
             )
     }
 }
 
 impl Inner {
-    pub(super) fn set_fields(&mut self, fields: Vec<field::Key>) {
-        self.fields = fields;
+    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Hydrated<Key> {
+        let Hydrate {
+            name,
+            package,
+            location,
+            options,
+            reserved_ranges,
+            reserved_names,
+            extension_range,
+            special_fields,
+            messages,
+            enums,
+            fields,
+            oneofs,
+            extensions,
+            extension_blocks,
+        } = hydrate;
+        self.name = name;
+        self.package = package;
+
+        self.extension_ranges = extension_range.into_iter().map(Into::into).collect();
+        self.special_fields = special_fields;
+        self.messages = messages.into();
+
+        self.enums = enums.into();
+        self.fields = fields.into();
+        self.oneofs = oneofs.into();
+
+        self.extensions = extensions.into();
+        self.extension_blocks = extension_blocks;
+
+        self.hydrate_location(location);
+        self.hydrate_options(options.unwrap_or_default());
+        self.set_reserved(reserved_names, reserved_ranges);
+        (self.key, self.fqn.clone(), self.name.clone())
     }
-    pub(super) fn set_enums(&mut self, enums: Vec<r#enum::Key>) {
-        self.enums = enums;
-    }
-    pub(super) fn set_messages(&mut self, messages: Vec<message::Key>) {
-        self.messages = messages;
-    }
-    pub(super) fn set_oneofs(&mut self, oneofs: Vec<oneof::Key>) {
-        self.oneofs = oneofs;
-    }
-    pub(super) fn set_real_oneofs(&mut self, real_oneofs: Vec<oneof::Key>) {
-        self.real_oneofs = real_oneofs;
-    }
-    pub(super) fn set_synthetic_oneofs(&mut self, synthetic_oneofs: Vec<oneof::Key>) {
-        self.synthetic_oneofs = synthetic_oneofs;
-    }
-    pub(super) fn set_defined_extensions(&mut self, defined_extensions: Vec<extension::Key>) {
-        self.defined_extensions = defined_extensions;
-    }
-    pub(super) fn set_applied_extensions(&mut self, applied_extensions: Vec<extension::Key>) {
-        self.applied_extensions = applied_extensions;
-    }
-    pub(super) fn set_dependents(&mut self, dependents: Vec<file::Key>) {
-        self.dependents = dependents;
-    }
-    pub(super) fn set_referenced_by(&mut self, referenced_by: Vec<ReferenceInner>) {
-        self.referenced_by = referenced_by;
-    }
-    pub(super) fn set_container(&mut self, container: impl Into<crate::ast::container::Key>) {
-        self.container = container.into();
-    }
-    pub(super) fn hydrate_options(&mut self, opts: MessageOptions) {
-        self.message_set_wire_format = opts.message_set_wire_format();
-        self.no_standard_descriptor_accessor = opts.no_standard_descriptor_accessor();
-        self.deprecated = opts.deprecated();
-        self.map_entry = opts.map_entry();
-        self.uninterpreted_options = opts
-            .uninterpreted_option
-            .into_iter()
-            .map(Into::into)
-            .collect();
-        self.unkown_option_fields = opts.special_fields.unknown_fields().clone();
+    fn hydrate_options(&mut self, opts: MessageOptions) {
+        let MessageOptions {
+            message_set_wire_format,
+            no_standard_descriptor_accessor,
+            deprecated,
+            map_entry,
+            uninterpreted_option,
+            special_fields,
+        } = opts;
+        self.message_set_wire_format = message_set_wire_format.unwrap_or(false);
+        self.no_standard_descriptor_accessor = no_standard_descriptor_accessor.unwrap_or(false);
+        self.deprecated = deprecated.unwrap_or(false);
+        self.map_entry = map_entry.unwrap_or(false);
+        self.uninterpreted_options = uninterpreted_option.into_iter().map(Into::into).collect();
+        self.options_special_fields = special_fields;
     }
 }
 

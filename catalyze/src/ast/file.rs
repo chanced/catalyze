@@ -1,8 +1,12 @@
 use crate::error::Error;
 use ahash::HashMap;
-use protobuf::descriptor::{file_options::OptimizeMode as ProtoOptimizeMode, FileOptions};
+use protobuf::{
+    descriptor::{file_options::OptimizeMode as ProtoOptimizeMode, FileOptions},
+    SpecialFields,
+};
 use std::{
     fmt,
+    hash::Hash,
     ops::Deref,
     path::{Path, PathBuf},
     str::FromStr,
@@ -10,7 +14,8 @@ use std::{
 
 use super::{
     access::NodeKeys, r#enum, extension, extension_block, impl_traits_and_methods, message,
-    package, service, uninterpreted::UninterpretedOption, Comments, FullyQualifiedName, Resolver,
+    package, service, uninterpreted::UninterpretedOption, Comments, FullyQualifiedName, Hydrated,
+    Resolver, Set,
 };
 
 slotmap::new_key_type! {
@@ -442,18 +447,18 @@ pub(super) struct DependenciesInner {
     pub(super) all: Vec<DependencyInner>,
     pub(super) public: Vec<DependencyInner>,
     pub(super) weak: Vec<DependencyInner>,
+    pub(super) unusued: Vec<DependencyInner>,
 }
 
 pub(super) struct Hydrate {
-    pub(super) key: Key,
-    pub(super) name: String,
+    pub(super) name: Box<str>,
     pub(super) syntax: Option<String>,
     pub(super) options: FileOptions,
     pub(super) package: Option<package::Key>,
-    pub(super) messages: Vec<message::Key>,
-    pub(super) enums: Vec<r#enum::Key>,
-    pub(super) services: Vec<service::Key>,
-    pub(super) extensions: Vec<extension::Key>,
+    pub(super) messages: Vec<Hydrated<message::Key>>,
+    pub(super) enums: Vec<Hydrated<r#enum::Key>>,
+    pub(super) services: Vec<Hydrated<service::Key>>,
+    pub(super) extensions: Vec<Hydrated<extension::Key>>,
     pub(super) extension_blocks: Vec<extension_block::Key>,
     pub(super) dependencies: DependenciesInner,
     pub(super) package_comments: Option<Comments>,
@@ -465,24 +470,29 @@ pub(super) struct Hydrate {
 #[doc(hidden)]
 pub(super) struct Inner {
     key: Key,
-
+    fqn: FullyQualifiedName,
     name: Box<str>,
     path: PathBuf,
+
     package: Option<package::Key>,
-    messages: Vec<message::Key>,
-    enums: Vec<r#enum::Key>,
-    services: Vec<service::Key>,
-    extensions: Vec<extension::Key>,
+    messages: Set<message::Key>,
+    enums: Set<r#enum::Key>,
+    services: Set<service::Key>,
+
+    extensions: Set<extension::Key>,
     extension_blocks: Vec<extension_block::Key>,
+
     dependencies: DependenciesInner,
     used_imports: Vec<DependencyInner>,
     unused_dependencies: Vec<DependencyInner>,
     transitive_dependencies: Vec<DependencyInner>,
-    fqn: FullyQualifiedName,
+
     package_comments: Option<Comments>,
     comments: Option<Comments>,
+
     dependents: Vec<DependentInner>,
     transitive_dependents: Vec<DependentInner>,
+
     is_build_target: bool,
     syntax: Syntax,
 
@@ -580,7 +590,8 @@ pub(super) struct Inner {
     ///  The parser stores options it doesn't recognize here.
     uninterpreted_options: Vec<UninterpretedOption>,
 
-    unknown_option_fields: protobuf::UnknownFields,
+    special_fields: SpecialFields,
+    options_special_fields: SpecialFields,
 }
 
 impl NodeKeys for Inner {
@@ -606,8 +617,8 @@ impl Inner {
     pub(super) fn add_transitive_dependency(&mut self, import: DependencyInner) {
         self.transitive_dependencies.push(import);
     }
-    pub(super) fn set_name_and_path(&mut self, name: String) {
-        self.path = PathBuf::from(&name);
+    pub(super) fn set_name_and_path(&mut self, name: Box<str>) {
+        self.path = PathBuf::from(name.as_ref());
         self.set_name(name);
     }
     pub(super) fn set_fqn(&mut self, fqn: FullyQualifiedName) {
@@ -622,7 +633,6 @@ impl Inner {
 
     pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<(Key, FullyQualifiedName), Error> {
         let Hydrate {
-            key,
             name,
             syntax,
             options,
@@ -637,28 +647,27 @@ impl Inner {
             comments,
             is_build_target,
         } = hydrate;
-        self.hydrate_options(options, is_build_target);
         self.set_name_and_path(name);
         self.syntax = Syntax::parse(&syntax.unwrap_or_default())?;
         self.package = package;
-        self.messages = messages;
-        self.enums = enums;
-        self.services = services;
-        self.extensions = extensions;
+        self.messages = messages.into();
+        self.enums = enums.into();
+        self.services = services.into();
+        self.extensions = extensions.into();
         self.extension_blocks = extension_blocks;
         self.dependencies = dependencies;
         self.package_comments = package_comments;
         self.comments = comments;
         self.is_build_target = is_build_target;
-        Ok((key, self.fqn.clone()))
-    }
 
+        self.hydrate_options(options);
+
+        Ok((self.key, self.fqn.clone()))
+    }
     /// Hydrates the data within the descriptor.
     ///
     /// Note: References and nested nodes are not hydrated.
-    pub(super) fn hydrate_options(&mut self, opts: FileOptions, is_build_target: bool) {
-        self.is_build_target = is_build_target;
-
+    fn hydrate_options(&mut self, opts: FileOptions) {
         self.java_package = opts.java_package;
         self.java_outer_classname = opts.java_outer_classname;
         self.java_multiple_files = opts.java_multiple_files.unwrap_or(false);
@@ -684,7 +693,7 @@ impl Inner {
             .into_iter()
             .map(Into::into)
             .collect();
-        self.unknown_option_fields = opts.special_fields.unknown_fields().clone();
+        self.options_special_fields = opts.special_fields;
     }
 
     pub(crate) fn set_nodes_by_path(&mut self, mut nodes: HashMap<Box<[i32]>, super::node::Key>) {

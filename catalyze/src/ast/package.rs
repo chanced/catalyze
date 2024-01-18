@@ -6,6 +6,8 @@ use super::{
 
 use std::fmt::Debug;
 
+pub const WELL_KNOWN: &str = "google.protobuf";
+
 slotmap::new_key_type! {
     pub(super) struct Key;
 }
@@ -45,7 +47,7 @@ impl Inner {
         Self {
             key: Key::default(),
             name: name.as_ref().into(),
-            is_well_known: name.as_ref() == Package::WELL_KNOWN,
+            is_well_known: name.as_ref() == WELL_KNOWN,
             files: Vec::default(),
             fqn: FullyQualifiedName::from_package_name(name),
             comments: Vec::default(),
@@ -72,10 +74,6 @@ impl NodeKeys for Inner {
 }
 
 pub struct Package<'ast>(Resolver<'ast, Key, Inner>);
-
-impl<'ast> Package<'ast> {
-    pub const WELL_KNOWN: &'static str = "google.protobuf";
-}
 
 impl_traits_and_methods!(Package, Key, Inner);
 

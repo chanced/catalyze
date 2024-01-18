@@ -258,7 +258,7 @@ impl Enum {
 }
 #[derive(Debug)]
 pub(super) struct EnumValue {
-    pub(super) location: Location,
+    pub(super) detail: Location,
 }
 impl EnumValue {
     fn new(
@@ -268,7 +268,7 @@ impl EnumValue {
         let (path, span, comments) = extract(node)?;
         while iterate_next::<i32>(&path, locations).is_some() {}
         Ok(Self {
-            location: Location::new(path, span, comments),
+            detail: Location::new(path, span, comments),
         })
     }
 }
@@ -341,7 +341,7 @@ mod tests {
         );
         assert_eq!(
             f.enums[0].values[0]
-                .location
+                .detail
                 .comments
                 .as_ref()
                 .unwrap()
@@ -353,7 +353,7 @@ mod tests {
         );
         assert_eq!(
             f.enums[0].values[1]
-                .location
+                .detail
                 .comments
                 .as_ref()
                 .unwrap()
@@ -414,7 +414,7 @@ mod tests {
 
         assert_eq!(
             f.messages[0].enums[0].values[1]
-                .location
+                .detail
                 .comments
                 .as_ref()
                 .unwrap()

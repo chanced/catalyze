@@ -23,6 +23,8 @@ use std::{
     fmt,
     iter::once,
     ops::{Deref, Index, IndexMut},
+    path::Display,
+    str::FromStr,
     sync::Arc,
 };
 
@@ -268,7 +270,88 @@ type OneofTable = Table<oneof::Key, oneof::Inner>;
 type ExtensionTable = Table<extension::Key, extension::Inner>;
 type ExtensionBlockTable = Table<extension_block::Key, extension_block::Inner>;
 
-type Hydrated<K> = (K, FullyQualifiedName, Box<[i32]>);
+#[derive(Debug, Clone)]
+struct Set<K> {
+    set: Vec<K>,
+    by_name: HashMap<Box<str>, K>,
+}
+impl<K> Default for Set<K> {
+    fn default() -> Self {
+        Self {
+            set: Vec::default(),
+            by_name: HashMap::default(),
+        }
+    }
+}
+
+impl<K> Set<K>
+where
+    K: Copy,
+{
+    fn from_vec(hydrated: Vec<Hydrated<K>>) -> Self {
+        let mut set = Vec::with_capacity(hydrated.len());
+        let mut by_name = HashMap::with_capacity(hydrated.len());
+        for (key, _, name) in hydrated {
+            set.push(key);
+            by_name.insert(name, key);
+        }
+        Self { set, by_name }
+    }
+}
+impl<K> Set<K>
+where
+    K: slotmap::Key + Copy,
+{
+    fn by_name(&self, name: &str) -> Option<K> {
+        self.by_name.get(name).copied()
+    }
+    fn get(&self, index: usize) -> Option<K> {
+        self.set.get(index).copied()
+    }
+    fn from_slice(hydrated: &[Hydrated<K>]) -> Self {
+        let mut set = Vec::with_capacity(hydrated.len());
+        let mut by_name = HashMap::with_capacity(hydrated.len());
+        for (key, _, name) in hydrated {
+            set.push(*key);
+            by_name.insert(name.clone(), *key);
+        }
+        Self { set, by_name }
+    }
+}
+impl<K> From<Vec<Hydrated<K>>> for Set<K>
+where
+    K: Copy,
+{
+    fn from(v: Vec<Hydrated<K>>) -> Self {
+        Self::from_vec(v)
+    }
+}
+impl Index<usize> for Set<package::Key> {
+    type Output = package::Key;
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.set[index]
+    }
+}
+
+impl<K> PartialEq for Set<K>
+where
+    K: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.set == other.set
+    }
+}
+impl<K> Eq for Set<K> where K: PartialEq {}
+
+impl<K> Deref for Set<K> {
+    type Target = [K];
+    fn deref(&self) -> &Self::Target {
+        &self.set
+    }
+}
+
+/// (key, fqn, name)
+type Hydrated<K> = (K, FullyQualifiedName, Box<str>);
 
 #[derive(Debug, Default)]
 pub struct Ast {
@@ -285,6 +368,7 @@ pub struct Ast {
     extension_blocks: ExtensionBlockTable,
     nodes: HashMap<FullyQualifiedName, node::Key>,
     fqns: FullyQualifiedNames,
+    well_known_package: package::Key,
 }
 
 impl Ast {
@@ -300,6 +384,7 @@ impl Ast {
         file_descriptors: Vec<FileDescriptorProto>,
         targets: &[String],
     ) -> Result<Self, Error> {
+        let well_known = self.hydrate_package(Some("google.protobuf".to_string()));
         let mut by_fqn = HashMap::new();
         for descriptor in file_descriptors {
             let (key, fqn) = self.hydrate_file(descriptor, targets)?;
@@ -309,13 +394,103 @@ impl Ast {
         Ok(self)
     }
 
+    fn hydrate_file(
+        &mut self,
+        descriptor: FileDescriptorProto,
+        targets: &[String],
+    ) -> Result<(file::Key, FullyQualifiedName), Error> {
+        // TODO: handle SpecialFields
+        // let mut by_path = HashMap::default();
+        let name = descriptor.name.unwrap();
+        let locations = location::File::new(descriptor.source_code_info.unwrap_or_else(|| {
+            panic!("source_code_info not found on FileDescriptorProto for \"{name}\"")
+        }))?;
+
+        let (package, package_fqn) = self.hydrate_package(descriptor.package);
+        let fqn = self.fqns.get_or_insert(&name, package_fqn);
+        let key = self.files.get_or_insert_key_by_fqn(fqn.clone());
+        let messages = self.hydrate_messages(
+            descriptor.message_type,
+            locations.messages,
+            fqn.clone(),
+            key.into(),
+            key,
+            package,
+        )?;
+        let enums = self.hydrate_enums(
+            descriptor.enum_type,
+            locations.enums,
+            key.into(),
+            fqn.clone(),
+            key,
+            package,
+        );
+        let services = self.hydrate_services(
+            descriptor.service,
+            locations.services,
+            fqn.clone(),
+            key,
+            package,
+        )?;
+        let (extension_blocks, extensions) = self.hydrate_extensions(
+            descriptor.extension,
+            locations.extensions,
+            key.into(),
+            fqn,
+            key,
+            package,
+        )?;
+        let dependencies = self.hydrate_dependencies(
+            key,
+            descriptor.dependency,
+            descriptor.public_dependency,
+            descriptor.weak_dependency,
+        );
+        let file = &mut self.files[key];
+        let is_build_target = targets.iter().any(|t| t == &name);
+        file.hydrate(file::Hydrate {
+            name: name.into_boxed_str(),
+            syntax: descriptor.syntax,
+            options: descriptor.options.unwrap_or_default(),
+            package,
+            messages,
+            enums,
+            services,
+            extensions,
+            extension_blocks,
+            dependencies,
+            package_comments: locations.package.and_then(|loc| loc.comments),
+            comments: locations.syntax.and_then(|loc| loc.comments),
+            is_build_target,
+        })
+    }
+
+    fn hydrate_package(
+        &mut self,
+        package: Option<String>,
+    ) -> (Option<package::Key>, Option<FullyQualifiedName>) {
+        let Some(package) = package else {
+            return (None, None);
+        };
+
+        let is_well_known = package == package::WELL_KNOWN;
+        if package.is_empty() {
+            return (None, None);
+        }
+        let fqn = self.fqns.for_package(&package);
+        let (key, pkg) = self.packages.get_or_insert_by_fqn(fqn.clone());
+        pkg.set_name(package);
+
+        (Some(key), Some(fqn))
+    }
+
     fn hydrate_dependencies(
         &mut self,
         dependent: file::Key,
         dependencies_by_fqn: Vec<String>,
         public_dependencies: Vec<i32>,
         weak_dependencies: Vec<i32>,
-    ) -> Result<file::DependenciesInner, Error> {
+    ) -> file::DependenciesInner {
         let mut all = Vec::with_capacity(dependencies_by_fqn.len());
         let mut weak = Vec::with_capacity(weak_dependencies.len());
         let mut public = Vec::with_capacity(public_dependencies.len());
@@ -349,68 +524,12 @@ impl Ast {
                 weak.push(dep);
             }
         }
-        Ok(file::DependenciesInner { all, public, weak })
-    }
-
-    fn hydrate_enums(
-        &mut self,
-        descriptors: Vec<EnumDescriptorProto>,
-        locations: Vec<location::Enum>,
-        container_fqn: FullyQualifiedName,
-        container: container::Key,
-        file: file::Key,
-        package: Option<package::Key>,
-    ) -> Result<Vec<r#enum::Key>, Error> {
-        let mut enums = Vec::with_capacity(descriptors.len());
-        let mut locations = locations.into_iter();
-        for descriptor in descriptors {
-            let location = locations
-                .next()
-                .expect("location missing for enum in {container_fqn}");
-            let fqn = FullyQualifiedName::new(descriptor.name(), Some(container_fqn.clone()));
-            let (key, fqn, _path) =
-                self.hydrate_enum(descriptor, fqn.clone(), location, container, file, package)?;
-            self.nodes.insert(fqn, key.into());
-            // by_path.insert(path, key.into());
-            enums.push(key);
+        file::DependenciesInner {
+            all,
+            public,
+            weak,
+            unusued: Vec::default(),
         }
-        Ok(enums)
-    }
-
-    fn hydrate_enum(
-        &mut self,
-        descriptor: EnumDescriptorProto,
-        fqn: FullyQualifiedName,
-        location: location::Enum,
-        container: container::Key,
-        file: file::Key,
-        package: Option<package::Key>,
-    ) -> Result<Hydrated<r#enum::Key>, Error> {
-        let name = descriptor.name.clone().unwrap_or_default().into();
-        let key = self.enums.get_or_insert_key_by_fqn(fqn.clone());
-        let values =
-            self.hydrate_enum_values(descriptor.value, location.values, fqn, key, file, package)?;
-
-        self.enums[key].hydrate(
-            name,
-            values,
-            location.detail,
-            descriptor.options,
-            descriptor.reserved_name,
-            descriptor.reserved_range,
-        )
-    }
-
-    fn hydrate_enum_values(
-        &mut self,
-        descriptors: Vec<EnumValueDescriptorProto>,
-        locations: Vec<location::EnumValue>,
-        container_fqn: FullyQualifiedName,
-        r#enum: r#enum::Key,
-        file: file::Key,
-        package: Option<package::Key>,
-    ) -> Result<Vec<enum_value::Key>, Error> {
-        todo!()
     }
 
     fn hydrate_messages(
@@ -421,65 +540,202 @@ impl Ast {
         container: container::Key,
         file: file::Key,
         package: Option<package::Key>,
-    ) -> Result<Vec<message::Key>, Error> {
+    ) -> Result<Vec<Hydrated<message::Key>>, Error> {
+        assert_message_locations(&container_fqn, &locations, &descriptors);
         let mut messages = Vec::with_capacity(descriptors.len());
-        let mut locations = locations.into_iter();
-        for descriptor in descriptors {
+        for (descriptor, location) in descriptors.into_iter().zip(locations) {
             let fqn = self
                 .fqns
                 .get_or_insert(descriptor.name(), Some(container_fqn.clone()));
-            let location = locations.next().unwrap_or_else(|| {
-                panic!(
-                    "location missing for message \"{}\" in \"{container_fqn}\"",
-                    descriptor.name()
-                )
-            });
-            let key =
-                self.hydrate_message(fqn.clone(), descriptor, location, container, file, package)?;
-            self.nodes.insert(fqn, key.into());
-            messages.push(key);
+
+            let (key, fqn, name) = self.hydrate_message(
+                descriptor,
+                fqn,
+                location,
+                container,
+                container_fqn.clone(),
+                file,
+                package,
+            )?;
+            self.nodes.insert(fqn.clone(), key.into());
+            messages.push((key, fqn, name));
         }
         Ok(messages)
     }
-
-    pub(super) fn hydrate_message(
+    fn is_well_known(&self, package: Option<package::Key>) -> bool {
+        if let Some(package) = package {
+            return package == self.well_known_package;
+        }
+        false
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn hydrate_message(
         &mut self,
-        fqn: FullyQualifiedName,
         descriptor: DescriptorProto,
+        fqn: FullyQualifiedName,
         location: location::Message,
         container: container::Key,
+        container_fqn: FullyQualifiedName,
         file: file::Key,
         package: Option<package::Key>,
-    ) -> Result<message::Key, Error> {
-        let DescriptorProto {
-            name,
-            field,
-            extension,
-            nested_type,
-            enum_type,
-            extension_range,
-            oneof_decl,
-            options,
-            reserved_range,
-            reserved_name,
-            special_fields,
-        } = descriptor;
+    ) -> Result<Hydrated<message::Key>, Error> {
+        let name = descriptor.name.unwrap_or_default().into();
+        let key = self.messages.get_or_insert_key_by_fqn(fqn.clone());
 
-        let name = name.unwrap_or_default();
-        let (key, msg) = self.messages.get_or_insert_by_fqn(fqn.clone());
-        msg.hydrate_options(options.unwrap_or_default());
-        msg.set_container(container);
-        msg.set_name(name);
+        let (extension_blocks, extensions) = self.hydrate_extensions(
+            descriptor.extension,
+            location.extensions,
+            container,
+            container_fqn.clone(),
+            file,
+            package,
+        )?;
         let messages = self.hydrate_messages(
-            nested_type,
+            descriptor.nested_type,
             location.messages,
             fqn.clone(),
             key.into(),
             file,
             package,
+        )?;
+        let enums = self.hydrate_enums(
+            descriptor.enum_type,
+            location.enums,
+            key.into(),
+            fqn.clone(),
+            file,
+            package,
         );
+        let oneofs = self.hydrate_oneofs(
+            descriptor.oneof_decl,
+            location.oneofs,
+            key,
+            fqn.clone(),
+            file,
+            package,
+        )?;
+        let fields = self.hydrate_fields(
+            descriptor.field,
+            location.fields,
+            key.into(),
+            fqn,
+            file,
+            package,
+        )?;
+        let location = location.detail;
+        Ok(self.messages[key].hydrate(message::Hydrate {
+            name,
+            fields,
+            location,
+            messages,
+            oneofs,
+            enums,
+            extension_blocks,
+            extensions,
+            package,
+            options: descriptor.options,
+            reserved_names: descriptor.reserved_name,
+            reserved_ranges: descriptor.reserved_range,
+            special_fields: descriptor.special_fields,
+            extension_range: descriptor.extension_range,
+        }))
+    }
 
-        Ok(key)
+    fn hydrate_enums(
+        &mut self,
+        descriptors: Vec<EnumDescriptorProto>,
+        locations: Vec<location::Enum>,
+        container: container::Key,
+        container_fqn: FullyQualifiedName,
+        file: file::Key,
+        package: Option<package::Key>,
+    ) -> Vec<Hydrated<r#enum::Key>> {
+        assert_enum_locations(&container_fqn, &locations, &descriptors);
+        let mut enums = Vec::with_capacity(descriptors.len());
+        for (descriptor, location) in descriptors.into_iter().zip(locations) {
+            let fqn = FullyQualifiedName::new(descriptor.name(), Some(container_fqn.clone()));
+            let (key, fqn, name) =
+                self.hydrate_enum(descriptor, fqn.clone(), location, container, file, package);
+            self.nodes.insert(fqn.clone(), key.into());
+            enums.push((key, fqn, name));
+        }
+        enums
+    }
+
+    fn hydrate_enum(
+        &mut self,
+        descriptor: EnumDescriptorProto,
+        fqn: FullyQualifiedName,
+        location: location::Enum,
+        container: container::Key,
+        file: file::Key,
+        package: Option<package::Key>,
+    ) -> Hydrated<r#enum::Key> {
+        let name = descriptor.name.clone().unwrap_or_default().into_boxed_str();
+        let key = self.enums.get_or_insert_key_by_fqn(fqn.clone());
+        let values =
+            self.hydrate_enum_values(descriptor.value, location.values, key, fqn, file, package);
+        let well_known = if self.is_well_known(package) {
+            WellKnownEnum::from_str(&name).ok()
+        } else {
+            None
+        };
+        self.enums[key].hydrate(r#enum::Hydrate {
+            name,
+            values,
+            container,
+            location: location.detail,
+            options: descriptor.options,
+            reserved_names: descriptor.reserved_name,
+            reserved_ranges: descriptor.reserved_range,
+            special_fields: descriptor.special_fields,
+            well_known,
+        })
+    }
+
+    fn hydrate_enum_values(
+        &mut self,
+        descriptors: Vec<EnumValueDescriptorProto>,
+        locations: Vec<location::EnumValue>,
+        r#enum: r#enum::Key,
+        enum_fqn: FullyQualifiedName,
+        file: file::Key,
+        package: Option<package::Key>,
+    ) -> Vec<(enum_value::Key, FullyQualifiedName, Box<str>)> {
+        assert_enum_value_locations(&enum_fqn, &locations, &descriptors);
+        let mut values = Vec::with_capacity(descriptors.len());
+        for (descriptor, location) in descriptors.into_iter().zip(locations) {
+            let fqn = FullyQualifiedName::new(descriptor.name(), Some(enum_fqn.clone()));
+            let (key, fqn, name) =
+                self.hydrate_enum_value(descriptor, fqn.clone(), location, r#enum, file, package);
+            self.nodes.insert(fqn.clone(), key.into());
+            values.push((key, fqn, name));
+        }
+        values
+    }
+
+    fn hydrate_enum_value(
+        &mut self,
+        descriptor: EnumValueDescriptorProto,
+        fqn: FullyQualifiedName,
+        location: location::EnumValue,
+        r#enum: r#enum::Key,
+        file: file::Key,
+        package: Option<package::Key>,
+    ) -> Hydrated<enum_value::Key> {
+        let key = self.enum_values.get_or_insert_key_by_fqn(fqn);
+        let (key, fqn, name) = self.enum_values[key].hydrate(enum_value::Hydrate {
+            name: descriptor.name().into(),
+            number: descriptor.number(),
+            location: location.detail,
+            options: descriptor.options,
+            special_fields: descriptor.special_fields,
+            r#enum,
+            file,
+            package,
+        });
+        self.nodes.insert(fqn.clone(), key.into());
+        (key, fqn, name)
     }
 
     fn hydrate_services(
@@ -487,30 +743,25 @@ impl Ast {
         descriptors: Vec<ServiceDescriptorProto>,
         locations: Vec<location::Service>,
         container_fqn: FullyQualifiedName,
-        container: container::Key,
         file: file::Key,
         package: Option<package::Key>,
-    ) -> Result<Vec<service::Key>, Error> {
+    ) -> Result<Vec<Hydrated<service::Key>>, Error> {
+        assert_service_locations(&container_fqn, &locations, &descriptors);
         let mut services = Vec::with_capacity(descriptors.len());
-        let mut locations = locations.into_iter();
-        for (i, descriptor) in descriptors.into_iter().enumerate() {
-            let location = locations.next().expect(&format!(
-                "location missing for service {} in {container_fqn}",
-                descriptor.name()
-            ));
+        for (descriptor, location) in descriptors.into_iter().zip(locations) {
             let fqn = FullyQualifiedName::new(descriptor.name(), Some(container_fqn.clone()));
-            let (key, fqn, _path) =
-                self.hydrate_service(fqn.clone(), descriptor, location, file, package)?;
-            services.push(key);
+            let (key, fqn, name) =
+                self.hydrate_service(descriptor, fqn.clone(), location, file, package)?;
+            services.push((key, fqn.clone(), name));
             self.nodes.insert(fqn, key.into());
         }
-        todo!()
+        Ok(services)
     }
 
     fn hydrate_service(
         &mut self,
-        fqn: FullyQualifiedName,
         descriptor: ServiceDescriptorProto,
+        fqn: FullyQualifiedName,
         location: location::Service,
         file: file::Key,
         package: Option<package::Key>,
@@ -538,11 +789,11 @@ impl Ast {
         &mut self,
         descriptors: Vec<FieldDescriptorProto>,
         locations: Vec<location::Field>,
-        container_fqn: FullyQualifiedName,
         container: container::Key,
+        container_fqn: FullyQualifiedName,
         file: file::Key,
         package: Option<package::Key>,
-    ) -> Result<Vec<field::Key>, Error> {
+    ) -> Result<Vec<Hydrated<field::Key>>, Error> {
         todo!()
     }
 
@@ -554,11 +805,11 @@ impl Ast {
         &mut self,
         descriptors: Vec<OneofDescriptorProto>,
         locations: Vec<location::Oneof>,
-        container_fqn: FullyQualifiedName,
         message: message::Key,
+        message_fqn: FullyQualifiedName,
         file: file::Key,
         package: Option<package::Key>,
-    ) -> Result<Vec<oneof::Key>, Error> {
+    ) -> Result<Vec<Hydrated<oneof::Key>>, Error> {
         todo!()
     }
 
@@ -570,11 +821,11 @@ impl Ast {
         &mut self,
         descriptors: Vec<FieldDescriptorProto>,
         locations: Vec<location::ExtensionBlock>,
-        container_fqn: FullyQualifiedName,
         container: container::Key,
+        container_fqn: FullyQualifiedName,
         file: file::Key,
         package: Option<package::Key>,
-    ) -> Result<(Vec<extension_block::Key>, Vec<extension::Key>), Error> {
+    ) -> Result<(Vec<extension_block::Key>, Vec<Hydrated<extension::Key>>), Error> {
         // let mut services = Vec::with_capacity(service.len());
         // for (i, descriptor) in nodes.service.into_iter().enumerate() {
         //     let index = to_i32(i);
@@ -594,94 +845,6 @@ impl Ast {
         //     nodes_by_path.insert(node_path, key.into());
         // }
         todo!()
-    }
-    fn hydrate_file<'hydrate>(
-        &mut self,
-        descriptor: FileDescriptorProto,
-        targets: &'hydrate [String],
-    ) -> Result<(file::Key, FullyQualifiedName), Error> {
-        // TODO: handle SpecialFields
-        // let mut by_path = HashMap::default();
-        let name = descriptor.name.unwrap();
-        let locations = location::File::new(descriptor.source_code_info.unwrap_or_else(|| {
-            panic!("source_code_info not found on FileDescriptorProto for \"{name}\"")
-        }))?;
-
-        let (package, package_fqn) = self.hydrate_package(descriptor.package);
-        let fqn = self.fqns.get_or_insert(&name, package_fqn);
-        let key = self.files.get_or_insert_key_by_fqn(fqn.clone());
-        let messages = self.hydrate_messages(
-            descriptor.message_type,
-            locations.messages,
-            fqn.clone(),
-            key.into(),
-            key,
-            package,
-        )?;
-        let enums = self.hydrate_enums(
-            descriptor.enum_type,
-            locations.enums,
-            fqn.clone(),
-            key.into(),
-            key,
-            package,
-        )?;
-        let services = self.hydrate_services(
-            descriptor.service,
-            locations.services,
-            fqn.clone(),
-            key.into(),
-            key,
-            package,
-        )?;
-        let (extension_blocks, extensions) = self.hydrate_extensions(
-            descriptor.extension,
-            locations.extensions,
-            fqn.clone(),
-            key.into(),
-            key.into(),
-            package,
-        )?;
-        let dependencies = self.hydrate_dependencies(
-            key.into(),
-            descriptor.dependency,
-            descriptor.public_dependency,
-            descriptor.weak_dependency,
-        )?;
-        let file = &mut self.files[key];
-        let is_build_target = targets.iter().any(|t| t == &name);
-        file.hydrate(file::Hydrate {
-            key,
-            name,
-            syntax: descriptor.syntax,
-            options: descriptor.options.unwrap_or_default(),
-            package,
-            messages,
-            enums,
-            services,
-            extensions,
-            extension_blocks,
-            dependencies,
-            package_comments: locations.package.and_then(|loc| loc.comments),
-            comments: locations.syntax.and_then(|loc| loc.comments),
-            is_build_target,
-        })
-    }
-
-    fn hydrate_package(
-        &mut self,
-        package: Option<String>,
-    ) -> (Option<package::Key>, Option<FullyQualifiedName>) {
-        let Some(package) = package else {
-            return (None, None);
-        };
-        if package.is_empty() {
-            return (None, None);
-        }
-        let fqn = self.fqns.for_package(&package);
-        let (key, pkg) = self.packages.get_or_insert_by_fqn(fqn.clone());
-        pkg.set_name(package);
-        (Some(key), Some(fqn))
     }
 }
 
@@ -718,6 +881,127 @@ macro_rules! impl_resolve {
         )+
     };
 }
+fn assert_enum_locations(
+    container_fqn: &str,
+    locations: &[location::Enum],
+    descriptors: &[EnumDescriptorProto],
+) {
+    assert_eq!(
+        locations.len(),
+        descriptors.len(),
+        "invalid number of locations for enums in \"{container_fqn}\", expected: {}, found: {}",
+        descriptors.len(),
+        locations.len()
+    );
+}
+
+fn assert_enum_value_locations(
+    enum_fqn: &str,
+    locations: &[location::EnumValue],
+    descriptors: &[EnumValueDescriptorProto],
+) {
+    assert_eq!(
+        locations.len(),
+        descriptors.len(),
+        "invalid number of locations for enum values in \"{enum_fqn}\", expected: {}, found: {}",
+        descriptors.len(),
+        locations.len()
+    );
+}
+
+fn assert_message_locations(
+    container_fqn: &str,
+    locations: &[location::Message],
+    descriptors: &[DescriptorProto],
+) {
+    assert_eq!(
+        locations.len(),
+        descriptors.len(),
+        "invalid number of locations for messages in \"{container_fqn}\", expected: {}, found: {}",
+        descriptors.len(),
+        locations.len()
+    );
+}
+
+fn assert_oneof_locations(
+    message_fqn: &str,
+    locations: &[location::Oneof],
+    descriptors: &[OneofDescriptorProto],
+) {
+    assert_eq!(
+        locations.len(),
+        descriptors.len(),
+        "invalid number of locations for oneofs in \"{message_fqn}\", expected: {}, found: {}",
+        descriptors.len(),
+        locations.len()
+    );
+}
+
+fn assert_service_locations(
+    container_fqn: &str,
+    locations: &[location::Service],
+    descriptors: &[ServiceDescriptorProto],
+) {
+    assert_eq!(
+        locations.len(),
+        descriptors.len(),
+        "invalid number of locations for services in \"{container_fqn}\", expected: {}, found: {}",
+        descriptors.len(),
+        locations.len()
+    );
+}
+
+fn assert_method_locations(
+    service_fqn: &str,
+    locations: &[location::Method],
+    descriptors: &[MethodDescriptorProto],
+) {
+    assert_eq!(
+        locations.len(),
+        descriptors.len(),
+        "invalid number of locations for methods in \"{service_fqn}\", expected: {}, found: {}",
+        descriptors.len(),
+        locations.len()
+    );
+}
+
+fn assert_field_locations(
+    message_fqn: &str,
+    locations: &[location::Field],
+    descriptors: &[FieldDescriptorProto],
+) {
+    assert_eq!(
+        locations.len(),
+        descriptors.len(),
+        "invalid number of locations for fields in \"{message_fqn}\", expected: {}, found: {}",
+        descriptors.len(),
+        locations.len()
+    );
+}
+
+fn assert_extension_locations(
+    container_fqn: &str,
+    locations: &[location::ExtensionBlock],
+    descriptors: &[FieldDescriptorProto],
+) {
+    assert_eq!(
+        locations.len(),
+        descriptors.len(),
+        "invalid number of locations for extensions in \"{container_fqn}\", expected: {}, found: {}",
+        descriptors.len(),
+        locations.len()
+    );
+}
+
+fn assert_file_locations(locations: &[location::File], descriptors: &[FileDescriptorProto]) {
+    assert_eq!(
+        locations.len(),
+        descriptors.len(),
+        "invalid number of file locations for files , expected: {}, found: {}",
+        descriptors.len(),
+        locations.len()
+    );
+}
 
 impl_resolve!(
     packages -> package,
@@ -745,7 +1029,6 @@ impl WellKnownType {
 
 #[derive(Default, Debug, Clone)]
 struct FullyQualifiedNames(HashSet<Arc<str>>);
-
 impl FullyQualifiedNames {
     fn new() -> Self {
         Self(HashSet::default())
@@ -776,6 +1059,12 @@ impl FullyQualifiedNames {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FullyQualifiedName(Arc<str>);
+
+impl AsRef<str> for FullyQualifiedName {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
 
 impl From<Arc<str>> for FullyQualifiedName {
     fn from(value: Arc<str>) -> Self {
@@ -844,16 +1133,11 @@ impl FullyQualifiedName {
         if package_name.is_empty() {
             return Self::default();
         }
-        if !package_name.starts_with('.') {
-            Self(format!(".{package_name}").into())
-        } else {
+        if package_name.starts_with('.') {
             Self(package_name.into())
+        } else {
+            Self(format!(".{package_name}").into())
         }
-    }
-}
-impl AsRef<str> for FullyQualifiedName {
-    fn as_ref(&self) -> &str {
-        &self.0
     }
 }
 
@@ -881,11 +1165,11 @@ impl Comments {
         if leading.is_none() && trailing.is_none() && leading_detacted.is_empty() {
             return None;
         }
-        let leading = leading.map(|s| s.into_boxed_str());
-        let trailing = trailing.map(|s| s.into_boxed_str());
+        let leading = leading.map(String::into_boxed_str);
+        let trailing = trailing.map(String::into_boxed_str);
         let leading_detached = leading_detacted
             .into_iter()
-            .map(|s| s.into_boxed_str())
+            .map(String::into_boxed_str)
             .collect();
         Some(Self {
             leading,
@@ -1220,10 +1504,10 @@ macro_rules! impl_span {
     };
 }
 
-macro_rules! inner_method_set_location_detail {
+macro_rules! inner_method_hydrate_location {
     ($inner:ident) => {
         impl $inner {
-            pub(super) fn set_location_detail(&mut self, location: crate::ast::location::Location) {
+            pub(super) fn hydrate_location(&mut self, location: crate::ast::location::Location) {
                 self.comments = location.comments;
                 self.span = location.span;
                 self.node_path = location.path.into();
@@ -1315,7 +1599,7 @@ macro_rules! impl_traits_and_methods {
         crate::ast::impl_comments!(Message, $inner);
         crate::ast::inner_method_file!($inner);
         crate::ast::inner_method_package!($inner);
-        crate::ast::inner_method_set_location_detail!($inner);
+        crate::ast::inner_method_hydrate_location!($inner);
     };
 
     (Enum, $key:ident, $inner: ident) => {
@@ -1329,7 +1613,7 @@ macro_rules! impl_traits_and_methods {
         crate::ast::impl_comments!(Enum, $inner);
         crate::ast::inner_method_file!($inner);
         crate::ast::inner_method_package!($inner);
-        crate::ast::inner_method_set_location_detail!($inner);
+        crate::ast::inner_method_hydrate_location!($inner);
     };
 
     ($node: ident, $key: ident, $inner: ident) => {
@@ -1342,7 +1626,7 @@ macro_rules! impl_traits_and_methods {
         crate::ast::impl_comments!($node, $inner);
         crate::ast::inner_method_file!($inner);
         crate::ast::inner_method_package!($inner);
-        crate::ast::inner_method_set_location_detail!($inner);
+        crate::ast::inner_method_hydrate_location!($inner);
     };
 }
 
@@ -1365,11 +1649,13 @@ use impl_set_uninterpreted_options;
 use impl_span;
 use impl_traits_and_methods;
 use inner_method_file;
+use inner_method_hydrate_location;
 use inner_method_package;
-use inner_method_set_location_detail;
 use node_method_ast;
 use node_method_key;
 use node_method_new;
+
+use self::file::Hydrate;
 // use impl_state;
 
 #[cfg(test)]
