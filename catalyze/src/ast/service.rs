@@ -1,6 +1,6 @@
 use super::{
-    access::NodeKeys, file, impl_traits_and_methods, package, uninterpreted::UninterpretedOption,
-    Comments, FullyQualifiedName, Resolver, Span,
+    access::NodeKeys, file, impl_traits_and_methods, node, package,
+    uninterpreted::UninterpretedOption, Comments, FullyQualifiedName, Resolver, Span,
 };
 
 slotmap::new_key_type! {
@@ -15,14 +15,14 @@ pub(super) struct Inner {
     node_path: Box<[i32]>,
     span: Span,
     comments: Option<Comments>,
-    name: String,
+    name: Box<str>,
     package: Option<package::Key>,
     file: file::Key,
     uninterpreted_options: Vec<UninterpretedOption>,
     methods: Vec<super::method::Key>,
 }
 impl NodeKeys for Inner {
-    fn keys(&self) -> impl Iterator<Item = super::Key> {
+    fn keys(&self) -> impl Iterator<Item = node::Key> {
         self.methods.iter().copied().map(Into::into)
     }
 }

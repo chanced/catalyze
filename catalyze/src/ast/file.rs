@@ -9,8 +9,8 @@ use std::{
 };
 
 use super::{
-    access::NodeKeys, r#enum, extension, impl_traits_and_methods, message, package, service,
-    uninterpreted::UninterpretedOption, Comments, FullyQualifiedName, Resolver,
+    access::NodeKeys, r#enum, extension, extension_block, impl_traits_and_methods, message,
+    package, service, uninterpreted::UninterpretedOption, Comments, FullyQualifiedName, Resolver,
 };
 
 slotmap::new_key_type! {
@@ -437,6 +437,7 @@ impl<'ast> Dependency<'ast> {
     }
 }
 
+#[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct DependenciesInner {
     pub(super) all: Vec<DependencyInner>,
     pub(super) public: Vec<DependencyInner>,
@@ -453,7 +454,7 @@ pub(super) struct Hydrate {
     pub(super) enums: Vec<r#enum::Key>,
     pub(super) services: Vec<service::Key>,
     pub(super) extensions: Vec<extension::Key>,
-    pub(super) extension_blocks: Vec<extension::BlockKey>,
+    pub(super) extension_blocks: Vec<extension_block::Key>,
     pub(super) dependencies: DependenciesInner,
     pub(super) package_comments: Option<Comments>,
     pub(super) comments: Option<Comments>,
@@ -465,14 +466,14 @@ pub(super) struct Hydrate {
 pub(super) struct Inner {
     key: Key,
 
-    name: String,
+    name: Box<str>,
     path: PathBuf,
     package: Option<package::Key>,
     messages: Vec<message::Key>,
     enums: Vec<r#enum::Key>,
     services: Vec<service::Key>,
     extensions: Vec<extension::Key>,
-    extension_blocks: Vec<extension::BlockKey>,
+    extension_blocks: Vec<extension_block::Key>,
     dependencies: DependenciesInner,
     used_imports: Vec<DependencyInner>,
     unused_dependencies: Vec<DependencyInner>,
@@ -485,8 +486,8 @@ pub(super) struct Inner {
     is_build_target: bool,
     syntax: Syntax,
 
-    nodes_by_path: HashMap<Box<[i32]>, super::Key>,
-    nodes_by_fqn: HashMap<FullyQualifiedName, super::Key>,
+    nodes_by_path: HashMap<Box<[i32]>, super::node::Key>,
+    nodes_by_fqn: HashMap<FullyQualifiedName, super::node::Key>,
 
     ///  Sets the Java package where classes generated from this .proto will be
     ///  placed.  By default, the proto package is used, but this is often
@@ -583,7 +584,7 @@ pub(super) struct Inner {
 }
 
 impl NodeKeys for Inner {
-    fn keys(&self) -> impl Iterator<Item = super::Key> {
+    fn keys(&self) -> impl Iterator<Item = super::node::Key> {
         std::iter::empty()
             .chain(self.messages.iter().copied().map(Into::into))
             .chain(self.enums.iter().copied().map(Into::into))
@@ -619,7 +620,7 @@ impl Inner {
         self.is_build_target = is_build_target;
     }
 
-    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Key, Error> {
+    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<(Key, FullyQualifiedName), Error> {
         let Hydrate {
             key,
             name,
@@ -649,7 +650,7 @@ impl Inner {
         self.package_comments = package_comments;
         self.comments = comments;
         self.is_build_target = is_build_target;
-        Ok(key)
+        Ok((key, self.fqn.clone()))
     }
 
     /// Hydrates the data within the descriptor.
@@ -686,11 +687,14 @@ impl Inner {
         self.unknown_option_fields = opts.special_fields.unknown_fields().clone();
     }
 
-    pub(crate) fn set_nodes_by_path(&mut self, mut nodes: HashMap<Box<[i32]>, super::Key>) {
+    pub(crate) fn set_nodes_by_path(&mut self, mut nodes: HashMap<Box<[i32]>, super::node::Key>) {
         nodes.shrink_to_fit();
         self.nodes_by_path = nodes;
     }
-    pub(crate) fn set_nodes_by_fqn(&mut self, mut nodes: HashMap<FullyQualifiedName, super::Key>) {
+    pub(crate) fn set_nodes_by_fqn(
+        &mut self,
+        mut nodes: HashMap<FullyQualifiedName, super::node::Key>,
+    ) {
         nodes.shrink_to_fit();
         self.nodes_by_fqn = nodes;
     }

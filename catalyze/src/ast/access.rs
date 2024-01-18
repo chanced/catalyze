@@ -1,17 +1,17 @@
-use super::uninterpreted::UninterpretedOption;
+use super::{container, node, reference, uninterpreted::UninterpretedOption};
 
 pub trait References<'ast> {
-    fn references(&'ast self) -> super::reference::References<'ast>;
+    fn references(&'ast self) -> reference::References<'ast>;
 }
 
 pub trait ReferencedBy<'ast> {
-    fn referenced_by(&'ast self) -> super::reference::References<'ast>;
+    fn referenced_by(&'ast self) -> reference::References<'ast>;
 }
 
 /// A trait implemented by nodes with parent nodes, providing access to
 /// the [`Container`](super::Container) node.
 pub trait Container<'ast> {
-    fn container(self) -> super::Container<'ast>;
+    fn container(self) -> container::Container<'ast>;
 }
 
 /// A trait implemented by all nodes (except `Package` itself) which returns
@@ -39,12 +39,12 @@ pub trait UninterpretedOptions {
 
 /// A trait implemented by nodes with reserved names and ranges.
 pub trait Reserved {
-    fn reserved(&self) -> &super::Reserved;
+    fn reserved(&self) -> &super::reserved::Reserved;
     fn reserved_names(&self) -> &[String] {
-        self.reserved().names
+        &self.reserved().names
     }
-    fn reserved_ranges(&self) -> &[super::ReservedRange] {
-        self.reserved().ranges
+    fn reserved_ranges(&self) -> &[super::reserved::ReservedRange] {
+        &self.reserved().ranges
     }
 }
 
@@ -73,27 +73,21 @@ pub trait Span {
 }
 
 pub(crate) trait ReferencesMut {
-    fn references_mut(
-        &mut self,
-    ) -> impl '_ + Iterator<Item = &'_ mut super::reference::ReferenceInner>;
+    fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut reference::ReferenceInner>;
 }
 
 pub(super) trait NodeKeys {
-    fn keys(&self) -> impl Iterator<Item = super::Key>;
-}
-
-pub(super) trait AtPath {
-    fn at_path(&self, path: &[i32]) -> Option<super::Key>;
+    fn keys(&self) -> impl Iterator<Item = node::Key>;
 }
 
 pub(super) trait Key {
-    type Key: slotmap::Key + Into<super::Key> + Copy;
+    type Key: slotmap::Key + Into<super::node::Key> + Copy;
     fn key(&self) -> Self::Key;
     fn key_mut(&mut self) -> &mut Self::Key;
     fn set_key(&mut self, key: Self::Key) {
         *self.key_mut() = key;
     }
-    fn node_key(&self) -> super::Key {
+    fn node_key(&self) -> super::node::Key {
         self.key().into()
     }
 }

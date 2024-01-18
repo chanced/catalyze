@@ -1,13 +1,14 @@
 use super::{
     access::{self, NodeKeys},
-    r#enum, extension,
+    container, r#enum, extension,
     field::{self},
     file, impl_traits_and_methods, message,
     oneof::{self},
     package,
     reference::{ReferenceInner, References},
+    reserved::Reserved,
     uninterpreted::UninterpretedOption,
-    Comments, ContainerKey, FullyQualifiedName, Reserved, ReservedRange, Resolver, Span,
+    Comments, FullyQualifiedName, Resolver, Span,
 };
 use protobuf::descriptor::{descriptor_proto, MessageOptions};
 
@@ -18,14 +19,12 @@ slotmap::new_key_type! {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Inner {
     key: Key,
-
     fqn: FullyQualifiedName,
-    index: i32,
     node_path: Box<[i32]>,
     span: Span,
     comments: Option<Comments>,
-    name: String,
-    container: ContainerKey,
+    name: Box<str>,
+    container: container::Key,
     fields: Vec<field::Key>,
     enums: Vec<r#enum::Key>,
     messages: Vec<message::Key>,
@@ -71,19 +70,19 @@ impl super::access::ReferencesMut for Inner {
 }
 
 impl NodeKeys for Inner {
-    fn keys(&self) -> impl Iterator<Item = super::Key> {
+    fn keys(&self) -> impl Iterator<Item = super::node::Key> {
         self.fields
             .iter()
             .copied()
-            .map(super::Key::Field)
-            .chain(self.enums.iter().copied().map(super::Key::Enum))
-            .chain(self.messages.iter().copied().map(super::Key::Message))
-            .chain(self.oneofs.iter().copied().map(super::Key::Oneof))
+            .map(super::node::Key::Field)
+            .chain(self.enums.iter().copied().map(super::node::Key::Enum))
+            .chain(self.messages.iter().copied().map(super::node::Key::Message))
+            .chain(self.oneofs.iter().copied().map(super::node::Key::Oneof))
             .chain(
                 self.defined_extensions
                     .iter()
                     .copied()
-                    .map(super::Key::Extension),
+                    .map(super::node::Key::Extension),
             )
     }
 }
@@ -119,7 +118,7 @@ impl Inner {
     pub(super) fn set_referenced_by(&mut self, referenced_by: Vec<ReferenceInner>) {
         self.referenced_by = referenced_by;
     }
-    pub(super) fn set_container(&mut self, container: impl Into<ContainerKey>) {
+    pub(super) fn set_container(&mut self, container: impl Into<crate::ast::container::Key>) {
         self.container = container.into();
     }
     pub(super) fn hydrate_options(&mut self, opts: MessageOptions) {

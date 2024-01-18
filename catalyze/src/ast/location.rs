@@ -83,7 +83,7 @@ impl File {
                     });
                 }
                 path::File::Dependency => {
-                    let (_, span, comments) = extract(next)?;
+                    let (path, span, comments) = extract(next)?;
                     dependencies.push(Location {
                         path,
                         span,
@@ -91,7 +91,7 @@ impl File {
                     });
                 }
                 path::File::Package => {
-                    let (_, span, comments) = extract(next)?;
+                    let (path, span, comments) = extract(next)?;
                     package = Some(Location {
                         path,
                         span,

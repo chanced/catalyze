@@ -1,4 +1,5 @@
 pub mod access;
+pub mod container;
 pub mod r#enum;
 pub mod enum_value;
 pub mod extension;
@@ -7,20 +8,21 @@ pub mod field;
 pub mod file;
 pub mod message;
 pub mod method;
+pub mod node;
 pub mod oneof;
 pub mod package;
 pub mod path;
 pub mod reference;
+pub mod reserved;
 pub mod service;
 pub mod uninterpreted;
 
-mod hydrate;
 mod location;
 
 use std::{
     fmt,
+    iter::once,
     ops::{Deref, Index, IndexMut},
-    path::PathBuf,
     sync::Arc,
 };
 
@@ -36,16 +38,9 @@ use crate::{
     error::Error,
     to_i32, HashMap, HashSet,
 };
-use r#enum::{Enum, WellKnownEnum};
-use enum_value::EnumValue;
-use extension::Extension;
+use r#enum::WellKnownEnum;
 use field::Field;
-use file::File;
-use message::{Message, WellKnownMessage};
-use method::Method;
-use oneof::Oneof;
-use package::Package;
-use service::Service;
+use message::WellKnownMessage;
 
 /// Zero-based spans of a node.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -151,163 +146,6 @@ where
 }
 impl<'ast, K, I> Eq for Resolver<'ast, K, I> where K: Eq {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Key {
-    Package(package::Key),
-    File(file::Key),
-    Message(message::Key),
-    Enum(r#enum::Key),
-    EnumValue(enum_value::Key),
-    Service(service::Key),
-    Method(method::Key),
-    Field(field::Key),
-    Oneof(oneof::Key),
-    Extension(extension::Key),
-}
-
-impl From<package::Key> for Key {
-    fn from(key: package::Key) -> Self {
-        Self::Package(key)
-    }
-}
-impl From<file::Key> for Key {
-    fn from(key: file::Key) -> Self {
-        Self::File(key)
-    }
-}
-impl From<message::Key> for Key {
-    fn from(key: message::Key) -> Self {
-        Self::Message(key)
-    }
-}
-impl From<r#enum::Key> for Key {
-    fn from(key: r#enum::Key) -> Self {
-        Self::Enum(key)
-    }
-}
-impl From<enum_value::Key> for Key {
-    fn from(key: enum_value::Key) -> Self {
-        Self::EnumValue(key)
-    }
-}
-impl From<service::Key> for Key {
-    fn from(key: service::Key) -> Self {
-        Self::Service(key)
-    }
-}
-impl From<method::Key> for Key {
-    fn from(key: method::Key) -> Self {
-        Self::Method(key)
-    }
-}
-impl From<field::Key> for Key {
-    fn from(key: field::Key) -> Self {
-        Self::Field(key)
-    }
-}
-impl From<oneof::Key> for Key {
-    fn from(key: oneof::Key) -> Self {
-        Self::Oneof(key)
-    }
-}
-impl From<extension::Key> for Key {
-    fn from(key: extension::Key) -> Self {
-        Self::Extension(key)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum ContainerKey {
-    Message(message::Key),
-    File(file::Key),
-}
-impl Default for ContainerKey {
-    fn default() -> Self {
-        Self::File(file::Key::default())
-    }
-}
-
-impl From<message::Key> for ContainerKey {
-    fn from(key: message::Key) -> Self {
-        Self::Message(key)
-    }
-}
-impl From<file::Key> for ContainerKey {
-    fn from(key: file::Key) -> Self {
-        Self::File(key)
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum Container<'ast> {
-    Message(Message<'ast>),
-    File(File<'ast>),
-}
-
-impl<'ast> From<File<'ast>> for Container<'ast> {
-    fn from(v: File<'ast>) -> Self {
-        Self::File(v)
-    }
-}
-
-impl<'ast> From<Message<'ast>> for Container<'ast> {
-    fn from(v: Message<'ast>) -> Self {
-        Self::Message(v)
-    }
-}
-
-impl<'ast> Container<'ast> {
-    /// Returns `true` if the container is [`Message`].
-    ///
-    /// [`Message`]: Container::Message
-    #[must_use]
-    pub const fn is_message(self) -> bool {
-        matches!(self, Self::Message(..))
-    }
-
-    #[must_use]
-    pub fn as_message(self) -> Option<Message<'ast>> {
-        if let Self::Message(v) = self {
-            Some(v)
-        } else {
-            None
-        }
-    }
-
-    pub fn try_into_message(self) -> Result<Message<'ast>, Self> {
-        if let Self::Message(v) = self {
-            Ok(v)
-        } else {
-            Err(self)
-        }
-    }
-
-    /// Returns `true` if the container is [`File`].
-    ///
-    /// [`File`]: Container::File
-    #[must_use]
-    pub fn is_file(self) -> bool {
-        matches!(self, Self::File(..))
-    }
-
-    #[must_use]
-    pub fn as_file(self) -> Option<File<'ast>> {
-        if let Self::File(v) = self {
-            Some(v)
-        } else {
-            None
-        }
-    }
-
-    pub fn try_into_file(self) -> Result<File<'ast>, Self> {
-        if let Self::File(v) = self {
-            Ok(v)
-        } else {
-            Err(self)
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 struct Table<K, V>
 where
@@ -317,6 +155,20 @@ where
     lookup: HashMap<FullyQualifiedName, K>,
     order: Vec<K>,
 }
+
+impl<K, V> Table<K, V>
+where
+    K: slotmap::Key,
+{
+    fn with_capacity(len: usize) -> Self {
+        Self {
+            map: SlotMap::with_capacity_and_key(len),
+            lookup: HashMap::with_capacity(len),
+            order: Vec::with_capacity(len),
+        }
+    }
+}
+
 impl<K, V> Default for Table<K, V>
 where
     K: slotmap::Key,
@@ -387,7 +239,11 @@ where
             order: Vec::new(),
         }
     }
-    pub fn get_or_insert_by_fqn(&mut self, fqn: FullyQualifiedName) -> (K, &mut V) {
+    fn get_or_insert_key_by_fqn(&mut self, fqn: FullyQualifiedName) -> K {
+        self.get_or_insert_by_fqn(fqn).0
+    }
+
+    fn get_or_insert_by_fqn(&mut self, fqn: FullyQualifiedName) -> (K, &mut V) {
         let key = *self
             .lookup
             .entry(fqn.clone())
@@ -412,6 +268,8 @@ type OneofTable = Table<oneof::Key, oneof::Inner>;
 type ExtensionTable = Table<extension::Key, extension::Inner>;
 type ExtensionBlockTable = Table<extension_block::Key, extension_block::Inner>;
 
+type Hydrated<K> = (K, FullyQualifiedName, Box<[i32]>);
+
 #[derive(Debug, Default)]
 pub struct Ast {
     packages: PackageTable,
@@ -425,16 +283,405 @@ pub struct Ast {
     oneofs: OneofTable,
     extensions: ExtensionTable,
     extension_blocks: ExtensionBlockTable,
-    nodes: HashMap<FullyQualifiedName, Key>,
-    fqn: FullyQualifiedNames,
+    nodes: HashMap<FullyQualifiedName, node::Key>,
+    fqns: FullyQualifiedNames,
 }
 
 impl Ast {
     fn new(file_descriptors: Vec<FileDescriptorProto>, targets: &[String]) -> Result<Self, Error> {
-        let mut this = Self::default();
-        let mut nodes = AstTables::new(&mut this);
-        hydrate::run(file_descriptors, targets, &mut this.fqn, &mut nodes)?;
-        Ok(this)
+        Self {
+            files: FileTable::with_capacity(file_descriptors.len()),
+            ..Default::default()
+        }
+        .hydrate(file_descriptors, targets)
+    }
+    fn hydrate(
+        mut self,
+        file_descriptors: Vec<FileDescriptorProto>,
+        targets: &[String],
+    ) -> Result<Self, Error> {
+        let mut by_fqn = HashMap::new();
+        for descriptor in file_descriptors {
+            let (key, fqn) = self.hydrate_file(descriptor, targets)?;
+            self.nodes
+                .extend(once((fqn, key.into())).chain(by_fqn.drain()));
+        }
+        Ok(self)
+    }
+
+    fn hydrate_dependencies(
+        &mut self,
+        dependent: file::Key,
+        dependencies_by_fqn: Vec<String>,
+        public_dependencies: Vec<i32>,
+        weak_dependencies: Vec<i32>,
+    ) -> Result<file::DependenciesInner, Error> {
+        let mut all = Vec::with_capacity(dependencies_by_fqn.len());
+        let mut weak = Vec::with_capacity(weak_dependencies.len());
+        let mut public = Vec::with_capacity(public_dependencies.len());
+
+        for (i, dependency) in dependencies_by_fqn.into_iter().enumerate() {
+            let index = to_i32(i);
+            let is_weak = weak_dependencies.contains(&index);
+            let is_public = public_dependencies.contains(&index);
+            let fqn = self.fqns.insert(FullyQualifiedName::from(dependency));
+            let (dependency_key, dependency_file) = self.files.get_or_insert_by_fqn(fqn.clone());
+            dependency_file.add_dependent(DependentInner {
+                is_used: bool::default(),
+                is_public,
+                is_weak,
+                dependent,
+                dependency: dependency_key,
+            });
+            let dep = DependencyInner {
+                is_used: bool::default(),
+                is_public,
+                is_weak,
+                dependent,
+                dependency: dependency_key,
+            };
+            all.push(dep);
+
+            if is_public {
+                public.push(dep);
+            }
+            if is_weak {
+                weak.push(dep);
+            }
+        }
+        Ok(file::DependenciesInner { all, public, weak })
+    }
+
+    fn hydrate_enums(
+        &mut self,
+        descriptors: Vec<EnumDescriptorProto>,
+        locations: Vec<location::Enum>,
+        container_fqn: FullyQualifiedName,
+        container: container::Key,
+        file: file::Key,
+        package: Option<package::Key>,
+    ) -> Result<Vec<r#enum::Key>, Error> {
+        let mut enums = Vec::with_capacity(descriptors.len());
+        let mut locations = locations.into_iter();
+        for descriptor in descriptors {
+            let location = locations
+                .next()
+                .expect("location missing for enum in {container_fqn}");
+            let fqn = FullyQualifiedName::new(descriptor.name(), Some(container_fqn.clone()));
+            let (key, fqn, _path) =
+                self.hydrate_enum(descriptor, fqn.clone(), location, container, file, package)?;
+            self.nodes.insert(fqn, key.into());
+            // by_path.insert(path, key.into());
+            enums.push(key);
+        }
+        Ok(enums)
+    }
+
+    fn hydrate_enum(
+        &mut self,
+        descriptor: EnumDescriptorProto,
+        fqn: FullyQualifiedName,
+        location: location::Enum,
+        container: container::Key,
+        file: file::Key,
+        package: Option<package::Key>,
+    ) -> Result<Hydrated<r#enum::Key>, Error> {
+        let name = descriptor.name.clone().unwrap_or_default().into();
+        let key = self.enums.get_or_insert_key_by_fqn(fqn.clone());
+        let values =
+            self.hydrate_enum_values(descriptor.value, location.values, fqn, key, file, package)?;
+
+        self.enums[key].hydrate(
+            name,
+            values,
+            location.detail,
+            descriptor.options,
+            descriptor.reserved_name,
+            descriptor.reserved_range,
+        )
+    }
+
+    fn hydrate_enum_values(
+        &mut self,
+        descriptors: Vec<EnumValueDescriptorProto>,
+        locations: Vec<location::EnumValue>,
+        container_fqn: FullyQualifiedName,
+        r#enum: r#enum::Key,
+        file: file::Key,
+        package: Option<package::Key>,
+    ) -> Result<Vec<enum_value::Key>, Error> {
+        todo!()
+    }
+
+    fn hydrate_messages(
+        &mut self,
+        descriptors: Vec<DescriptorProto>,
+        locations: Vec<location::Message>,
+        container_fqn: FullyQualifiedName,
+        container: container::Key,
+        file: file::Key,
+        package: Option<package::Key>,
+    ) -> Result<Vec<message::Key>, Error> {
+        let mut messages = Vec::with_capacity(descriptors.len());
+        let mut locations = locations.into_iter();
+        for descriptor in descriptors {
+            let fqn = self
+                .fqns
+                .get_or_insert(descriptor.name(), Some(container_fqn.clone()));
+            let location = locations.next().unwrap_or_else(|| {
+                panic!(
+                    "location missing for message \"{}\" in \"{container_fqn}\"",
+                    descriptor.name()
+                )
+            });
+            let key =
+                self.hydrate_message(fqn.clone(), descriptor, location, container, file, package)?;
+            self.nodes.insert(fqn, key.into());
+            messages.push(key);
+        }
+        Ok(messages)
+    }
+
+    pub(super) fn hydrate_message(
+        &mut self,
+        fqn: FullyQualifiedName,
+        descriptor: DescriptorProto,
+        location: location::Message,
+        container: container::Key,
+        file: file::Key,
+        package: Option<package::Key>,
+    ) -> Result<message::Key, Error> {
+        let DescriptorProto {
+            name,
+            field,
+            extension,
+            nested_type,
+            enum_type,
+            extension_range,
+            oneof_decl,
+            options,
+            reserved_range,
+            reserved_name,
+            special_fields,
+        } = descriptor;
+
+        let name = name.unwrap_or_default();
+        let (key, msg) = self.messages.get_or_insert_by_fqn(fqn.clone());
+        msg.hydrate_options(options.unwrap_or_default());
+        msg.set_container(container);
+        msg.set_name(name);
+        let messages = self.hydrate_messages(
+            nested_type,
+            location.messages,
+            fqn.clone(),
+            key.into(),
+            file,
+            package,
+        );
+
+        Ok(key)
+    }
+
+    fn hydrate_services(
+        &mut self,
+        descriptors: Vec<ServiceDescriptorProto>,
+        locations: Vec<location::Service>,
+        container_fqn: FullyQualifiedName,
+        container: container::Key,
+        file: file::Key,
+        package: Option<package::Key>,
+    ) -> Result<Vec<service::Key>, Error> {
+        let mut services = Vec::with_capacity(descriptors.len());
+        let mut locations = locations.into_iter();
+        for (i, descriptor) in descriptors.into_iter().enumerate() {
+            let location = locations.next().expect(&format!(
+                "location missing for service {} in {container_fqn}",
+                descriptor.name()
+            ));
+            let fqn = FullyQualifiedName::new(descriptor.name(), Some(container_fqn.clone()));
+            let (key, fqn, _path) =
+                self.hydrate_service(fqn.clone(), descriptor, location, file, package)?;
+            services.push(key);
+            self.nodes.insert(fqn, key.into());
+        }
+        todo!()
+    }
+
+    fn hydrate_service(
+        &mut self,
+        fqn: FullyQualifiedName,
+        descriptor: ServiceDescriptorProto,
+        location: location::Service,
+        file: file::Key,
+        package: Option<package::Key>,
+    ) -> Result<Hydrated<service::Key>, Error> {
+        todo!()
+    }
+
+    fn hydrate_methods(
+        &mut self,
+        descriptors: Vec<MethodDescriptorProto>,
+        locations: Vec<location::Method>,
+        container_fqn: FullyQualifiedName,
+        container: container::Key,
+        file: file::Key,
+        package: Option<package::Key>,
+    ) -> Result<Vec<method::Key>, Error> {
+        todo!()
+    }
+
+    fn hydrate_method(&mut self) -> Result<Hydrated<method::Key>, Error> {
+        todo!()
+    }
+
+    fn hydrate_fields(
+        &mut self,
+        descriptors: Vec<FieldDescriptorProto>,
+        locations: Vec<location::Field>,
+        container_fqn: FullyQualifiedName,
+        container: container::Key,
+        file: file::Key,
+        package: Option<package::Key>,
+    ) -> Result<Vec<field::Key>, Error> {
+        todo!()
+    }
+
+    fn hydrate_field(hydrate: Field) -> Result<Hydrated<field::Key>, Error> {
+        todo!()
+    }
+
+    fn hydrate_oneofs(
+        &mut self,
+        descriptors: Vec<OneofDescriptorProto>,
+        locations: Vec<location::Oneof>,
+        container_fqn: FullyQualifiedName,
+        message: message::Key,
+        file: file::Key,
+        package: Option<package::Key>,
+    ) -> Result<Vec<oneof::Key>, Error> {
+        todo!()
+    }
+
+    fn hydrate_oneof(&mut self) -> Result<Hydrated<oneof::Key>, Error> {
+        todo!()
+    }
+
+    fn hydrate_extensions(
+        &mut self,
+        descriptors: Vec<FieldDescriptorProto>,
+        locations: Vec<location::ExtensionBlock>,
+        container_fqn: FullyQualifiedName,
+        container: container::Key,
+        file: file::Key,
+        package: Option<package::Key>,
+    ) -> Result<(Vec<extension_block::Key>, Vec<extension::Key>), Error> {
+        // let mut services = Vec::with_capacity(service.len());
+        // for (i, descriptor) in nodes.service.into_iter().enumerate() {
+        //     let index = to_i32(i);
+        //     let fqn = FullyQualifiedName::new(descriptor.name(), Some(fqn.clone()));
+        //     let node_path = vec![path::File::Service.as_i32(), index];
+        //     let key = hydrate_service(Service {
+        //         fqn: fqn.clone(),
+        //         descriptor,
+        //         location: locations.services[i],
+        //         nodes,
+        //         file: key,
+        //         index,
+        //         package,
+        //     })?;
+        //     services.push(key);
+        //     nodes_by_fqn.insert(fqn, key.into());
+        //     nodes_by_path.insert(node_path, key.into());
+        // }
+        todo!()
+    }
+    fn hydrate_file<'hydrate>(
+        &mut self,
+        descriptor: FileDescriptorProto,
+        targets: &'hydrate [String],
+    ) -> Result<(file::Key, FullyQualifiedName), Error> {
+        // TODO: handle SpecialFields
+        // let mut by_path = HashMap::default();
+        let name = descriptor.name.unwrap();
+        let locations = location::File::new(descriptor.source_code_info.unwrap_or_else(|| {
+            panic!("source_code_info not found on FileDescriptorProto for \"{name}\"")
+        }))?;
+
+        let (package, package_fqn) = self.hydrate_package(descriptor.package);
+        let fqn = self.fqns.get_or_insert(&name, package_fqn);
+        let key = self.files.get_or_insert_key_by_fqn(fqn.clone());
+        let messages = self.hydrate_messages(
+            descriptor.message_type,
+            locations.messages,
+            fqn.clone(),
+            key.into(),
+            key,
+            package,
+        )?;
+        let enums = self.hydrate_enums(
+            descriptor.enum_type,
+            locations.enums,
+            fqn.clone(),
+            key.into(),
+            key,
+            package,
+        )?;
+        let services = self.hydrate_services(
+            descriptor.service,
+            locations.services,
+            fqn.clone(),
+            key.into(),
+            key,
+            package,
+        )?;
+        let (extension_blocks, extensions) = self.hydrate_extensions(
+            descriptor.extension,
+            locations.extensions,
+            fqn.clone(),
+            key.into(),
+            key.into(),
+            package,
+        )?;
+        let dependencies = self.hydrate_dependencies(
+            key.into(),
+            descriptor.dependency,
+            descriptor.public_dependency,
+            descriptor.weak_dependency,
+        )?;
+        let file = &mut self.files[key];
+        let is_build_target = targets.iter().any(|t| t == &name);
+        file.hydrate(file::Hydrate {
+            key,
+            name,
+            syntax: descriptor.syntax,
+            options: descriptor.options.unwrap_or_default(),
+            package,
+            messages,
+            enums,
+            services,
+            extensions,
+            extension_blocks,
+            dependencies,
+            package_comments: locations.package.and_then(|loc| loc.comments),
+            comments: locations.syntax.and_then(|loc| loc.comments),
+            is_build_target,
+        })
+    }
+
+    fn hydrate_package(
+        &mut self,
+        package: Option<String>,
+    ) -> (Option<package::Key>, Option<FullyQualifiedName>) {
+        let Some(package) = package else {
+            return (None, None);
+        };
+        if package.is_empty() {
+            return (None, None);
+        }
+        let fqn = self.fqns.for_package(&package);
+        let (key, pkg) = self.packages.get_or_insert_by_fqn(fqn.clone());
+        pkg.set_name(package);
+        (Some(key), Some(fqn))
     }
 }
 
@@ -486,37 +733,6 @@ impl_resolve!(
     extension_blocks -> extension_block,
 );
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Kind {
-    Package,
-    File,
-    Message,
-    Oneof,
-    Enum,
-    EnumValue,
-    Service,
-    Method,
-    Field,
-    Extension,
-}
-
-impl fmt::Display for Kind {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Package => write!(fmt, "Package"),
-            Self::File => write!(fmt, "File"),
-            Self::Message => write!(fmt, "Message"),
-            Self::Oneof => write!(fmt, "Oneof"),
-            Self::Enum => write!(fmt, "Enum"),
-            Self::EnumValue => write!(fmt, "EnumValue"),
-            Self::Service => write!(fmt, "Service"),
-            Self::Method => write!(fmt, "Method"),
-            Self::Field => write!(fmt, "Field"),
-            Self::Extension => write!(fmt, "Extension"),
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WellKnownType {
     Enum(WellKnownEnum),
@@ -527,71 +743,6 @@ impl WellKnownType {
     pub const PACKAGE: &'static str = "google.protobuf";
 }
 
-#[derive(Clone, PartialEq, Eq)]
-pub enum Node<'ast> {
-    Package(Package<'ast>),
-    File(File<'ast>),
-    Message(Message<'ast>),
-    Oneof(Oneof<'ast>),
-    Enum(Enum<'ast>),
-    EnumValue(EnumValue<'ast>),
-    Service(Service<'ast>),
-    Method(Method<'ast>),
-    Field(Field<'ast>),
-    Extension(Extension<'ast>),
-}
-
-macro_rules! node_pass_through {
-    ($method: ident) => {
-        match self {
-            Self::Package(n) => n.$method(),
-            Self::File(n) => n.$method(),
-            Self::Message(n) => n.$method(),
-            Self::Oneof(n) => n.$method(),
-            Self::Enum(n) => n.$method(),
-            Self::EnumValue(n) => n.$method(),
-            Self::Service(n) => n.$method(),
-            Self::Method(n) => n.$method(),
-            Self::Field(n) => n.$method(),
-            Self::Extension(n) => n.$method(),
-        }
-    };
-}
-
-impl fmt::Debug for Node<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Package(n) => n.fmt(f),
-            Self::File(n) => n.fmt(f),
-            Self::Message(n) => n.fmt(f),
-            Self::Oneof(n) => n.fmt(f),
-            Self::Enum(n) => n.fmt(f),
-            Self::EnumValue(n) => n.fmt(f),
-            Self::Service(n) => n.fmt(f),
-            Self::Method(n) => n.fmt(f),
-            Self::Field(n) => n.fmt(f),
-            Self::Extension(n) => n.fmt(f),
-        }
-    }
-}
-
-impl Node<'_> {
-    pub const fn kind(&self) -> Kind {
-        match self {
-            Self::Package(_) => Kind::Package,
-            Self::File(_) => Kind::File,
-            Self::Message(_) => Kind::Message,
-            Self::Oneof(_) => Kind::Oneof,
-            Self::Enum(_) => Kind::Enum,
-            Self::EnumValue(_) => Kind::EnumValue,
-            Self::Service(_) => Kind::Service,
-            Self::Method(_) => Kind::Method,
-            Self::Field(_) => Kind::Field,
-            Self::Extension(_) => Kind::Extension,
-        }
-    }
-}
-
 #[derive(Default, Debug, Clone)]
 struct FullyQualifiedNames(HashSet<Arc<str>>);
 
@@ -600,10 +751,17 @@ impl FullyQualifiedNames {
         Self(HashSet::default())
     }
 
-    fn create(&mut self, value: &str, container: Option<FullyQualifiedName>) -> FullyQualifiedName {
+    fn get_or_insert(
+        &mut self,
+        value: &str,
+        container: Option<FullyQualifiedName>,
+    ) -> FullyQualifiedName {
         self.insert(FullyQualifiedName::new(value, container))
     }
     fn for_package(&mut self, package_name: &str) -> FullyQualifiedName {
+        if package_name.starts_with('.') && self.0.contains(package_name) {
+            return self.0.get(package_name).unwrap().clone().into();
+        }
         self.insert(FullyQualifiedName::from_package_name(package_name))
     }
 
@@ -618,6 +776,23 @@ impl FullyQualifiedNames {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FullyQualifiedName(Arc<str>);
+
+impl From<Arc<str>> for FullyQualifiedName {
+    fn from(value: Arc<str>) -> Self {
+        Self(value)
+    }
+}
+impl From<&str> for FullyQualifiedName {
+    fn from(value: &str) -> Self {
+        Self(value.into())
+    }
+}
+impl Deref for FullyQualifiedName {
+    type Target = str;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl Default for FullyQualifiedName {
     fn default() -> Self {
@@ -665,14 +840,15 @@ impl FullyQualifiedName {
         self.0 = existing.into();
     }
     fn from_package_name(package_name: impl AsRef<str>) -> Self {
-        let mut package_name = package_name.as_ref();
+        let package_name = package_name.as_ref();
         if package_name.is_empty() {
             return Self::default();
         }
         if !package_name.starts_with('.') {
-            package_name = &format!(".{package_name}");
+            Self(format!(".{package_name}").into())
+        } else {
+            Self(package_name.into())
         }
-        return Self(package_name.into());
     }
 }
 impl AsRef<str> for FullyQualifiedName {
@@ -687,57 +863,13 @@ impl fmt::Display for FullyQualifiedName {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Reserved {
-    pub names: Vec<String>,
-    pub ranges: Vec<ReservedRange>,
-}
-
-impl Reserved {
-    #[must_use]
-    pub fn names(&self) -> &[String] {
-        &self.names
-    }
-
-    #[must_use]
-    pub fn ranges(&self) -> &[ReservedRange] {
-        &self.ranges
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ReservedRange {
-    pub start: Option<i32>,
-    pub end: Option<i32>,
-}
-
-impl From<descriptor::descriptor_proto::ReservedRange> for ReservedRange {
-    fn from(range: descriptor::descriptor_proto::ReservedRange) -> Self {
-        Self {
-            start: range.start,
-            end: range.end,
-        }
-    }
-}
-
-impl ReservedRange {
-    #[must_use]
-    pub fn start(&self) -> i32 {
-        self.start.unwrap_or(0)
-    }
-    #[must_use]
-    pub fn end(&self) -> i32 {
-        self.end.unwrap_or(0)
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Comments {
     /// Any comment immediately preceding the node, without any
     /// whitespace between it and the comment.
-    leading: Option<String>,
-    trailing: Option<String>,
-    leading_detached: Vec<String>,
+    leading: Option<Box<str>>,
+    trailing: Option<Box<str>>,
+    leading_detached: Vec<Box<str>>,
 }
 
 impl Comments {
@@ -749,10 +881,16 @@ impl Comments {
         if leading.is_none() && trailing.is_none() && leading_detacted.is_empty() {
             return None;
         }
+        let leading = leading.map(|s| s.into_boxed_str());
+        let trailing = trailing.map(|s| s.into_boxed_str());
+        let leading_detached = leading_detacted
+            .into_iter()
+            .map(|s| s.into_boxed_str())
+            .collect();
         Some(Self {
             leading,
             trailing,
-            leading_detached: leading_detacted,
+            leading_detached,
         })
     }
     /// Any comment immediately preceding the node, without any
@@ -769,7 +907,7 @@ impl Comments {
     }
 
     /// Each comment block or line above the entity but seperated by whitespace.
-    pub fn leading_detached(&self) -> &[String] {
+    pub fn leading_detached(&self) -> &[Box<str>] {
         &self.leading_detached
     }
 }
@@ -904,33 +1042,33 @@ macro_rules! impl_fmt {
         }
     };
 }
-
 macro_rules! impl_access_reserved {
     ($node: ident, $inner:ident) => {
         impl $inner {
-            fn set_reserved(
-                &mut self,
-                names: Vec<String>,
-                ranges: Vec<protobuf::descriptor::descriptor_proto::ReservedRange>,
-            ) {
-                self.reserved_names = names;
-                self.reserved_ranges = ranges.into_iter().map(Into::into).collect();
+            fn set_reserved<R>(&mut self, names: Vec<String>, ranges: Vec<R>)
+            where
+                R: Into<crate::ast::reserved::ReservedRange>,
+            {
+                self.reserved = crate::ast::reserved::Reserved {
+                    names: names.into(),
+                    ranges: ranges.into_iter().map(Into::into).collect(),
+                };
             }
         }
         impl<'ast> $node<'ast> {
             pub fn reserved_names(&self) -> &[String] {
-                &self.0.reserved_names
+                &self.0.reserved.names
             }
-            pub fn reserved_ranges(&self) -> &[crate::ast::ReservedRange] {
-                &self.0.reserved_ranges
+            pub fn reserved_ranges(&self) -> &[crate::ast::reserved::ReservedRange] {
+                &self.0.reserved.ranges
             }
-            pub fn reserved(&self) -> &crate::ast::Reserved {
-                &self.0.reserved_names
+            pub fn reserved(&self) -> &crate::ast::reserved::Reserved {
+                &self.0.reserved
             }
         }
         impl<'ast> crate::ast::access::Reserved for $node<'ast> {
-            fn reserved(&self) -> &crate::ast::Reserved {
-                &self.0.reserved_names
+            fn reserved(&self) -> &crate::ast::reserved::Reserved {
+                &self.0.reserved
             }
         }
     };
@@ -975,13 +1113,14 @@ macro_rules! set_unknown_fields {
         }
     };
 }
+
 macro_rules! impl_set_uninterpreted_options {
     ($inner:ident) => {
         impl $inner {
-            pub(super) fn set_uninterpreted_options<T>(&mut self, opts: impl IntoIterator<Item = T>)
-            where
-                T: Into<crate::ast::uninterpreted::UninterpretedOption>,
-            {
+            pub(super) fn set_uninterpreted_options(
+                &mut self,
+                opts: Vec<protobuf::descriptor::UninterpretedOption>,
+            ) {
                 self.uninterpreted_options = opts.into_iter().map(Into::into).collect();
             }
         }
@@ -990,7 +1129,7 @@ macro_rules! impl_set_uninterpreted_options {
 macro_rules! impl_access_name {
     ($node:ident, $inner: ident) => {
         impl $inner {
-            pub(super) fn set_name(&mut self, name: impl Into<String>) {
+            pub(super) fn set_name(&mut self, name: impl Into<Box<str>>) {
                 self.name = name.into();
             }
         }
@@ -1081,6 +1220,18 @@ macro_rules! impl_span {
     };
 }
 
+macro_rules! inner_method_set_location_detail {
+    ($inner:ident) => {
+        impl $inner {
+            pub(super) fn set_location_detail(&mut self, location: crate::ast::location::Location) {
+                self.comments = location.comments;
+                self.span = location.span;
+                self.node_path = location.path.into();
+            }
+        }
+    };
+}
+
 macro_rules! impl_comments {
     ($node:ident, $inner:ident) => {
         impl<'ast> crate::ast::access::Comments for $node<'ast> {
@@ -1164,6 +1315,7 @@ macro_rules! impl_traits_and_methods {
         crate::ast::impl_comments!(Message, $inner);
         crate::ast::inner_method_file!($inner);
         crate::ast::inner_method_package!($inner);
+        crate::ast::inner_method_set_location_detail!($inner);
     };
 
     (Enum, $key:ident, $inner: ident) => {
@@ -1177,6 +1329,7 @@ macro_rules! impl_traits_and_methods {
         crate::ast::impl_comments!(Enum, $inner);
         crate::ast::inner_method_file!($inner);
         crate::ast::inner_method_package!($inner);
+        crate::ast::inner_method_set_location_detail!($inner);
     };
 
     ($node: ident, $key: ident, $inner: ident) => {
@@ -1189,6 +1342,7 @@ macro_rules! impl_traits_and_methods {
         crate::ast::impl_comments!($node, $inner);
         crate::ast::inner_method_file!($inner);
         crate::ast::inner_method_package!($inner);
+        crate::ast::inner_method_set_location_detail!($inner);
     };
 }
 
@@ -1212,11 +1366,10 @@ use impl_span;
 use impl_traits_and_methods;
 use inner_method_file;
 use inner_method_package;
+use inner_method_set_location_detail;
 use node_method_ast;
 use node_method_key;
 use node_method_new;
-
-use self::hydrate::AstTables;
 // use impl_state;
 
 #[cfg(test)]

@@ -19,14 +19,14 @@ slotmap::new_key_type! {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {
-    block: extension_block::Key,
     key: Key,
+    name: Box<str>,
     value: ValueInner,
+    block: extension_block::Key,
     fqn: FullyQualifiedName,
     node_path: Vec<i32>,
     span: Span,
     comments: Option<Comments>,
-    name: String,
     number: i32,
     label: Option<Label>,
     ///  If type_name is set, this need not be set.  If both this and type_name
@@ -149,7 +149,7 @@ pub(super) struct Inner {
 }
 
 impl NodeKeys for Inner {
-    fn keys(&self) -> impl Iterator<Item = super::Key> {
+    fn keys(&self) -> impl Iterator<Item = super::node::Key> {
         std::iter::empty()
     }
 }

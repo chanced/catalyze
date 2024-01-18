@@ -22,7 +22,7 @@ pub(super) struct Inner {
     comments: Option<Comments>,
     package: Option<package::Key>,
     file: file::Key,
-    name: String,
+    name: Box<str>,
     uninterpreted_options: Vec<UninterpretedOption>,
     input: message::Key,
     output: message::Key,
@@ -30,7 +30,7 @@ pub(super) struct Inner {
 }
 
 impl NodeKeys for Inner {
-    fn keys(&self) -> impl Iterator<Item = super::Key> {
+    fn keys(&self) -> impl Iterator<Item = super::node::Key> {
         std::iter::empty()
     }
 }

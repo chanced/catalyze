@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt};
+use std::{fmt, ops::Deref};
 
 use protobuf::descriptor;
 
@@ -121,6 +121,16 @@ impl NameParts {
     #[must_use]
     pub fn formatted(&self) -> String {
         itertools::join(self.iter().map(|v| v.formatted_value()), ".")
+    }
+}
+
+pub struct UninterpretedOptions {
+    options: Vec<UninterpretedOption>,
+}
+impl Deref for UninterpretedOptions {
+    type Target = [UninterpretedOption];
+    fn deref(&self) -> &Self::Target {
+        &self.options
     }
 }
 
@@ -312,7 +322,7 @@ impl From<descriptor::UninterpretedOption> for UninterpretedOption {
             special_fields: _,
         } = option;
 
-        let name = name.into_iter().map(Into::into).collect::<Vec<_>>();
+        let name = name.into_iter().map(Into::into).collect::<Box<[_]>>();
 
         let value = if let Some(value) = identifier_value {
             UninterpretedValue::Identifier(value)

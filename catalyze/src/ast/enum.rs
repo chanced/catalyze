@@ -1,18 +1,17 @@
-use protobuf::descriptor::EnumOptions;
+use protobuf::{descriptor::EnumOptions, SpecialFields};
 
 use crate::{
     ast::{
-        impl_traits_and_methods, uninterpreted::UninterpretedOption, ContainerKey,
-        FullyQualifiedName, Resolver,
+        access::NodeKeys, enum_value, file, impl_traits_and_methods, location, package,
+        reference::ReferrerKey, uninterpreted::UninterpretedOption, Comments, FullyQualifiedName,
+        Resolver, Span,
     },
     error::Error,
 };
 
 use std::fmt;
 
-use super::{
-    access::NodeKeys, enum_value, file, package, reference::ReferrerKey, Comments, Reserved, Span,
-};
+use super::{access::Reserved, container, Hydrated};
 
 slotmap::new_key_type! {
     pub(super) struct Key;
@@ -22,42 +21,68 @@ slotmap::new_key_type! {
 pub(super) struct Inner {
     key: Key,
     fqn: FullyQualifiedName,
+    name: Box<str>,
     node_path: Box<[i32]>,
     span: Span,
     comments: Option<Comments>,
-    reserved: Reserved,
+    reserved: super::reserved::Reserved,
     package: Option<package::Key>,
     file: file::Key,
-    container: ContainerKey,
-    name: String,
+    container: container::Key,
     referenced_by: Vec<ReferrerKey>,
     values: Vec<super::enum_value::Key>,
     uninterpreted_options: Vec<UninterpretedOption>,
+    well_known: Option<WellKnownEnum>,
+    allow_alias: bool,
+    deprecated: bool,
+    option_special_fields: SpecialFields,
 }
+
 impl Inner {
-    fn hydrate_options(&mut self, options: EnumOptions) -> Result<(), Error> {
+    fn hydrate_options(&mut self, options: EnumOptions) {
         let EnumOptions {
             allow_alias,
             deprecated,
             uninterpreted_option,
             special_fields,
         } = options;
+        self.allow_alias = allow_alias.unwrap_or(false);
+        self.deprecated = deprecated.unwrap_or(false);
+        self.set_uninterpreted_options(uninterpreted_option);
+        self.option_special_fields = special_fields;
     }
 
     pub(crate) fn hydrate(
         &mut self,
+        name: Box<str>,
         values: Vec<enum_value::Key>,
+        location: location::Location,
         options: protobuf::MessageField<EnumOptions>,
-        reserved_name: Vec<String>,
-        reserved_range: Vec<protobuf::descriptor::enum_descriptor_proto::EnumReservedRange>,
-    ) -> Result<(Key, FullyQualifiedName, Box<[i32]>), Error> {
+        reserved_names: Vec<String>,
+        reserved_ranges: Vec<protobuf::descriptor::enum_descriptor_proto::EnumReservedRange>,
+    ) -> Result<Hydrated<Key>, Error> {
+        // let Hydrate {
+        //     values,
+        //     location,
+        //     options,
+        //     reserved_names,
+        //     reserved_ranges,
+        // } = hydrate;
+        // self.values = values;
+        // self.set_reserved(hydrate.reserved_names, hydrate.reserved_ranges);
+        // self.hydrate_options(hydrate.options.unwrap_or_default());
+        // self.node_path = location.path;
+        // self.comments = location.comments;
+        // self.span = location.span;
+
+        // Ok((self.key, self.fqn.clone(), self.node_path.clone()))
         todo!()
     }
 }
 
 impl NodeKeys for Inner {
-    fn keys(&self) -> impl Iterator<Item = super::Key> {
-        self.values.iter().copied().map(super::Key::EnumValue)
+    fn keys(&self) -> impl Iterator<Item = super::node::Key> {
+        self.values.iter().copied().map(super::node::Key::EnumValue)
     }
 }
 

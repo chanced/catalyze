@@ -35,7 +35,7 @@ pub(super) struct Inner {
 
     fqn: FullyQualifiedName,
     comments: Vec<CommentsInner>,
-    name: String,
+    name: Box<str>,
     is_well_known: bool,
     files: Vec<file::Key>,
 }
@@ -44,7 +44,7 @@ impl Inner {
     pub fn new(name: impl AsRef<str>) -> Self {
         Self {
             key: Key::default(),
-            name: name.as_ref().to_owned(),
+            name: name.as_ref().into(),
             is_well_known: name.as_ref() == Package::WELL_KNOWN,
             files: Vec::default(),
             fqn: FullyQualifiedName::from_package_name(name),
@@ -66,7 +66,7 @@ impl Inner {
 }
 
 impl NodeKeys for Inner {
-    fn keys(&self) -> impl Iterator<Item = super::Key> {
+    fn keys(&self) -> impl Iterator<Item = super::node::Key> {
         self.files.iter().copied().map(Into::into)
     }
 }

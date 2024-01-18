@@ -17,7 +17,7 @@ use super::{
     r#enum::{self, Enum},
     file,
     message::{self, Message},
-    package,
+    node, package,
     reference::{ReferenceInner, References},
     Comments, Span,
 };
@@ -31,7 +31,7 @@ pub(super) struct Inner {
     node_path: Box<[i32]>,
     span: Span,
     comments: Option<Comments>,
-    name: String,
+    name: Box<str>,
     number: i32,
     label: Option<Label>,
     ///  If type_name is set, this need not be set.  If both this and type_name
@@ -160,7 +160,7 @@ impl Inner {
 }
 
 impl NodeKeys for Inner {
-    fn keys(&self) -> impl Iterator<Item = super::Key> {
+    fn keys(&self) -> impl Iterator<Item = node::Key> {
         std::iter::empty()
     }
 }
@@ -439,6 +439,10 @@ impl<'ast> Value<'ast> {
         matches!(self, Self::Scalar(_))
     }
     #[must_use]
+    pub const fn is_group(&self) -> bool {
+        matches!(self, Self::Unknown(10))
+    }
+    #[must_use]
     pub const fn is_message(&self) -> bool {
         matches!(self, Self::Message(_))
     }
@@ -475,9 +479,9 @@ impl<'ast> Value<'ast> {
     }
 
     #[must_use]
-    pub const fn as_unknown(&self) -> Option<&i32> {
+    pub const fn as_unknown(&self) -> Option<i32> {
         if let Self::Unknown(v) = self {
-            Some(v)
+            Some(*v)
         } else {
             None
         }
