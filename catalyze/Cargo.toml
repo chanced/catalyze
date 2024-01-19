@@ -12,8 +12,11 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 ahash     = "0.8"
 either    = "1.9"
-inherent  = "1.0"
 itertools = "0.12"
 protobuf  = "3.3"
+rayon     = { version = "1.8.1", optional = true }
 slotmap   = "1.0"
 snafu     = "0.8"
+
+[features]
+default = ["rayon"]

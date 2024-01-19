@@ -50,7 +50,7 @@ impl Inner {
             name: name.as_ref().into(),
             is_well_known: name.as_ref() == WELL_KNOWN,
             files: Vec::default(),
-            fqn: FullyQualifiedName::from_package_name(name),
+            fqn: FullyQualifiedName::for_package(name),
             comments: Vec::default(),
         }
     }

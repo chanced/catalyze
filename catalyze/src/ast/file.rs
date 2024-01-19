@@ -329,6 +329,28 @@ impl DependentInner {
         self.is_used = is_used;
     }
 }
+impl From<DependencyInner> for DependentInner {
+    fn from(dep: DependencyInner) -> Self {
+        Self {
+            is_used: dep.is_used,
+            is_public: dep.is_public,
+            is_weak: dep.is_weak,
+            dependent: dep.dependent,
+            dependency: dep.dependency,
+        }
+    }
+}
+impl From<DependentInner> for DependencyInner {
+    fn from(dep: DependentInner) -> Self {
+        Self {
+            is_used: dep.is_used,
+            is_public: dep.is_public,
+            is_weak: dep.is_weak,
+            dependent: dep.dependent,
+            dependency: dep.dependency,
+        }
+    }
+}
 pub struct Dependent<'ast> {
     pub is_used: bool,
     pub is_public: bool,
@@ -562,7 +584,7 @@ impl Inner {
         self.is_build_target = is_build_target;
     }
 
-    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<(Key, FullyQualifiedName), Error> {
+    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Hydrated<Key>, Error> {
         let Hydrate {
             name,
             syntax,
@@ -593,7 +615,7 @@ impl Inner {
 
         self.hydrate_options(options);
 
-        Ok((self.key, self.fqn.clone()))
+        Ok((self.key, self.fqn.clone(), self.name.clone()))
     }
     /// Hydrates the data within the descriptor.
     ///
