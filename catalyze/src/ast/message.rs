@@ -4,13 +4,16 @@ use super::{
     access::{self, NodeKeys},
     container, r#enum, extension, extension_block,
     field::{self},
-    file, impl_traits_and_methods, location, message, node,
+    file, impl_traits_and_methods,
+    location::{self, Comments, Span},
+    message, node,
     oneof::{self},
     package,
     reference::{ReferenceInner, References},
     reserved::Reserved,
+    resolve::Resolver,
     uninterpreted::UninterpretedOption,
-    Comments, FullyQualifiedName, Hydrated, Resolver, Set, Span,
+    FullyQualifiedName, Hydrated, Set,
 };
 use protobuf::{
     descriptor::{descriptor_proto, MessageOptions},
@@ -23,8 +26,10 @@ slotmap::new_key_type! {
 
 pub(super) struct Hydrate {
     pub(super) name: Box<str>,
+    pub(super) container: container::Key,
     pub(super) package: Option<package::Key>,
-    pub(super) location: location::Location,
+    pub(super) well_known: Option<WellKnownMessage>,
+    pub(super) location: location::Detail,
     pub(super) options: protobuf::MessageField<MessageOptions>,
     pub(super) reserved_ranges: Vec<descriptor_proto::ReservedRange>,
     pub(super) reserved_names: Vec<String>,
@@ -111,9 +116,11 @@ impl Inner {
     pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Hydrated<Key> {
         let Hydrate {
             name,
+            container,
             package,
             location,
             options,
+            well_known,
             reserved_ranges,
             reserved_names,
             extension_range,
@@ -127,7 +134,7 @@ impl Inner {
         } = hydrate;
         self.name = name;
         self.package = package;
-
+        self.container = container;
         self.extension_ranges = extension_range.into_iter().map(Into::into).collect();
         self.special_fields = special_fields;
         self.messages = messages.into();

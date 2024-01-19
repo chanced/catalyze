@@ -1,11 +1,13 @@
 use super::{
     access::NodeKeys,
     file, impl_traits_and_methods,
+    location::{Comments, Span},
     message::{self, Message},
     package,
     reference::{ReferenceInner, References},
+    resolve::Resolver,
     uninterpreted::UninterpretedOption,
-    Comments, FullyQualifiedName, Resolver, Span,
+    FullyQualifiedName,
 };
 
 slotmap::new_key_type! {

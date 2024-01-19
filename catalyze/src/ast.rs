@@ -6,6 +6,7 @@ pub mod extension;
 pub mod extension_block;
 pub mod field;
 pub mod file;
+pub mod location;
 pub mod message;
 pub mod method;
 pub mod node;
@@ -17,22 +18,22 @@ pub mod reserved;
 pub mod service;
 pub mod uninterpreted;
 
-mod location;
+mod resolve;
 
 use std::{
     fmt,
     iter::once,
     ops::{Deref, Index, IndexMut},
-    path::Display,
     str::FromStr,
     sync::Arc,
 };
 
-use ahash::{HashMapExt, HashSetExt};
+use ahash::HashMapExt;
 use protobuf::descriptor::{
-    self, DescriptorProto, EnumDescriptorProto, EnumValueDescriptorProto, FieldDescriptorProto,
+    DescriptorProto, EnumDescriptorProto, EnumValueDescriptorProto, FieldDescriptorProto,
     FileDescriptorProto, MethodDescriptorProto, OneofDescriptorProto, ServiceDescriptorProto,
 };
+
 use slotmap::SlotMap;
 
 use crate::{
@@ -40,113 +41,10 @@ use crate::{
     error::Error,
     to_i32, HashMap, HashSet,
 };
-use r#enum::WellKnownEnum;
-use field::Field;
-use message::WellKnownMessage;
-
-/// Zero-based spans of a node.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct Span {
-    pub start_line: i32,
-    pub start_column: i32,
-    pub end_line: i32,
-    pub end_column: i32,
-}
-impl Span {
-    fn new(span: &[i32]) -> Result<Self, ()> {
-        match span.len() {
-            3 => Ok(Self {
-                start_line: span[0],
-                start_column: span[1],
-                end_line: span[0],
-                end_column: span[2],
-            }),
-            4 => Ok(Self {
-                start_line: span[0],
-                start_column: span[1],
-                end_line: span[2],
-                end_column: span[3],
-            }),
-            _ => Err(()),
-        }
-    }
-    pub fn start_line(&self) -> i32 {
-        self.start_line
-    }
-    pub fn start_column(&self) -> i32 {
-        self.start_column
-    }
-    pub fn end_line(&self) -> i32 {
-        self.end_line
-    }
-    pub fn end_column(&self) -> i32 {
-        self.end_column
-    }
-}
 
 trait FromFqn {
     fn from_fqn(fqn: FullyQualifiedName) -> Self;
 }
-
-#[doc(hidden)]
-trait Get<K, T> {
-    fn get(&self, key: K) -> &T;
-}
-
-trait Resolve<T> {
-    fn resolve(&self) -> &T;
-}
-
-struct Resolver<'ast, K, I> {
-    ast: &'ast Ast,
-    key: K,
-    marker: std::marker::PhantomData<I>,
-}
-
-impl<'ast, K, I> Resolver<'ast, K, I> {
-    const fn new(key: K, ast: &'ast Ast) -> Self {
-        Self {
-            ast,
-            key,
-            marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<'ast, K, I> Clone for Resolver<'ast, K, I>
-where
-    K: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            ast: self.ast,
-            key: self.key.clone(),
-            marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<'ast, K, I> From<(K, &'ast Ast)> for Resolver<'ast, K, I> {
-    fn from((key, ast): (K, &'ast Ast)) -> Self {
-        Self {
-            ast,
-            key,
-            marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<'ast, K, I> Copy for Resolver<'ast, K, I> where K: Copy {}
-
-impl<'ast, K, I> PartialEq for Resolver<'ast, K, I>
-where
-    K: PartialEq,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.key == other.key
-    }
-}
-impl<'ast, K, I> Eq for Resolver<'ast, K, I> where K: Eq {}
 
 #[derive(Debug, Clone)]
 struct Table<K, V>
@@ -394,13 +292,21 @@ impl Ast {
         Ok(self)
     }
 
+    fn reserve_file_nodes(&mut self, descriptor: &FileDescriptorProto) {
+        let msg_len = descriptor.message_type.len();
+        let enm_len = descriptor.enum_type.len();
+        let svc_len = descriptor.service.len();
+        let ext_len = descriptor.extension.len();
+        self.nodes.reserve(msg_len + enm_len + svc_len + ext_len);
+    }
+
     fn hydrate_file(
         &mut self,
         descriptor: FileDescriptorProto,
         targets: &[String],
     ) -> Result<(file::Key, FullyQualifiedName), Error> {
-        // TODO: handle SpecialFields
-        // let mut by_path = HashMap::default();
+        self.reserve_file_nodes(&descriptor);
+
         let name = descriptor.name.unwrap();
         let locations = location::File::new(descriptor.source_code_info.unwrap_or_else(|| {
             panic!("source_code_info not found on FileDescriptorProto for \"{name}\"")
@@ -548,26 +454,31 @@ impl Ast {
                 .fqns
                 .get_or_insert(descriptor.name(), Some(container_fqn.clone()));
 
-            let (key, fqn, name) = self.hydrate_message(
-                descriptor,
-                fqn,
-                location,
-                container,
-                container_fqn.clone(),
-                file,
-                package,
-            )?;
+            let (key, fqn, name) =
+                self.hydrate_message(descriptor, fqn, location, container, file, package)?;
             self.nodes.insert(fqn.clone(), key.into());
             messages.push((key, fqn, name));
         }
         Ok(messages)
     }
+
     fn is_well_known(&self, package: Option<package::Key>) -> bool {
         if let Some(package) = package {
             return package == self.well_known_package;
         }
         false
     }
+
+    fn reserve_message_nodes(&mut self, descriptor: &DescriptorProto) {
+        let msg_len = descriptor.nested_type.len();
+        let enm_len = descriptor.enum_type.len();
+        let ext_len = descriptor.extension.len();
+        let fld_len = descriptor.field.len();
+        let one_len = descriptor.oneof_decl.len();
+        let total = msg_len + enm_len + ext_len + fld_len + one_len;
+        self.nodes.reserve(total);
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn hydrate_message(
         &mut self,
@@ -575,18 +486,23 @@ impl Ast {
         fqn: FullyQualifiedName,
         location: location::Message,
         container: container::Key,
-        container_fqn: FullyQualifiedName,
         file: file::Key,
         package: Option<package::Key>,
     ) -> Result<Hydrated<message::Key>, Error> {
-        let name = descriptor.name.unwrap_or_default().into();
+        let name = descriptor.name.unwrap_or_default().into_boxed_str();
         let key = self.messages.get_or_insert_key_by_fqn(fqn.clone());
+
+        let well_known = if self.is_well_known(package) {
+            message::WellKnownMessage::from_str(&name).ok()
+        } else {
+            None
+        };
 
         let (extension_blocks, extensions) = self.hydrate_extensions(
             descriptor.extension,
             location.extensions,
-            container,
-            container_fqn.clone(),
+            key.into(),
+            fqn.clone(),
             file,
             package,
         )?;
@@ -625,11 +541,13 @@ impl Ast {
         let location = location.detail;
         Ok(self.messages[key].hydrate(message::Hydrate {
             name,
+            container,
             fields,
             location,
             messages,
             oneofs,
             enums,
+            well_known,
             extension_blocks,
             extensions,
             package,
@@ -676,7 +594,7 @@ impl Ast {
         let values =
             self.hydrate_enum_values(descriptor.value, location.values, key, fqn, file, package);
         let well_known = if self.is_well_known(package) {
-            WellKnownEnum::from_str(&name).ok()
+            r#enum::WellKnownEnum::from_str(&name).ok()
         } else {
             None
         };
@@ -797,7 +715,7 @@ impl Ast {
         todo!()
     }
 
-    fn hydrate_field(hydrate: Field) -> Result<Hydrated<field::Key>, Error> {
+    fn hydrate_field(&mut self) -> Result<Hydrated<field::Key>, Error> {
         todo!()
     }
 
@@ -848,39 +766,6 @@ impl Ast {
     }
 }
 
-macro_rules! impl_resolve {
-
-    ($($col:ident -> $mod:ident,)+) => {
-        $(
-            impl Get<$mod::Key, $mod::Inner> for Ast {
-                fn get(&self, key: $mod::Key) -> &$mod::Inner {
-                    &self.$col[key]
-                }
-            }
-            impl<'ast> Resolve<$mod::Inner> for Resolver<'ast, $mod::Key, $mod::Inner>
-            {
-                fn resolve(&self) -> &$mod::Inner {
-                    self.ast.get(self.key.clone())
-                }
-            }
-            impl<'ast> Deref for Resolver<'ast, $mod::Key, $mod::Inner>{
-                type Target = $mod::Inner;
-                fn deref(&self) -> &Self::Target {
-                    self.resolve()
-                }
-            }
-            impl<'ast> fmt::Debug for Resolver<'ast, $mod::Key, $mod::Inner>
-            {
-                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                    f.debug_tuple("Resolver")
-                        .field(&self.key)
-                        .field(self.resolve())
-                        .finish()
-                }
-            }
-        )+
-    };
-}
 fn assert_enum_locations(
     container_fqn: &str,
     locations: &[location::Enum],
@@ -1003,24 +888,10 @@ fn assert_file_locations(locations: &[location::File], descriptors: &[FileDescri
     );
 }
 
-impl_resolve!(
-    packages -> package,
-    files -> file,
-    messages -> message,
-    enums -> r#enum,
-    enum_values -> enum_value,
-    oneofs -> oneof,
-    services -> service,
-    methods -> method,
-    fields -> field,
-    extensions -> extension,
-    extension_blocks -> extension_block,
-);
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WellKnownType {
-    Enum(WellKnownEnum),
-    Message(WellKnownMessage),
+    Enum(r#enum::WellKnownEnum),
+    Message(message::WellKnownMessage),
 }
 
 impl WellKnownType {
@@ -1147,55 +1018,6 @@ impl fmt::Display for FullyQualifiedName {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Comments {
-    /// Any comment immediately preceding the node, without any
-    /// whitespace between it and the comment.
-    leading: Option<Box<str>>,
-    trailing: Option<Box<str>>,
-    leading_detached: Vec<Box<str>>,
-}
-
-impl Comments {
-    pub fn new_maybe(
-        leading: Option<String>,
-        trailing: Option<String>,
-        leading_detacted: Vec<String>,
-    ) -> Option<Self> {
-        if leading.is_none() && trailing.is_none() && leading_detacted.is_empty() {
-            return None;
-        }
-        let leading = leading.map(String::into_boxed_str);
-        let trailing = trailing.map(String::into_boxed_str);
-        let leading_detached = leading_detacted
-            .into_iter()
-            .map(String::into_boxed_str)
-            .collect();
-        Some(Self {
-            leading,
-            trailing,
-            leading_detached,
-        })
-    }
-    /// Any comment immediately preceding the node, without any
-    /// whitespace between it and the comment.
-    pub fn leading(&self) -> Option<&str> {
-        self.leading.as_deref()
-    }
-
-    /// Any comment immediately following the entity, without any
-    /// whitespace between it and the comment. If the comment would be a leading
-    /// comment for another entity, it won't be considered a trailing comment.
-    pub fn trailing(&self) -> Option<&str> {
-        self.trailing.as_deref()
-    }
-
-    /// Each comment block or line above the entity but seperated by whitespace.
-    pub fn leading_detached(&self) -> &[Box<str>] {
-        &self.leading_detached
-    }
-}
-
 macro_rules! impl_key {
     ($inner:ident, $key:ident) => {
         impl crate::ast::access::Key for $inner {
@@ -1220,11 +1042,11 @@ macro_rules! impl_key {
 //         impl crate::ast::Fsm for $inner {}
 //     };
 // }
-macro_rules! impl_access {
+macro_rules! impl_resolve {
     ($node: ident, $key: ident, $inner: ident) => {
-        impl<'ast> crate::ast::Resolve<$inner> for $node<'ast> {
+        impl<'ast> crate::ast::resolve::Resolve<$inner> for $node<'ast> {
             fn resolve(&self) -> &$inner {
-                crate::ast::Resolve::resolve(&self.0)
+                crate::ast::resolve::Resolve::resolve(&self.0)
             }
         }
     };
@@ -1245,13 +1067,13 @@ macro_rules! impl_access_fqn {
     ($node:ident, $key:ident, $inner: ident) => {
         impl<'ast> crate::ast::access::FullyQualifiedName for $node<'ast> {
             fn fully_qualified_name(&self) -> &crate::ast::FullyQualifiedName {
-                use crate::ast::Resolve;
+                use crate::ast::resolve::Resolve;
                 &self.resolve().fqn
             }
         }
         impl<'ast> $node<'ast> {
             fn fully_qualified_name(&self) -> &crate::ast::FullyQualifiedName {
-                use crate::ast::Resolve;
+                use crate::ast::resolve::Resolve;
                 &self.resolve().fqn
             }
             fn fqn(&self) -> &crate::ast::FullyQualifiedName {
@@ -1298,11 +1120,11 @@ macro_rules! impl_from_key_and_ast {
     ($node:ident, $key:ident, $inner:ident) => {
         impl<'ast> From<($key, &'ast crate::ast::Ast)> for $node<'ast> {
             fn from((key, ast): ($key, &'ast crate::ast::Ast)) -> Self {
-                Self(crate::ast::Resolver::new(key, ast))
+                Self(crate::ast::resolve::Resolver::new(key, ast))
             }
         }
-        impl<'ast> From<crate::ast::Resolver<'ast, $key, $inner>> for $node<'ast> {
-            fn from(resolver: crate::ast::Resolver<'ast, $key, $inner>) -> Self {
+        impl<'ast> From<crate::ast::resolve::Resolver<'ast, $key, $inner>> for $node<'ast> {
+            fn from(resolver: crate::ast::resolve::Resolver<'ast, $key, $inner>) -> Self {
                 Self(resolver)
             }
         }
@@ -1313,14 +1135,14 @@ macro_rules! impl_fmt {
     ($node: ident, $key: ident, $inner: ident) => {
         impl<'ast> ::std::fmt::Display for $node<'ast> {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                use crate::ast::Resolve;
+                use crate::ast::resolve::Resolve;
                 ::std::fmt::Display::fmt(&self.resolve().fqn, f)
             }
         }
 
         impl<'ast> ::std::fmt::Debug for $node<'ast> {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                use crate::ast::Resolve;
+                use crate::ast::resolve::Resolve;
                 ::std::fmt::Debug::fmt(self.resolve(), f)
             }
         }
@@ -1384,16 +1206,6 @@ macro_rules! impl_access_package {
             pub fn package(self) -> Option<crate::ast::package::Package<'ast>> {
                 self.0.package.map(|key| (key, self.0.ast).into())
             }
-        }
-    };
-}
-macro_rules! set_unknown_fields {
-    ($inner:ident) => {
-        pub(super) fn set_unknown_fields<T>(&mut self, fields: impl IntoIterator<Item = T>)
-        where
-            T: Into<crate::ast::UnknownFields>,
-        {
-            self.unknown_fields = fields.into_iter().map(Into::into);
         }
     };
 }
@@ -1486,18 +1298,19 @@ macro_rules! node_method_key {
 macro_rules! impl_span {
     ($node:ident, $inner:ident) => {
         impl<'ast> crate::ast::access::Span for $node<'ast> {
-            fn span(&self) -> crate::ast::Span {
+            fn span(&self) -> crate::ast::location::Span {
                 self.0.span
             }
         }
+
         impl<'ast> $node<'ast> {
-            pub fn span(&self) -> crate::ast::Span {
+            pub fn span(&self) -> crate::ast::location::Span {
                 self.0.span
             }
         }
 
         impl $inner {
-            pub(super) fn set_span(&mut self, span: crate::ast::Span) {
+            pub(super) fn set_span(&mut self, span: crate::ast::location::Span) {
                 self.span = span;
             }
         }
@@ -1507,7 +1320,7 @@ macro_rules! impl_span {
 macro_rules! inner_method_hydrate_location {
     ($inner:ident) => {
         impl $inner {
-            pub(super) fn hydrate_location(&mut self, location: crate::ast::location::Location) {
+            pub(super) fn hydrate_location(&mut self, location: crate::ast::location::Detail) {
                 self.comments = location.comments;
                 self.span = location.span;
                 self.node_path = location.path.into();
@@ -1519,18 +1332,18 @@ macro_rules! inner_method_hydrate_location {
 macro_rules! impl_comments {
     ($node:ident, $inner:ident) => {
         impl<'ast> crate::ast::access::Comments for $node<'ast> {
-            fn comments(&self) -> Option<&crate::ast::Comments> {
+            fn comments(&self) -> Option<&crate::ast::location::Comments> {
                 self.0.comments.as_ref()
             }
         }
         impl<'ast> $node<'ast> {
-            pub fn comments(&self) -> Option<&crate::ast::Comments> {
+            pub fn comments(&self) -> Option<&crate::ast::location::Comments> {
                 self.0.comments.as_ref()
             }
         }
 
         impl $inner {
-            pub(super) fn set_comments(&mut self, comments: crate::ast::Comments) {
+            pub(super) fn set_comments(&mut self, comments: crate::ast::location::Comments) {
                 self.comments = Some(comments);
             }
         }
@@ -1565,7 +1378,7 @@ macro_rules! impl_base_traits_and_methods {
         crate::ast::node_method_ast!($node);
         crate::ast::impl_clone_copy!($node);
         crate::ast::impl_eq!($node);
-        crate::ast::impl_access!($node, $key, $inner);
+        crate::ast::impl_resolve!($node, $key, $inner);
         crate::ast::impl_access_fqn!($node, $key, $inner);
         crate::ast::impl_from_key_and_ast!($node, $key, $inner);
         crate::ast::impl_fmt!($node, $key, $inner);
@@ -1630,7 +1443,6 @@ macro_rules! impl_traits_and_methods {
     };
 }
 
-use impl_access;
 use impl_access_file;
 use impl_access_fqn;
 use impl_access_name;
@@ -1645,6 +1457,7 @@ use impl_from_fqn;
 use impl_from_key_and_ast;
 use impl_key;
 use impl_node_path;
+use impl_resolve;
 use impl_set_uninterpreted_options;
 use impl_span;
 use impl_traits_and_methods;

@@ -1,8 +1,5 @@
 use crate::{
-    ast::{
-        impl_traits_and_methods, uninterpreted::UninterpretedOption, Ast, FullyQualifiedName,
-        Resolver,
-    },
+    ast::{impl_traits_and_methods, uninterpreted::UninterpretedOption, Ast, FullyQualifiedName},
     error::Error,
 };
 use ::std::vec::Vec;
@@ -15,11 +12,11 @@ use std::fmt;
 use super::{
     access::NodeKeys,
     r#enum::{self, Enum},
-    file,
+    file, location,
     message::{self, Message},
     node, package,
     reference::{ReferenceInner, References},
-    Comments, Span,
+    resolve::Resolver,
 };
 
 #[derive(Debug, Default, Clone)]
@@ -29,8 +26,8 @@ pub(super) struct Inner {
     value: ValueInner,
     fqn: FullyQualifiedName,
     node_path: Box<[i32]>,
-    span: Span,
-    comments: Option<Comments>,
+    span: location::Span,
+    comments: Option<location::Comments>,
     name: Box<str>,
     number: i32,
     label: Option<Label>,

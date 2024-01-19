@@ -66,10 +66,10 @@ pub trait NodePath {
 }
 
 pub trait Comments {
-    fn comments(&self) -> Option<&super::Comments>;
+    fn comments(&self) -> Option<&super::location::Comments>;
 }
 pub trait Span {
-    fn span(&self) -> super::Span;
+    fn span(&self) -> super::location::Span;
 }
 
 pub(crate) trait ReferencesMut {

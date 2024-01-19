@@ -1,4 +1,4 @@
-use super::{Comments, Resolver, Span};
+use super::{location, resolve};
 
 slotmap::new_key_type! {
     pub(super) struct Key;
@@ -6,8 +6,8 @@ slotmap::new_key_type! {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {
-    span: Span,
-    comments: Option<Comments>,
+    span: location::Span,
+    comments: Option<location::Comments>,
     extensions: Vec<Key>,
 }
 
@@ -28,10 +28,10 @@ pub(super) struct Inner {
 /// defined in the protobuf. As such, the block does not have a
 /// [`FullyQualifiedName`].  It does, however, have a [`Span`] and possibly
 /// [`Comments`].
-pub struct ExtensionBlock<'ast>(Resolver<'ast, Key, Inner>);
+pub struct ExtensionBlock<'ast>(resolve::Resolver<'ast, Key, Inner>);
 
 impl<'ast> ExtensionBlock<'ast> {
-    pub fn comments(&self) -> Option<&Comments> {
+    pub fn comments(&self) -> Option<&location::Comments> {
         self.0.comments.as_ref()
     }
 }

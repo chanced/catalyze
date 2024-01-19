@@ -1,15 +1,17 @@
 use protobuf::{descriptor::EnumOptions, SpecialFields};
 
-use crate::{
-    ast::{
-        access::NodeKeys, enum_value, file, impl_traits_and_methods, location, package,
-        reference::ReferrerKey, uninterpreted::UninterpretedOption, Comments, FullyQualifiedName,
-        Resolver, Span,
-    },
-    error::Error,
+use crate::ast::{
+    access::NodeKeys,
+    enum_value, file, impl_traits_and_methods, location,
+    location::{Comments, Span},
+    package,
+    reference::ReferrerKey,
+    resolve::Resolver,
+    uninterpreted::UninterpretedOption,
+    FullyQualifiedName,
 };
 
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 use super::{container, Hydrated, Set};
 
@@ -20,7 +22,7 @@ slotmap::new_key_type! {
 pub(super) struct Hydrate {
     pub(super) name: Box<str>,
     pub(super) values: Vec<Hydrated<enum_value::Key>>,
-    pub(super) location: location::Location,
+    pub(super) location: location::Detail,
     pub(super) options: protobuf::MessageField<EnumOptions>,
     pub(super) special_fields: protobuf::SpecialFields,
     pub(super) reserved_names: Vec<String>,
@@ -68,7 +70,7 @@ impl Inner {
         self.values = values.into();
         self.name = name;
         self.set_reserved(reserved_names, reserved_ranges);
-        self.container = container_key.into();
+        self.container = container_key;
         self.well_known = well_known;
         self.special_fields = special_fields;
         self.hydrate_location(location);
@@ -134,17 +136,9 @@ impl WellKnownEnum {
         }
     }
 }
-
-impl fmt::Display for WellKnownEnum {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fmt.write_str(self.as_str())
-    }
-}
-
-impl std::str::FromStr for WellKnownEnum {
+impl FromStr for WellKnownEnum {
     type Err = ();
-
-    fn from_str(s: &str) -> ::std::result::Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             Self::FIELD_CARDINALITY => Ok(Self::FieldCardinality),
             Self::FIELD_KIND => Ok(Self::FieldKind),
@@ -152,5 +146,11 @@ impl std::str::FromStr for WellKnownEnum {
             Self::SYNTAX => Ok(Self::Syntax),
             _ => Err(()),
         }
+    }
+}
+
+impl fmt::Display for WellKnownEnum {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt.write_str(self.as_str())
     }
 }

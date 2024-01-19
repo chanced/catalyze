@@ -1,14 +1,14 @@
-use crate::ast::{
-    impl_traits_and_methods, uninterpreted::UninterpretedOption, FullyQualifiedName, Resolver,
-};
+use crate::ast::impl_traits_and_methods;
 
 use super::{
     access::NodeKeys,
     extension_block,
     field::{TypeInner, ValueInner},
-    file, message, package,
+    file, location, message, package,
     reference::{ReferenceInner, References},
-    Comments, Span,
+    resolve,
+    uninterpreted::UninterpretedOption,
+    FullyQualifiedName,
 };
 
 pub use super::field::{CType, JsType, Label};
@@ -25,8 +25,8 @@ pub(super) struct Inner {
     block: extension_block::Key,
     fqn: FullyQualifiedName,
     node_path: Vec<i32>,
-    span: Span,
-    comments: Option<Comments>,
+    span: location::Span,
+    comments: Option<location::Comments>,
     number: i32,
     label: Option<Label>,
     ///  If type_name is set, this need not be set.  If both this and type_name
@@ -159,7 +159,7 @@ impl Inner {
         self.reference.iter_mut()
     }
 }
-pub struct Extension<'ast>(Resolver<'ast, Key, Inner>);
+pub struct Extension<'ast>(resolve::Resolver<'ast, Key, Inner>);
 impl_traits_and_methods!(Extension, Key, Inner);
 impl<'ast> Extension<'ast> {
     pub fn references(&'ast self) -> References<'ast> {

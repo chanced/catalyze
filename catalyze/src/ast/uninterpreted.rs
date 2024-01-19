@@ -1,5 +1,6 @@
 use std::{fmt, ops::Deref};
 
+use itertools::Itertools;
 use protobuf::descriptor;
 
 //  The name of the uninterpreted option.  Each string represents a segment in
@@ -66,9 +67,9 @@ impl From<descriptor::uninterpreted_option::NamePart> for NamePart {
             value.clone()
         };
         Self {
-            is_extension,
             value,
             formatted_value,
+            is_extension,
         }
     }
 }
@@ -120,7 +121,7 @@ impl NameParts {
     }
     #[must_use]
     pub fn formatted(&self) -> String {
-        itertools::join(self.iter().map(|v| v.formatted_value()), ".")
+        self.iter().map(NamePart::formatted_value).join(".")
     }
 }
 
@@ -186,7 +187,6 @@ impl UninterpretedValue {
         }
     }
 
-    #[must_use]
     pub fn try_into_positive_int(self) -> Result<u64, Self> {
         if let Self::PositiveInt(v) = self {
             Ok(v)
@@ -195,7 +195,6 @@ impl UninterpretedValue {
         }
     }
 
-    #[must_use]
     pub fn try_into_identifier(self) -> Result<String, Self> {
         if let Self::Identifier(v) = self {
             Ok(v)
@@ -221,7 +220,6 @@ impl UninterpretedValue {
         }
     }
 
-    #[must_use]
     pub fn try_into_negative_int(self) -> Result<i64, Self> {
         if let Self::NegativeInt(v) = self {
             Ok(v)
@@ -247,7 +245,6 @@ impl UninterpretedValue {
         }
     }
 
-    #[must_use]
     pub fn try_into_double(self) -> Result<f64, Self> {
         if let Self::Double(v) = self {
             Ok(v)
@@ -273,7 +270,6 @@ impl UninterpretedValue {
         }
     }
 
-    #[must_use]
     pub fn try_into_string(self) -> Result<Vec<u8>, Self> {
         if let Self::String(v) = self {
             Ok(v)
@@ -299,7 +295,6 @@ impl UninterpretedValue {
         }
     }
 
-    #[must_use]
     pub fn try_into_aggregate(self) -> Result<String, Self> {
         if let Self::Aggregate(v) = self {
             Ok(v)

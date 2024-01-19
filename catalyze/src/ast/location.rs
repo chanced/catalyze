@@ -4,8 +4,95 @@ use protobuf::descriptor::{source_code_info::Location as ProtoLoc, SourceCodeInf
 
 use crate::error::Error;
 
-use super::{path, Comments, Span};
+use super::path;
 
+/// Zero-based spans of a node.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Span {
+    pub start_line: i32,
+    pub start_column: i32,
+    pub end_line: i32,
+    pub end_column: i32,
+}
+impl Span {
+    fn new(span: &[i32]) -> Result<Self, ()> {
+        match span.len() {
+            3 => Ok(Self {
+                start_line: span[0],
+                start_column: span[1],
+                end_line: span[0],
+                end_column: span[2],
+            }),
+            4 => Ok(Self {
+                start_line: span[0],
+                start_column: span[1],
+                end_line: span[2],
+                end_column: span[3],
+            }),
+            _ => Err(()),
+        }
+    }
+    pub fn start_line(&self) -> i32 {
+        self.start_line
+    }
+    pub fn start_column(&self) -> i32 {
+        self.start_column
+    }
+    pub fn end_line(&self) -> i32 {
+        self.end_line
+    }
+    pub fn end_column(&self) -> i32 {
+        self.end_column
+    }
+}
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Comments {
+    /// Any comment immediately preceding the node, without any
+    /// whitespace between it and the comment.
+    leading: Option<Box<str>>,
+    trailing: Option<Box<str>>,
+    leading_detached: Vec<Box<str>>,
+}
+
+impl Comments {
+    pub fn new_maybe(
+        leading: Option<String>,
+        trailing: Option<String>,
+        leading_detacted: Vec<String>,
+    ) -> Option<Self> {
+        if leading.is_none() && trailing.is_none() && leading_detacted.is_empty() {
+            return None;
+        }
+        let leading = leading.map(String::into_boxed_str);
+        let trailing = trailing.map(String::into_boxed_str);
+        let leading_detached = leading_detacted
+            .into_iter()
+            .map(String::into_boxed_str)
+            .collect();
+        Some(Self {
+            leading,
+            trailing,
+            leading_detached,
+        })
+    }
+    /// Any comment immediately preceding the node, without any
+    /// whitespace between it and the comment.
+    pub fn leading(&self) -> Option<&str> {
+        self.leading.as_deref()
+    }
+
+    /// Any comment immediately following the entity, without any
+    /// whitespace between it and the comment. If the comment would be a leading
+    /// comment for another entity, it won't be considered a trailing comment.
+    pub fn trailing(&self) -> Option<&str> {
+        self.trailing.as_deref()
+    }
+
+    /// Each comment block or line above the entity but seperated by whitespace.
+    pub fn leading_detached(&self) -> &[Box<str>] {
+        &self.leading_detached
+    }
+}
 type Iter = Peekable<std::vec::IntoIter<ProtoLoc>>;
 
 fn iterate_next<T>(prefix: &[i32], locations: &mut Iter) -> Option<(ProtoLoc, T)>
@@ -23,37 +110,35 @@ where
         Some((next, next_path))
     })
 }
-fn extract(loc: ProtoLoc) -> Result<(Box<[i32]>, Span, Option<Comments>), Error> {
-    let span = Span::new(&loc.span).map_err(|()| Error::invalid_span(&loc))?;
-    let comments = Comments::new_maybe(
-        loc.leading_comments,
-        loc.trailing_comments,
-        loc.leading_detached_comments,
-    );
-    Ok((loc.path.into(), span, comments))
-}
 
 #[derive(Debug)]
-pub(super) struct Location {
+pub(super) struct Detail {
     pub(super) path: Box<[i32]>,
     pub(super) span: Span,
     pub(super) comments: Option<Comments>,
 }
-impl Location {
-    pub(super) fn new(path: Box<[i32]>, span: Span, comments: Option<Comments>) -> Self {
-        Self {
+impl Detail {
+    pub(super) fn new(loc: ProtoLoc) -> Result<Self, Error> {
+        let span = Span::new(&loc.span).map_err(|()| Error::invalid_span(&loc))?;
+        let comments = Comments::new_maybe(
+            loc.leading_comments,
+            loc.trailing_comments,
+            loc.leading_detached_comments,
+        );
+        let path = loc.path.into();
+        Ok(Self {
             path,
             span,
             comments,
-        }
+        })
     }
 }
 
 #[derive(Debug)]
 pub(super) struct File {
-    pub(super) syntax: Option<Location>,
-    pub(super) package: Option<Location>,
-    pub(super) dependencies: Vec<Location>,
+    pub(super) syntax: Option<Detail>,
+    pub(super) package: Option<Detail>,
+    pub(super) dependencies: Vec<Detail>,
     pub(super) messages: Vec<Message>,
     pub(super) enums: Vec<Enum>,
     pub(super) services: Vec<Service>,
@@ -70,45 +155,34 @@ impl File {
         let mut dependencies = Vec::new();
         let mut extensions = Vec::new();
 
-        let (path, span, comments) = extract(locations.next().unwrap())?;
+        let Detail {
+            path,
+            span,
+            comments,
+        } = Detail::new(locations.next().unwrap())?;
 
-        while let Some(next) = locations.next() {
-            match path::File::from_i32(next.path[0]) {
+        while let Some(loc) = locations.next() {
+            match path::File::from_i32(loc.path[0]) {
                 path::File::Syntax => {
-                    let (path, span, comments) = extract(next)?;
-                    syntax = Some(Location {
-                        path,
-                        span,
-                        comments,
-                    });
+                    syntax = Some(Detail::new(loc)?);
                 }
                 path::File::Dependency => {
-                    let (path, span, comments) = extract(next)?;
-                    dependencies.push(Location {
-                        path,
-                        span,
-                        comments,
-                    });
+                    dependencies.push(Detail::new(loc)?);
                 }
                 path::File::Package => {
-                    let (path, span, comments) = extract(next)?;
-                    package = Some(Location {
-                        path,
-                        span,
-                        comments,
-                    });
+                    package = Some(Detail::new(loc)?);
                 }
                 path::File::Message => {
-                    messages.push(Message::new(next, &mut locations)?);
+                    messages.push(Message::new(loc, &mut locations)?);
                 }
                 path::File::Enum => {
-                    enums.push(Enum::new(next, &mut locations)?);
+                    enums.push(Enum::new(loc, &mut locations)?);
                 }
                 path::File::Service => {
-                    services.push(Service::new(next, &mut locations)?);
+                    services.push(Service::new(loc, &mut locations)?);
                 }
                 path::File::Extension => {
-                    extensions.push(ExtensionBlock::new(next, &mut locations)?);
+                    extensions.push(ExtensionBlock::new(loc, &mut locations)?);
                 }
                 _ => continue,
             }
@@ -127,7 +201,7 @@ impl File {
 
 #[derive(Debug)]
 pub(super) struct Message {
-    pub(super) detail: Location,
+    pub(super) detail: Detail,
     pub(super) messages: Vec<Message>,
     pub(super) enums: Vec<Enum>,
     pub(super) extensions: Vec<ExtensionBlock>,
@@ -137,7 +211,7 @@ pub(super) struct Message {
 
 impl Message {
     fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, Error> {
-        let (path, span, comments) = extract(node)?;
+        let detail = Detail::new(node)?;
 
         let mut messages = Vec::new();
         let mut enums = Vec::new();
@@ -145,40 +219,40 @@ impl Message {
         let mut oneofs = Vec::new();
         let mut fields = Vec::new();
 
-        while let Some((next, next_path)) = iterate_next(&path, locations) {
-            match next_path {
+        while let Some((loc, path)) = iterate_next(&detail.path, locations) {
+            match path {
                 path::Message::Field => {
-                    fields.push(Field::new(next, locations)?);
+                    fields.push(Field::new(loc, locations)?);
                 }
                 path::Message::Nested => {
-                    messages.push(Self::new(next, locations)?);
+                    messages.push(Self::new(loc, locations)?);
                 }
                 path::Message::Enum => {
-                    enums.push(Enum::new(next, locations)?);
+                    enums.push(Enum::new(loc, locations)?);
                 }
                 path::Message::Extension => {
-                    extensions.push(ExtensionBlock::new(next, locations)?);
+                    extensions.push(ExtensionBlock::new(loc, locations)?);
                 }
                 path::Message::Oneof => {
-                    oneofs.push(Oneof::new(next, locations)?);
+                    oneofs.push(Oneof::new(loc, locations)?);
                 }
                 path::Message::Unknown(_) => continue,
             }
         }
         Ok(Self {
-            detail: Location::new(path, span, comments),
+            detail,
             messages,
-            fields,
             enums,
             extensions,
             oneofs,
+            fields,
         })
     }
 }
 
 #[derive(Debug)]
 pub(super) struct ExtensionBlock {
-    pub(super) detail: Location,
+    pub(super) detail: Detail,
     pub(super) extensions: Vec<Field>,
 }
 impl ExtensionBlock {
@@ -187,52 +261,41 @@ impl ExtensionBlock {
         locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
     ) -> Result<Self, Error> {
         let mut extensions = Vec::new();
-        let (mut path, span, comments) = extract(node)?;
-        while let Some((next, _)) = iterate_next::<i32>(&path, locations) {
+        let detail = Detail::new(node)?;
+        while let Some((next, _)) = iterate_next::<i32>(&detail.path, locations) {
             extensions.push(Field::new(next, locations)?);
         }
-        Ok(Self {
-            detail: Location::new(path, span, comments),
-            extensions,
-        })
+        Ok(Self { detail, extensions })
     }
 }
 
 #[derive(Debug)]
 pub(super) struct Field {
-    pub(super) detail: Location,
+    pub(super) detail: Detail,
 }
 impl Field {
     fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, Error> {
-        let (path, span, comments) = extract(node)?;
-        while iterate_next::<i32>(&path, locations).is_some() {}
-        Ok(Self {
-            detail: Location {
-                path,
-                span,
-                comments,
-            },
-        })
+        let detail = Detail::new(node)?;
+        while iterate_next::<i32>(&detail.path, locations).is_some() {}
+        Ok(Self { detail })
     }
 }
 
 #[derive(Debug)]
 pub(super) struct Oneof {
-    pub(super) location: Location,
+    pub(super) detail: Detail,
 }
 impl Oneof {
     fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, Error> {
-        let (path, span, comments) = extract(node)?;
-        while iterate_next::<i32>(&path, locations).is_some() {}
-        Ok(Self {
-            location: Location::new(path, span, comments),
-        })
+        let detail = Detail::new(node)?;
+        while iterate_next::<i32>(&detail.path, locations).is_some() {}
+        Ok(Self { detail })
     }
 }
 
 #[derive(Debug)]
 pub(super) struct Enum {
-    pub(super) detail: Location,
+    pub(super) detail: Detail,
     pub(super) values: Vec<EnumValue>,
 }
 impl Enum {
@@ -240,9 +303,9 @@ impl Enum {
         node: ProtoLoc,
         locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
     ) -> Result<Self, Error> {
-        let (path, span, comments) = extract(node)?;
+        let detail = Detail::new(node)?;
         let mut values = Vec::new();
-        while let Some((next, next_path)) = iterate_next(&path, locations) {
+        while let Some((next, next_path)) = iterate_next(&detail.path, locations) {
             match next_path {
                 path::Enum::Value => {
                     values.push(EnumValue::new(next, locations)?);
@@ -250,31 +313,26 @@ impl Enum {
                 path::Enum::Unknown(_) => continue,
             }
         }
-        Ok(Self {
-            detail: Location::new(path, span, comments),
-            values,
-        })
+        Ok(Self { detail, values })
     }
 }
 #[derive(Debug)]
 pub(super) struct EnumValue {
-    pub(super) detail: Location,
+    pub(super) detail: Detail,
 }
 impl EnumValue {
     fn new(
         node: ProtoLoc,
         locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
     ) -> Result<Self, Error> {
-        let (path, span, comments) = extract(node)?;
-        while iterate_next::<i32>(&path, locations).is_some() {}
-        Ok(Self {
-            detail: Location::new(path, span, comments),
-        })
+        let detail = Detail::new(node)?;
+        while iterate_next::<i32>(&detail.path, locations).is_some() {}
+        Ok(Self { detail })
     }
 }
 #[derive(Debug)]
 pub(super) struct Service {
-    pub(super) detail: Location,
+    pub(super) detail: Detail,
     pub(super) methods: Vec<Method>,
 }
 impl Service {
@@ -282,9 +340,9 @@ impl Service {
         node: ProtoLoc,
         locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
     ) -> Result<Self, Error> {
-        let (path, span, comments) = extract(node)?;
+        let detail = Detail::new(node)?;
         let mut methods = Vec::new();
-        while let Some((next, next_path)) = iterate_next(&path, locations) {
+        while let Some((next, next_path)) = iterate_next(&detail.path, locations) {
             match next_path {
                 path::Service::Method => {
                     methods.push(Method::new(next, locations)?);
@@ -292,27 +350,22 @@ impl Service {
                 path::Service::Mixin | path::Service::Unknown(_) => continue,
             }
         }
-        Ok(Self {
-            detail: Location::new(path, span, comments),
-            methods,
-        })
+        Ok(Self { detail, methods })
     }
 }
 
 #[derive(Debug)]
 pub(super) struct Method {
-    pub(super) detail: Location,
+    pub(super) detail: Detail,
 }
 impl Method {
     fn new(
         node: ProtoLoc,
         locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
     ) -> Result<Self, Error> {
-        let (path, span, comments) = extract(node)?;
-        while iterate_next::<i32>(&path, locations).is_some() {}
-        Ok(Self {
-            detail: Location::new(path, span, comments),
-        })
+        let detail = Detail::new(node)?;
+        while iterate_next::<i32>(&detail.path, locations).is_some() {}
+        Ok(Self { detail })
     }
 }
 
@@ -448,7 +501,7 @@ mod tests {
         );
         assert_eq!(
             f.messages[3].oneofs[0]
-                .location
+                .detail
                 .comments
                 .as_ref()
                 .unwrap()

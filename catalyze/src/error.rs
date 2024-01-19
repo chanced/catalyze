@@ -18,6 +18,9 @@ pub enum Error {
         span.len()
     ))]
     InvalidSpan { span: Vec<i32>, path: Vec<i32> },
+
+    #[snafu(display("Missing source code info for {:?}", path))]
+    MissingSourceCodeInfo { path: String },
 }
 
 impl Error {

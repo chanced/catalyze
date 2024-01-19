@@ -24,8 +24,6 @@
 
 use std::fmt::Display;
 
-pub use protobuf;
-
 pub mod ast;
 pub mod error;
 pub mod generator;
