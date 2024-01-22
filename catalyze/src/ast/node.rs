@@ -80,8 +80,6 @@ impl From<extension::Key> for Key {
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum Node<'ast> {
-    Package(Package<'ast>),
-    File(File<'ast>),
     Message(Message<'ast>),
     Oneof(Oneof<'ast>),
     Enum(Enum<'ast>),
@@ -95,8 +93,6 @@ pub enum Node<'ast> {
 macro_rules! delegate {
     ($method: ident) => {
         match self {
-            Self::Package(n) => n.$method(),
-            Self::File(n) => n.$method(),
             Self::Message(n) => n.$method(),
             Self::Oneof(n) => n.$method(),
             Self::Enum(n) => n.$method(),
@@ -112,8 +108,6 @@ macro_rules! delegate {
 impl fmt::Debug for Node<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Package(n) => n.fmt(f),
-            Self::File(n) => n.fmt(f),
             Self::Message(n) => n.fmt(f),
             Self::Oneof(n) => n.fmt(f),
             Self::Enum(n) => n.fmt(f),
@@ -123,5 +117,11 @@ impl fmt::Debug for Node<'_> {
             Self::Field(n) => n.fmt(f),
             Self::Extension(n) => n.fmt(f),
         }
+    }
+}
+
+pub trait AsNode<'ast>: Into<Node<'ast>> + Copy {
+    fn as_node(&self) -> Node<'ast> {
+        (*self).into()
     }
 }

@@ -1,4 +1,5 @@
 use super::Ast;
+use std::fmt;
 
 #[doc(hidden)]
 pub(super) trait Get<K, T> {
@@ -64,15 +65,15 @@ macro_rules! impl_resolve {
 
     ($($col:ident -> $mod:ident,)+) => {
         $(
-            impl crate::ast::resolve::Get<$mod::Key, $mod::Inner> for Ast {
+            impl Get<$mod::Key, $mod::Inner> for Ast {
                 fn get(&self, key: $mod::Key) -> &$mod::Inner {
                     &self.$col[key]
                 }
             }
-            impl<'ast> crate::ast::resolve::Resolve<$mod::Inner> for crate::ast::resolve::Resolver<'ast, $mod::Key, $mod::Inner>
+            impl<'ast> Resolve<$mod::Inner> for Resolver<'ast, $mod::Key, $mod::Inner>
             {
                 fn resolve(&self) -> &$mod::Inner {
-                    crate::ast::resolve::Get::get(self.ast, self.key.clone())
+                    Get::get(self.ast, self.key.clone())
                 }
             }
             impl<'ast> ::std::ops::Deref for Resolver<'ast, $mod::Key, $mod::Inner>{
@@ -81,10 +82,10 @@ macro_rules! impl_resolve {
                     self.resolve()
                 }
             }
-            impl<'ast> ::std::fmt::Debug for crate::ast::resolve::Resolver<'ast, $mod::Key, $mod::Inner>
+            impl<'ast> fmt::Debug for Resolver<'ast, $mod::Key, $mod::Inner>
             {
-                fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                    ::std::fmt::Debug::fmt(self.resolve(), f)
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    fmt::Debug::fmt(self.resolve(), f)
                 }
             }
         )+
@@ -92,7 +93,7 @@ macro_rules! impl_resolve {
 }
 
 use super::{
-    r#enum, enum_value, extension, extension_block, field, file, message, method, oneof, package,
+    r#enum, enum_value, extension, extension_decl, field, file, message, method, oneof, package,
     service,
 };
 
@@ -107,5 +108,5 @@ impl_resolve!(
     methods -> method,
     fields -> field,
     extensions -> extension,
-    extension_blocks -> extension_block,
+    extension_blocks -> extension_decl,
 );

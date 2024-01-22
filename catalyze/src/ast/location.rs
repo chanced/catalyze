@@ -142,7 +142,7 @@ pub(super) struct File {
     pub(super) messages: Vec<Message>,
     pub(super) enums: Vec<Enum>,
     pub(super) services: Vec<Service>,
-    pub(super) extensions: Vec<ExtensionBlock>,
+    pub(super) extensions: Vec<ExtensionDecl>,
 }
 impl File {
     pub(super) fn new(info: SourceCodeInfo) -> Result<Self, Error> {
@@ -154,7 +154,6 @@ impl File {
         let mut services = Vec::new();
         let mut dependencies = Vec::new();
         let mut extensions = Vec::new();
-
         let Detail {
             path,
             span,
@@ -181,9 +180,7 @@ impl File {
                 path::File::Service => {
                     services.push(Service::new(loc, &mut locations)?);
                 }
-                path::File::Extension => {
-                    extensions.push(ExtensionBlock::new(loc, &mut locations)?);
-                }
+                path::File::Extension => extensions.push(ExtensionDecl::new(loc, &mut locations)?),
                 _ => continue,
             }
         }
@@ -204,7 +201,7 @@ pub(super) struct Message {
     pub(super) detail: Detail,
     pub(super) messages: Vec<Message>,
     pub(super) enums: Vec<Enum>,
-    pub(super) extensions: Vec<ExtensionBlock>,
+    pub(super) extensions: Vec<ExtensionDecl>,
     pub(super) oneofs: Vec<Oneof>,
     pub(super) fields: Vec<Field>,
 }
@@ -218,7 +215,6 @@ impl Message {
         let mut extensions = Vec::new();
         let mut oneofs = Vec::new();
         let mut fields = Vec::new();
-
         while let Some((loc, path)) = iterate_next(&detail.path, locations) {
             match path {
                 path::Message::Field => {
@@ -231,7 +227,7 @@ impl Message {
                     enums.push(Enum::new(loc, locations)?);
                 }
                 path::Message::Extension => {
-                    extensions.push(ExtensionBlock::new(loc, locations)?);
+                    extensions.push(ExtensionDecl::new(loc, locations)?);
                 }
                 path::Message::Oneof => {
                     oneofs.push(Oneof::new(loc, locations)?);
@@ -251,11 +247,11 @@ impl Message {
 }
 
 #[derive(Debug)]
-pub(super) struct ExtensionBlock {
+pub(super) struct ExtensionDecl {
     pub(super) detail: Detail,
     pub(super) extensions: Vec<Field>,
 }
-impl ExtensionBlock {
+impl ExtensionDecl {
     fn new(
         node: ProtoLoc,
         locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,

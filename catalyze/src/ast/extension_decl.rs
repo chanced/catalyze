@@ -1,4 +1,4 @@
-use super::{location, resolve};
+use super::{file, location, package, resolve};
 
 slotmap::new_key_type! {
     pub(super) struct Key;
@@ -6,9 +6,13 @@ slotmap::new_key_type! {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {
+    key: Key,
     span: location::Span,
+    node_path: Box<[i32]>,
     comments: Option<location::Comments>,
     extensions: Vec<Key>,
+    file: file::Key,
+    package: Option<package::Key>,
 }
 
 /// A set of [`Extension`] which are defined together in a single message-like
@@ -23,15 +27,13 @@ pub(super) struct Inner {
 ///
 /// In the above example, `bar` and `baz` would be included the same block.
 ///
-/// Note that `ExtensionBlock` is not a [`node`](crate::ast::Node) in the AST,
+/// Note that `ExtensionDecl` is not a [`node`](crate::ast::Node) in the AST,
 /// but rather a construct used to organize the [`Extension`] as they are
 /// defined in the protobuf. As such, the block does not have a
 /// [`FullyQualifiedName`].  It does, however, have a [`Span`] and possibly
 /// [`Comments`].
-pub struct ExtensionBlock<'ast>(resolve::Resolver<'ast, Key, Inner>);
+pub struct ExtensionDecl<'ast>(resolve::Resolver<'ast, Key, Inner>);
 
-impl<'ast> ExtensionBlock<'ast> {
-    pub fn comments(&self) -> Option<&location::Comments> {
-        self.0.comments.as_ref()
-    }
-}
+impl<'ast> ExtensionDecl<'ast> {}
+
+super::impl_traits_and_methods!(ExtensionDecl, Key, Inner);

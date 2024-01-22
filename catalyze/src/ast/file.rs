@@ -13,14 +13,35 @@ use std::{
 };
 
 use super::{
-    access::NodeKeys, r#enum, extension, extension_block, impl_traits_and_methods, location,
-    message, package, resolve::Resolver, service, uninterpreted::UninterpretedOption,
-    FullyQualifiedName, Hydrated, Set,
+    access::NodeKeys,
+    r#enum, extension, extension_decl,
+    hydrate::{self, Populated},
+    impl_traits_and_methods, location, message, package,
+    resolve::Resolver,
+    service,
+    uninterpreted::UninterpretedOption,
+    FullyQualifiedName, Set,
 };
 
 slotmap::new_key_type! {
     #[doc(hidden)]
     pub struct Key;
+}
+
+pub(super) struct Hydrate {
+    pub(super) name: Box<str>,
+    pub(super) syntax: Option<String>,
+    pub(super) options: FileOptions,
+    pub(super) package: Option<package::Key>,
+    pub(super) messages: Vec<Populated<message::Key>>,
+    pub(super) enums: Vec<Populated<r#enum::Key>>,
+    pub(super) services: Vec<Populated<service::Key>>,
+    pub(super) extensions: Vec<Populated<extension::Key>>,
+    pub(super) extension_blocks: Vec<extension_decl::Key>,
+    pub(super) dependencies: DependenciesInner,
+    pub(super) package_comments: Option<location::Comments>,
+    pub(super) comments: Option<location::Comments>,
+    pub(super) is_build_target: bool,
 }
 
 pub struct File<'ast>(Resolver<'ast, Key, Inner>);
@@ -316,6 +337,14 @@ impl From<protobuf::descriptor::file_options::OptimizeMode> for OptimizeMode {
     }
 }
 
+pub(super) struct DependentsInner {
+    pub(super) direct: Vec<DependentInner>,
+    pub(super) transitive: Vec<DependentInner>,
+    pub(super) public: Vec<DependentInner>,
+    pub(super) weak: Vec<DependentInner>,
+    pub(super) unusued: Vec<DependentInner>,
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub(super) struct DependentInner {
     pub(super) is_used: bool,
@@ -450,42 +479,26 @@ impl<'ast> Dependency<'ast> {
     pub fn is_weak(self) -> bool {
         self.is_weak
     }
+    /// The imported [`File`]
     #[must_use]
     pub fn import(self) -> File<'ast> {
         self.dependency
     }
+
+    /// The [`File`] containing this import.
     #[must_use]
     pub fn imported_by(self) -> File<'ast> {
         self.dependent
-    }
-    #[must_use]
-    pub fn as_file(self) -> File<'ast> {
-        self.dependency
     }
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct DependenciesInner {
-    pub(super) all: Vec<DependencyInner>,
+    pub(super) direct: Vec<DependencyInner>,
+    pub(super) transitive: Vec<DependenciesInner>,
     pub(super) public: Vec<DependencyInner>,
     pub(super) weak: Vec<DependencyInner>,
     pub(super) unusued: Vec<DependencyInner>,
-}
-
-pub(super) struct Hydrate {
-    pub(super) name: Box<str>,
-    pub(super) syntax: Option<String>,
-    pub(super) options: FileOptions,
-    pub(super) package: Option<package::Key>,
-    pub(super) messages: Vec<Hydrated<message::Key>>,
-    pub(super) enums: Vec<Hydrated<r#enum::Key>>,
-    pub(super) services: Vec<Hydrated<service::Key>>,
-    pub(super) extensions: Vec<Hydrated<extension::Key>>,
-    pub(super) extension_blocks: Vec<extension_block::Key>,
-    pub(super) dependencies: DependenciesInner,
-    pub(super) package_comments: Option<location::Comments>,
-    pub(super) comments: Option<location::Comments>,
-    pub(super) is_build_target: bool,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -502,13 +515,9 @@ pub(super) struct Inner {
     services: Set<service::Key>,
 
     extensions: Set<extension::Key>,
-    extension_blocks: Vec<extension_block::Key>,
+    extension_blocks: Vec<extension_decl::Key>,
 
     dependencies: DependenciesInner,
-    used_imports: Vec<DependencyInner>,
-    unused_dependencies: Vec<DependencyInner>,
-    transitive_dependencies: Vec<DependencyInner>,
-
     package_comments: Option<location::Comments>,
     comments: Option<location::Comments>,
 
@@ -584,37 +593,20 @@ impl Inner {
         self.is_build_target = is_build_target;
     }
 
-    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Hydrated<Key>, Error> {
-        let Hydrate {
-            name,
-            syntax,
-            options,
-            package,
-            messages,
-            enums,
-            services,
-            extensions,
-            extension_blocks,
-            dependencies,
-            package_comments,
-            comments,
-            is_build_target,
-        } = hydrate;
-        self.set_name_and_path(name);
-        self.syntax = Syntax::parse(&syntax.unwrap_or_default())?;
-        self.package = package;
-        self.messages = messages.into();
-        self.enums = enums.into();
-        self.services = services.into();
-        self.extensions = extensions.into();
-        self.extension_blocks = extension_blocks;
-        self.dependencies = dependencies;
-        self.package_comments = package_comments;
-        self.comments = comments;
-        self.is_build_target = is_build_target;
-
-        self.hydrate_options(options);
-
+    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Populated<Key>, Error> {
+        self.set_name_and_path(hydrate.name);
+        self.syntax = Syntax::parse(&hydrate.syntax.unwrap_or_default())?;
+        self.package = hydrate.package;
+        self.messages = hydrate.messages.into();
+        self.enums = hydrate.enums.into();
+        self.services = hydrate.services.into();
+        self.extensions = hydrate.extensions.into();
+        self.extension_blocks = hydrate.extension_blocks;
+        self.dependencies = hydrate.dependencies;
+        self.package_comments = hydrate.package_comments;
+        self.comments = hydrate.comments;
+        self.is_build_target = hydrate.is_build_target;
+        self.hydrate_options(hydrate.options);
         Ok((self.key, self.fqn.clone(), self.name.clone()))
     }
     /// Hydrates the data within the descriptor.

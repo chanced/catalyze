@@ -2,9 +2,9 @@ use std::iter;
 
 use super::{
     access::{self, NodeKeys},
-    container, r#enum, extension, extension_block,
+    container, r#enum, extension, extension_decl,
     field::{self},
-    file, impl_traits_and_methods,
+    file, hydrate, impl_traits_and_methods,
     location::{self, Comments, Span},
     message, node,
     oneof::{self},
@@ -13,7 +13,7 @@ use super::{
     reserved::Reserved,
     resolve::Resolver,
     uninterpreted::UninterpretedOption,
-    FullyQualifiedName, Hydrated, Set,
+    FullyQualifiedName, Populated, Set,
 };
 use protobuf::{
     descriptor::{descriptor_proto, MessageOptions},
@@ -35,12 +35,12 @@ pub(super) struct Hydrate {
     pub(super) reserved_names: Vec<String>,
     pub(super) extension_range: Vec<descriptor_proto::ExtensionRange>,
     pub(super) special_fields: protobuf::SpecialFields,
-    pub(super) messages: Vec<Hydrated<message::Key>>,
-    pub(super) enums: Vec<Hydrated<r#enum::Key>>,
-    pub(super) fields: Vec<Hydrated<field::Key>>,
-    pub(super) oneofs: Vec<Hydrated<oneof::Key>>,
-    pub(super) extensions: Vec<Hydrated<extension::Key>>,
-    pub(super) extension_blocks: Vec<extension_block::Key>,
+    pub(super) messages: Vec<Populated<message::Key>>,
+    pub(super) enums: Vec<Populated<r#enum::Key>>,
+    pub(super) fields: Vec<Populated<field::Key>>,
+    pub(super) oneofs: Vec<Populated<oneof::Key>>,
+    pub(super) extensions: Vec<Populated<extension::Key>>,
+    pub(super) extension_blocks: Vec<extension_decl::Key>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -56,8 +56,7 @@ pub(super) struct Inner {
     file: file::Key,
 
     extensions: Set<extension::Key>,
-    extension_blocks: Vec<extension_block::Key>,
-
+    extension_ranges: Vec<ExtensionRange>,
     fields: Set<field::Key>,
     enums: Set<r#enum::Key>,
     messages: Set<message::Key>,
@@ -73,7 +72,6 @@ pub(super) struct Inner {
     referenced_by: Vec<ReferenceInner>,
     references: Vec<ReferenceInner>,
 
-    extension_ranges: Vec<ExtensionRange>,
     reserved: Reserved,
     message_set_wire_format: bool,
     no_standard_descriptor_accessor: bool,
@@ -113,7 +111,7 @@ impl NodeKeys for Inner {
 }
 
 impl Inner {
-    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Hydrated<Key> {
+    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Populated<Key> {
         let Hydrate {
             name,
             container,

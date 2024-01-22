@@ -2,7 +2,7 @@ use crate::ast::impl_traits_and_methods;
 
 use super::{
     access::NodeKeys,
-    extension_block,
+    extension_decl,
     field::{TypeInner, ValueInner},
     file, location, message, package,
     reference::{ReferenceInner, References},
@@ -22,7 +22,7 @@ pub(super) struct Inner {
     key: Key,
     name: Box<str>,
     value: ValueInner,
-    block: extension_block::Key,
+    block: extension_decl::Key,
     fqn: FullyQualifiedName,
     node_path: Vec<i32>,
     span: location::Span,

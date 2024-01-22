@@ -5,7 +5,7 @@ use crate::ast::{
     FullyQualifiedName,
 };
 
-use super::{access::NodeKeys, file, location, node, package};
+use super::{access::NodeKeys, file, hydrate, location, node, package};
 
 pub struct EnumValue<'ast>(Resolver<'ast, Key, Inner>);
 
@@ -52,29 +52,16 @@ pub(super) struct Inner {
     options_special_fields: SpecialFields,
 }
 impl Inner {
-    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> super::Hydrated<Key> {
-        let Hydrate {
-            name,
-            number,
-            location,
-            options,
-            special_fields,
-            r#enum,
-            file,
-            package,
-        } = hydrate;
-        self.name = name;
-        self.number = number;
-        self.comments = location.comments;
-        self.file = file;
-        self.span = location.span;
-        self.package = package;
-        self.special_fields = special_fields;
-        self.r#enum = r#enum;
-
-        let opts = options.clone().unwrap();
-
-        self.hydrate_options(options.unwrap_or_default());
+    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> super::Populated<Key> {
+        self.name = hydrate.name;
+        self.number = hydrate.number;
+        self.comments = hydrate.location.comments;
+        self.file = hydrate.file;
+        self.span = hydrate.location.span;
+        self.package = hydrate.package;
+        self.special_fields = hydrate.special_fields;
+        self.r#enum = hydrate.r#enum;
+        self.hydrate_options(hydrate.options.unwrap_or_default());
         (self.key, self.fqn.clone(), self.name.clone())
     }
 

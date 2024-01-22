@@ -1,8 +1,9 @@
 use protobuf::{descriptor::EnumOptions, SpecialFields};
+use snafu::location;
 
 use crate::ast::{
     access::NodeKeys,
-    enum_value, file, impl_traits_and_methods, location,
+    file, impl_traits_and_methods,
     location::{Comments, Span},
     package,
     reference::ReferrerKey,
@@ -13,7 +14,7 @@ use crate::ast::{
 
 use std::{fmt, str::FromStr};
 
-use super::{container, Hydrated, Set};
+use super::{container, enum_value, hydrate, location, Populated, Set};
 
 slotmap::new_key_type! {
     pub(super) struct Key;
@@ -21,7 +22,7 @@ slotmap::new_key_type! {
 
 pub(super) struct Hydrate {
     pub(super) name: Box<str>,
-    pub(super) values: Vec<Hydrated<enum_value::Key>>,
+    pub(super) values: Vec<Populated<enum_value::Key>>,
     pub(super) location: location::Detail,
     pub(super) options: protobuf::MessageField<EnumOptions>,
     pub(super) special_fields: protobuf::SpecialFields,
@@ -55,26 +56,15 @@ pub(super) struct Inner {
 }
 
 impl Inner {
-    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> Hydrated<Key> {
-        let Hydrate {
-            name,
-            values,
-            location,
-            options,
-            reserved_names,
-            reserved_ranges,
-            container: container_key,
-            special_fields,
-            well_known,
-        } = hydrate;
-        self.values = values.into();
-        self.name = name;
-        self.set_reserved(reserved_names, reserved_ranges);
-        self.container = container_key;
-        self.well_known = well_known;
-        self.special_fields = special_fields;
-        self.hydrate_location(location);
-        self.hydrate_options(options.unwrap_or_default());
+    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> Populated<Key> {
+        self.values = hydrate.values.into();
+        self.name = hydrate.name;
+        self.set_reserved(hydrate.reserved_names, hydrate.reserved_ranges);
+        self.container = hydrate.container;
+        self.well_known = hydrate.well_known;
+        self.special_fields = hydrate.special_fields;
+        self.hydrate_location(hydrate.location);
+        self.hydrate_options(hydrate.options.unwrap_or_default());
         (self.key, self.fqn.clone(), self.name.clone())
     }
 

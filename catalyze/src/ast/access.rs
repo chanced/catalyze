@@ -81,13 +81,10 @@ pub(super) trait NodeKeys {
 }
 
 pub(super) trait Key {
-    type Key: slotmap::Key + Into<super::node::Key> + Copy;
+    type Key: slotmap::Key + Copy;
     fn key(&self) -> Self::Key;
     fn key_mut(&mut self) -> &mut Self::Key;
     fn set_key(&mut self, key: Self::Key) {
         *self.key_mut() = key;
-    }
-    fn node_key(&self) -> super::node::Key {
-        self.key().into()
     }
 }

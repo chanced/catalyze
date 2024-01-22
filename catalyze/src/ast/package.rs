@@ -44,11 +44,11 @@ pub(super) struct Inner {
 }
 
 impl Inner {
-    pub fn new(name: impl AsRef<str>) -> Self {
+    pub fn new(name: &str) -> Self {
         Self {
             key: Key::default(),
-            name: name.as_ref().into(),
-            is_well_known: name.as_ref() == WELL_KNOWN,
+            name: name.into(),
+            is_well_known: name == WELL_KNOWN,
             files: Vec::default(),
             fqn: FullyQualifiedName::for_package(name),
             comments: Vec::default(),
@@ -56,6 +56,13 @@ impl Inner {
     }
     pub(super) fn fqn(&self) -> &FullyQualifiedName {
         &self.fqn
+    }
+    pub(super) fn hydrate(&mut self, name: String) {
+        if !self.name.is_empty() {
+            return;
+        }
+        self.is_well_known = name == WELL_KNOWN;
+        self.name = name.into();
     }
     pub(super) fn add_file(&mut self, file: file::Key) {
         self.files.push(file);

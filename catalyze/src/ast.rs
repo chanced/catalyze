@@ -3,7 +3,7 @@ pub mod container;
 pub mod r#enum;
 pub mod enum_value;
 pub mod extension;
-pub mod extension_block;
+pub mod extension_decl;
 pub mod field;
 pub mod file;
 pub mod location;
@@ -21,71 +21,84 @@ pub mod uninterpreted;
 mod hydrate;
 mod resolve;
 
+use crate::HashMap;
+
+use protobuf::descriptor::FileDescriptorProto;
 use std::{
     fmt,
-    iter::once,
     ops::{Deref, Index, IndexMut},
-    str::FromStr,
-    sync::Arc,
-};
-
-use ahash::HashMapExt;
-use protobuf::descriptor::{
-    DescriptorProto, EnumDescriptorProto, EnumValueDescriptorProto, FieldDescriptorProto,
-    FileDescriptorProto, MethodDescriptorProto, OneofDescriptorProto, ServiceDescriptorProto,
 };
 
 use slotmap::SlotMap;
 
-use crate::{
-    ast::file::{DependencyInner, DependentInner},
-    error::Error,
-    to_i32, HashMap, HashSet,
-};
+use crate::error::Error;
 
 trait FromFqn {
     fn from_fqn(fqn: FullyQualifiedName) -> Self;
 }
 
 #[derive(Debug, Clone)]
-struct Table<K, V>
+struct Table<K, V, I = HashMap<FullyQualifiedName, K>>
 where
     K: slotmap::Key,
 {
     map: SlotMap<K, V>,
-    lookup: HashMap<FullyQualifiedName, K>,
+    index: I,
     order: Vec<K>,
 }
 
-impl<K, V> Table<K, V>
+trait WithCapacity {
+    fn with_capacity(len: usize) -> Self;
+}
+impl<K, V> WithCapacity for HashMap<K, V> {
+    fn with_capacity(capacity: usize) -> Self {
+        ahash::HashMapExt::with_capacity(capacity)
+    }
+}
+
+impl<K, V, I> Table<K, V, I>
 where
     K: slotmap::Key,
+    I: Default,
 {
     fn with_capacity(len: usize) -> Self {
         Self {
             map: SlotMap::with_capacity_and_key(len),
-            lookup: HashMap::with_capacity(len),
+            index: I::default(),
             order: Vec::with_capacity(len),
         }
     }
 }
 
-impl<K, V> Default for Table<K, V>
+impl<K, V, N> Default for Table<K, V, N>
 where
     K: slotmap::Key,
+    N: Default,
 {
     fn default() -> Self {
         Self {
             map: SlotMap::with_key(),
-            lookup: HashMap::default(),
+            index: Default::default(),
             order: Vec::default(),
         }
     }
 }
-impl<K, V> Table<K, V>
+impl<K, V> Table<K, V, HashMap<FullyQualifiedName, K>>
 where
     K: slotmap::Key,
     V: access::FullyQualifiedName,
+{
+    fn get_by_fqn(&self, fqn: &FullyQualifiedName) -> Option<&V> {
+        self.index.get(fqn).map(|key| &self.map[*key])
+    }
+    fn get_mut_by_fqn(&mut self, fqn: &FullyQualifiedName) -> Option<&mut V> {
+        self.index.get(fqn).map(|key| &mut self.map[*key])
+    }
+}
+
+impl<K, V, N> Table<K, V, N>
+where
+    K: slotmap::Key,
 {
     fn get(&self, key: K) -> Option<&V> {
         self.map.get(key)
@@ -102,15 +115,9 @@ where
     fn keys(&self) -> impl '_ + Iterator<Item = K> {
         self.order.iter().copied()
     }
-    fn get_by_fqn(&self, fqn: &FullyQualifiedName) -> Option<&V> {
-        self.lookup.get(fqn).map(|key| &self.map[*key])
-    }
-    fn get_mut_by_fqn(&mut self, fqn: &FullyQualifiedName) -> Option<&mut V> {
-        self.lookup.get(fqn).map(|key| &mut self.map[*key])
-    }
 }
 
-impl<K, V> Index<K> for Table<K, V>
+impl<K, V, N> Index<K> for Table<K, V, N>
 where
     K: slotmap::Key,
 {
@@ -136,17 +143,17 @@ where
     pub fn new() -> Self {
         Self {
             map: SlotMap::with_key(),
-            lookup: HashMap::default(),
+            index: HashMap::default(),
             order: Vec::new(),
         }
     }
-    fn get_or_insert_key_by_fqn(&mut self, fqn: FullyQualifiedName) -> K {
-        self.get_or_insert_by_fqn(fqn).0
+    fn get_or_insert_key(&mut self, fqn: FullyQualifiedName) -> K {
+        self.get_or_insert(fqn).0
     }
 
-    fn get_or_insert_by_fqn(&mut self, fqn: FullyQualifiedName) -> (K, &mut V) {
+    fn get_or_insert(&mut self, fqn: FullyQualifiedName) -> (K, &mut V) {
         let key = *self
-            .lookup
+            .index
             .entry(fqn.clone())
             .or_insert_with(|| self.map.insert(fqn.into()));
         let value = &mut self.map[key];
@@ -167,13 +174,25 @@ type MethodTable = Table<method::Key, method::Inner>;
 type FieldTable = Table<field::Key, field::Inner>;
 type OneofTable = Table<oneof::Key, oneof::Inner>;
 type ExtensionTable = Table<extension::Key, extension::Inner>;
-type ExtensionBlockTable = Table<extension_block::Key, extension_block::Inner>;
+type ExtensionDeclTable = Table<extension_decl::Key, extension_decl::Inner, ()>;
 
 #[derive(Debug, Clone)]
 struct Set<K> {
     set: Vec<K>,
     by_name: HashMap<Box<str>, K>,
 }
+
+impl<K> Extend<Populated<K>> for Set<K>
+where
+    K: Copy,
+{
+    fn extend<T>(&mut self, iter: T)
+    where
+        T: IntoIterator<Item = Populated<K>>,
+    {
+    }
+}
+
 impl<K> Default for Set<K> {
     fn default() -> Self {
         Self {
@@ -187,7 +206,7 @@ impl<K> Set<K>
 where
     K: Copy,
 {
-    fn from_vec(hydrated: Vec<Hydrated<K>>) -> Self {
+    fn from_vec(hydrated: Vec<Populated<K>>) -> Self {
         let mut set = Vec::with_capacity(hydrated.len());
         let mut by_name = HashMap::with_capacity(hydrated.len());
         for (key, _, name) in hydrated {
@@ -207,7 +226,7 @@ where
     fn get(&self, index: usize) -> Option<K> {
         self.set.get(index).copied()
     }
-    fn from_slice(hydrated: &[Hydrated<K>]) -> Self {
+    fn from_slice(hydrated: &[Populated<K>]) -> Self {
         let mut set = Vec::with_capacity(hydrated.len());
         let mut by_name = HashMap::with_capacity(hydrated.len());
         for (key, _, name) in hydrated {
@@ -217,11 +236,11 @@ where
         Self { set, by_name }
     }
 }
-impl<K> From<Vec<Hydrated<K>>> for Set<K>
+impl<K> From<Vec<Populated<K>>> for Set<K>
 where
     K: Copy,
 {
-    fn from(v: Vec<Hydrated<K>>) -> Self {
+    fn from(v: Vec<Populated<K>>) -> Self {
         Self::from_vec(v)
     }
 }
@@ -249,9 +268,6 @@ impl<K> Deref for Set<K> {
     }
 }
 
-/// (key, fqn, name)
-type Hydrated<K> = (K, FullyQualifiedName, Box<str>);
-
 #[derive(Debug, Default)]
 pub struct Ast {
     packages: PackageTable,
@@ -264,18 +280,14 @@ pub struct Ast {
     fields: FieldTable,
     oneofs: OneofTable,
     extensions: ExtensionTable,
-    extension_blocks: ExtensionBlockTable,
+    extension_blocks: ExtensionDeclTable,
     nodes: HashMap<FullyQualifiedName, node::Key>,
     well_known_package: package::Key,
 }
 
 impl Ast {
     fn new(file_descriptors: Vec<FileDescriptorProto>, targets: &[String]) -> Result<Self, Error> {
-        Self {
-            files: FileTable::with_capacity(file_descriptors.len()),
-            ..Default::default()
-        }
-        .hydrate(file_descriptors, targets)
+        hydrate::run(file_descriptors, targets)
     }
 }
 
@@ -348,8 +360,7 @@ impl FullyQualifiedName {
     pub fn as_str(&self) -> &str {
         &self.0
     }
-    fn push(&mut self, value: impl AsRef<str>) {
-        let value = value.as_ref();
+    fn push(&mut self, value: &str) {
         if value.is_empty() {
             return;
         }
@@ -360,15 +371,14 @@ impl FullyQualifiedName {
         existing.push_str(value);
         self.0 = existing.into();
     }
-    fn for_package(package_name: impl AsRef<str>) -> Self {
-        let package_name = package_name.as_ref();
-        if package_name.is_empty() {
+    fn for_package(package: &str) -> Self {
+        if package.is_empty() {
             return Self::default();
         }
-        if package_name.starts_with('.') {
-            Self(package_name.into())
+        if package.starts_with('.') {
+            Self(package.into())
         } else {
-            Self(format!(".{package_name}").into())
+            Self(format!(".{package}").into())
         }
     }
 }
@@ -750,6 +760,18 @@ macro_rules! impl_base_traits_and_methods {
     };
 }
 macro_rules! impl_traits_and_methods {
+    (ExtensionDecl, $key:ident, $inner: ident) => {
+        crate::ast::impl_key!($inner, $key);
+        crate::ast::node_method_new!(ExtensionDecl, $key);
+        crate::ast::node_method_key!(ExtensionDecl, $key);
+        crate::ast::node_method_ast!(ExtensionDecl);
+        crate::ast::impl_clone_copy!(ExtensionDecl);
+        crate::ast::impl_eq!(ExtensionDecl);
+        crate::ast::impl_resolve!(ExtensionDecl, $key, $inner);
+        crate::ast::impl_from_key_and_ast!(ExtensionDecl, $key, $inner);
+        // crate::ast::impl_fmt!(ExtensionDecl, $key, $inner);
+    };
+
     (Package, $key:ident, $inner: ident) => {
         crate::ast::impl_base_traits_and_methods!(Package, $key, $inner);
     };
@@ -829,7 +851,7 @@ use node_method_ast;
 use node_method_key;
 use node_method_new;
 
-use self::file::Hydrate;
+use self::hydrate::Populated;
 // use impl_state;
 
 #[cfg(test)]
