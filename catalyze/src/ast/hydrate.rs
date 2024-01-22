@@ -1,18 +1,16 @@
 use crossbeam::{
-    channel::{Receiver},
+    channel,
     deque::{Injector, Stealer, Worker},
-    thread,
+    sync::WaitGroup,
 };
 use itertools::Itertools;
 use std::{
+    self,
     collections::HashMap,
     ops::{Add, ControlFlow},
     path::PathBuf,
     str::FromStr,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        OnceLock,
-    },
+    thread,
 };
 
 use protobuf::descriptor::{
@@ -35,11 +33,11 @@ use super::{
     OneofTable, PackageTable, ServiceTable,
 };
 
-
-struct Sender(crossbeam::Sender<Result<Job>, Error>);
+type Receiver = channel::Receiver<Result<Completed, Error>>;
+#[derive(Clone)]
+struct Sender(channel::Sender<Result<Completed, Error>>);
 impl Sender {
-    fn send(&self, job: Job) -> Result<(), Error> {
-        
+    fn send(&self, result: Result<Completed, Error>) -> ControlFlow<()> {
         match self.0.send(result) {
             Ok(()) => ControlFlow::Continue(()),
             Err(_) => ControlFlow::Break(()),
@@ -47,17 +45,50 @@ impl Sender {
     }
 }
 
+enum Completed {
+    Link(Link),
+    Finalize(Finalize),
+}
+
+impl From<Job> for Completed {
+    fn from(job: Job) -> Self {
+        match job {
+            Job::Populate(_) => unreachable!(),
+            Job::Link(link) => Self::Link(link),
+            Job::Finalize(finalize) => Self::Finalize(finalize),
+        }
+    }
+}
+impl From<Finalize> for Completed {
+    fn from(v: Finalize) -> Self {
+        Self::Finalize(v)
+    }
+}
+
+impl From<Link> for Completed {
+    fn from(v: Link) -> Self {
+        Self::Link(v)
+    }
+}
+
 struct Link {
     file: file::Key,
     fqn: FullyQualifiedName,
-    path: PathBuf,
-    nodes: HashMap<FullyQualifiedName, node::Key>
+    nodes: HashMap<FullyQualifiedName, node::Key>,
+    dependencies: Vec<file::DependencyInner>,
+    dependents: Vec<file::DependentInner>,
 }
 
+struct Finalize {
+    key: file::Key,
+    fqn: FullyQualifiedName,
+    name: Box<str>,
+    path: PathBuf,
+}
 enum Job {
     Populate(FileDescriptorProto),
     Link(Link),
-    Done(file::Key)
+    Finalize(Finalize),
 }
 
 impl From<Link> for Job {
@@ -117,7 +148,6 @@ struct Service {
     package: Option<package::Key>,
 }
 
-
 struct Method {
     fqn: FullyQualifiedName,
     location: location::Method,
@@ -170,10 +200,10 @@ struct Hydrate<'input> {
     extensions: Mutex<ExtensionTable>,
     extension_blocks: Mutex<ExtensionDeclTable>,
     well_known: package::Key,
-    
+
     targets: &'input [String],
-    injector: Injector<File>,
-    stealers: Vec<Stealer<File>>,
+    injector: Injector<Job>,
+    stealers: Vec<Stealer<Job>>,
 }
 
 #[allow(clippy::from_over_into)]
@@ -233,85 +263,111 @@ impl<'input> Hydrate<'input> {
         file_descriptors: Vec<FileDescriptorProto>,
         targets: &'input [String],
     ) -> Result<Self, Error> {
-
-        let well_known = self.package(Some("google.protobuf".to_string()));
+        let (well_known, packages) = create_packages_table();
         let (workers, stealers) = create_workers();
-        let (sender, receiver) = crossbeam::channel::unbounded();
+        let (sender, receiver) = channel::unbounded();
+
         let injector = Injector::new();
         Self {
             injector,
             targets,
             stealers,
             well_known,
+            packages,
             files: Mutex::new(FileTable::with_capacity(file_descriptors.len())),
             ..Default::default()
         }
-        .run(file_descriptors, sender, receiver, workers)
+        .start(file_descriptors, Sender(sender), receiver, workers)
     }
 
-    fn run(mut self, descriptors: Vec<FileDescriptorProto>) -> Result<Self, Error> {
-        thread::scope(|scope| {
-            let nodes = scope.spawn(move |_| self.accumulate(res_recv));
-            for i in 0..worker_count {
-                scope.spawn(move |_| {
-                    let mut local = &workers[i];
-                    while let Some(hydrate) = self.next(&local) {
-                        if self.send(self.file(hydrate)).is_break() {
-                            return;
-                        }
-                    }
-                });
-                let Some(next) = self.next(&workers[i]) else {
-                    return;
+    fn start(
+        mut self,
+        descriptors: Vec<FileDescriptorProto>,
+        sender: Sender,
+        receiver: Receiver,
+        workers: Vec<Worker<Job>>,
+    ) -> Result<Self, Error> {
+        let mut wg = WaitGroup::new();
+        let res = thread::scope(|scope| {
+            let acc_handle = scope.spawn(|| self.accumulate(receiver));
+            let mut worker_handles = Vec::with_capacity(workers.len());
+            for i in 0..workers.len() {
+                let sender = if i < workers.len() - 1 {
+                    sender.clone()
+                } else {
+                    sender
                 };
+                worker_handles
+                    .push(scope.spawn(move || self.work(&workers[i], sender, wg.clone())));
             }
+            for handle in worker_handles {
+                handle.join().unwrap();
+            }
+            acc_handle.join().unwrap()
         });
         todo!()
         // Ok(self)
     }
-    
+
+    fn link(&self, link: Link) -> Result<Finalize, Error> {
+        todo!()
+    }
+
+    fn work(&self, local: &Worker<Job>, results: Sender, wg: WaitGroup) {
+        let mut wg = Some(wg);
+
+        let link = while let Some(job) = self.next(&local) {
+            if match job {
+                Job::Populate(desc) => results.send(self.file(desc).map(Completed::Link)),
+                Job::Link(link) => {
+                    if let Some(wg) = wg.take() {
+                        wg.wait();
+                    }
+                    results.send(self.link(link).map(Completed::Finalize))
+                }
+                Job::Finalize(done) => ControlFlow::Continue(()),
+            }
+            .is_break()
+            {
+                break;
+            }
+        };
+    }
+
     fn queue(&self, descriptors: Vec<FileDescriptorProto>) {
         for descriptor in descriptors {
-            self.injector.push(File { descriptor });
+            self.injector.push(Job::Populate(descriptor));
         }
     }
 
-    fn accumulate(
-        &self,
-        results: Receiver<Result<Populated<file::Key>, Error>>,
-    ) -> Result<Accumulated, Error> {
+    fn accumulate(&self, results: Receiver) -> Result<Accumulated, Error> {
         let mut acc = Accumulated::default();
         loop {
             if let Ok(result) = results.recv() {
-                let (key, fqn, name) = result?;
-                acc.nodes.insert(fqn, key.into());
-                let path = PathBuf::from_str(&name).unwrap(); // infallible
-                acc.by_path.insert(path, key);
-                acc.by_name.insert(name, key);
+                match result? {
+                    Completed::Link(_) => todo!(),
+                    Completed::Finalize(_) => todo!(),
+                }
+                todo!()
             } else {
                 return Ok(acc);
             }
         }
     }
 
-    
-
-    fn next(&self, local: &Worker<File>) -> Option<File> {
+    fn next(&self, local: &Worker<Job>) -> Option<Job> {
         local
             .pop()
             .or_else(|| self.injector.steal().success())
             .or_else(|| self.stealers.iter().find_map(|s| s.steal().success()))
     }
 
-    fn file(&self, hydrate: File) -> Result<Link, Error> {
-        let File { descriptor } = hydrate;
-        let targets = self.targets;
+    fn file(&self, descriptor: FileDescriptorProto) -> Result<Link, Error> {
         let name = descriptor.name.unwrap_or_default().into_boxed_str();
         let locations = location::File::new(descriptor.source_code_info.unwrap_or_else(|| {
             panic!("source_code_info not found on FileDescriptorProto for \"{name}\"")
         }))?;
-
-        let is_build_target = targets.iter().any(|t| t == name.as_ref());
+        let is_build_target = self.targets.iter().any(|t| t == name.as_ref());
 
         let (package, package_fqn) = self.package(descriptor.package);
         let fqn = FullyQualifiedName::new(&name, package_fqn);
@@ -343,7 +399,7 @@ impl<'input> Hydrate<'input> {
             package,
         )?;
 
-        let (extension_blocks, extensions) = self.hydrate_extensions(
+        let (extension_blocks, extensions) = self.extensions(
             descriptor.extension,
             locations.extensions,
             key.into(),
@@ -483,10 +539,6 @@ impl<'input> Hydrate<'input> {
         false
     }
 
-    fn extend_nodes<K>(nodes:&mut HashMap<FullyQualifiedName, node::Key>, iter: impl ExactSizeIterator<Item = &Populated<K>>) {
-        nodes.extend(iter.map(|(key, fqn, _)| (fqn.clone(), key.into())));
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn hydrate_message(&self, hydrate: Message) -> Result<Populated<message::Key>, Error> {
         let Message {
@@ -514,7 +566,7 @@ impl<'input> Hydrate<'input> {
             .add(descriptor.field.len());
 
         let mut descendants = HashMap::with_capacity(direct_node_count);
-        let (extension_blocks, extensions) = self.hydrate_extensions(
+        let (extension_blocks, extensions) = self.extensions(
             descriptor.extension,
             location.extensions,
             key.into(),
@@ -522,7 +574,8 @@ impl<'input> Hydrate<'input> {
             file,
             package,
         )?;
-        descendants.extend(extensions.iter().map(|(k, fqn, _) (fqn, k.into()));
+
+        extend_by_fqn(&mut descendants, extensions.iter());
 
         let messages = self.hydrate_messages(
             descriptor.nested_type,
@@ -760,7 +813,7 @@ impl<'input> Hydrate<'input> {
         todo!()
     }
 
-    fn hydrate_extensions(
+    fn extensions(
         &self,
         descriptors: Vec<FieldDescriptorProto>,
         locations: Vec<location::ExtensionDecl>,
@@ -912,11 +965,26 @@ fn assert_file_locations(locations: &[location::File], descriptors: &[FileDescri
     );
 }
 
-fn create_workers() -> (Vec<Worker<File>>, Vec<Stealer<File>>) {
+fn extend_by_fqn<'job, K>(
+    nodes: &mut HashMap<FullyQualifiedName, node::Key>,
+    iter: impl 'job + ExactSizeIterator<Item = &'job Populated<K>>,
+) where
+    K: 'static + Into<node::Key>,
+{
+    nodes.extend(iter.map(|(key, fqn, _)| (fqn.clone(), (*key).into())));
+}
+
+fn create_workers() -> (Vec<Worker<Job>>, Vec<Stealer<Job>>) {
     let worker_count = (CPU_COUNT - 1).min(1);
     let workers = (0..worker_count)
-        .map(|_| Worker::<File>::new_lifo())
+        .map(|_| Worker::<Job>::new_lifo())
         .collect_vec();
     let stealers = workers.iter().map(Worker::stealer).collect_vec();
     (workers, stealers)
+}
+
+fn create_packages_table() -> (package::Key, Mutex<PackageTable>) {
+    let mut packages = PackageTable::with_capacity(1);
+    let key = packages.get_or_insert_key(FullyQualifiedName::for_package("google.protobuf"));
+    (key, Mutex::new(packages))
 }
