@@ -182,13 +182,13 @@ struct Set<K> {
     by_name: HashMap<Box<str>, K>,
 }
 
-impl<K> Extend<Populated<K>> for Set<K>
+impl<K> Extend<node::Ident<K>> for Set<K>
 where
     K: Copy,
 {
     fn extend<T>(&mut self, iter: T)
     where
-        T: IntoIterator<Item = Populated<K>>,
+        T: IntoIterator<Item = node::Ident<K>>,
     {
     }
 }
@@ -206,12 +206,12 @@ impl<K> Set<K>
 where
     K: Copy,
 {
-    fn from_vec(hydrated: Vec<Populated<K>>) -> Self {
-        let mut set = Vec::with_capacity(hydrated.len());
-        let mut by_name = HashMap::with_capacity(hydrated.len());
-        for (key, _, name) in hydrated {
-            set.push(key);
-            by_name.insert(name, key);
+    fn from_vec(nodes: Vec<node::Ident<K>>) -> Self {
+        let mut set = Vec::with_capacity(nodes.len());
+        let mut by_name = HashMap::with_capacity(nodes.len());
+        for node in nodes {
+            set.push(node.key);
+            by_name.insert(node.name, node.key);
         }
         Self { set, by_name }
     }
@@ -226,21 +226,22 @@ where
     fn get(&self, index: usize) -> Option<K> {
         self.set.get(index).copied()
     }
-    fn from_slice(hydrated: &[Populated<K>]) -> Self {
-        let mut set = Vec::with_capacity(hydrated.len());
-        let mut by_name = HashMap::with_capacity(hydrated.len());
-        for (key, _, name) in hydrated {
-            set.push(*key);
-            by_name.insert(name.clone(), *key);
+
+    fn from_slice(nodes: &[node::Ident<K>]) -> Self {
+        let mut set = Vec::with_capacity(nodes.len());
+        let mut by_name = HashMap::with_capacity(nodes.len());
+        for node in nodes {
+            set.push(node.key);
+            by_name.insert(node.name.clone(), node.key);
         }
         Self { set, by_name }
     }
 }
-impl<K> From<Vec<Populated<K>>> for Set<K>
+impl<K> From<Vec<node::Ident<K>>> for Set<K>
 where
     K: Copy,
 {
-    fn from(v: Vec<Populated<K>>) -> Self {
+    fn from(v: Vec<node::Ident<K>>) -> Self {
         Self::from_vec(v)
     }
 }
@@ -401,6 +402,9 @@ macro_rules! impl_key {
             }
         }
         impl $inner {
+            pub(super) fn key(&self) -> $key {
+                self.key
+            }
             pub(super) fn set_key(&mut self, key: $key) {
                 self.key = key;
             }
@@ -451,9 +455,17 @@ macro_rules! impl_access_fqn {
                 self.fully_qualified_name()
             }
         }
-        impl<'ast> crate::ast::access::FullyQualifiedName for $inner {
+        impl crate::ast::access::FullyQualifiedName for $inner {
             fn fully_qualified_name(&self) -> &crate::ast::FullyQualifiedName {
                 &self.fqn
+            }
+        }
+        impl $inner {
+            pub(super) fn fully_qualified_name(&self) -> &crate::ast::FullyQualifiedName {
+                &self.fqn
+            }
+            pub(super) fn fqn(&self) -> &crate::ast::FullyQualifiedName {
+                self.fully_qualified_name()
             }
         }
     };
@@ -596,8 +608,16 @@ macro_rules! impl_set_uninterpreted_options {
 macro_rules! impl_access_name {
     ($node:ident, $inner: ident) => {
         impl $inner {
+            pub(super) fn name(&self) -> &str {
+                &self.name
+            }
             pub(super) fn set_name(&mut self, name: impl Into<Box<str>>) {
                 self.name = name.into();
+            }
+        }
+        impl<'ast> crate::ast::access::Name for $inner {
+            fn name(&self) -> &str {
+                &self.name
             }
         }
         impl<'ast> crate::ast::access::Name for $node<'ast> {
@@ -851,7 +871,6 @@ use node_method_ast;
 use node_method_key;
 use node_method_new;
 
-use self::hydrate::Populated;
 // use impl_state;
 
 #[cfg(test)]

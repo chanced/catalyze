@@ -52,7 +52,7 @@ pub(super) struct Inner {
     options_special_fields: SpecialFields,
 }
 impl Inner {
-    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> super::Populated<Key> {
+    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> super::node::Ident<Key> {
         self.name = hydrate.name;
         self.number = hydrate.number;
         self.comments = hydrate.location.comments;
@@ -62,7 +62,7 @@ impl Inner {
         self.special_fields = hydrate.special_fields;
         self.r#enum = hydrate.r#enum;
         self.hydrate_options(hydrate.options.unwrap_or_default());
-        (self.key, self.fqn.clone(), self.name.clone())
+        self.into()
     }
 
     fn hydrate_options(&mut self, options: EnumValueOptions) {

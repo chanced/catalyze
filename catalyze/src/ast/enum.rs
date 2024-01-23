@@ -14,7 +14,7 @@ use crate::ast::{
 
 use std::{fmt, str::FromStr};
 
-use super::{container, enum_value, hydrate, location, Populated, Set};
+use super::{container, enum_value, location, node, Set};
 
 slotmap::new_key_type! {
     pub(super) struct Key;
@@ -22,7 +22,7 @@ slotmap::new_key_type! {
 
 pub(super) struct Hydrate {
     pub(super) name: Box<str>,
-    pub(super) values: Vec<Populated<enum_value::Key>>,
+    pub(super) values: Vec<node::Ident<enum_value::Key>>,
     pub(super) location: location::Detail,
     pub(super) options: protobuf::MessageField<EnumOptions>,
     pub(super) special_fields: protobuf::SpecialFields,
@@ -56,7 +56,7 @@ pub(super) struct Inner {
 }
 
 impl Inner {
-    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> Populated<Key> {
+    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> node::Ident<Key> {
         self.values = hydrate.values.into();
         self.name = hydrate.name;
         self.set_reserved(hydrate.reserved_names, hydrate.reserved_ranges);
@@ -65,7 +65,7 @@ impl Inner {
         self.special_fields = hydrate.special_fields;
         self.hydrate_location(hydrate.location);
         self.hydrate_options(hydrate.options.unwrap_or_default());
-        (self.key, self.fqn.clone(), self.name.clone())
+        self.into()
     }
 
     fn hydrate_options(&mut self, options: EnumOptions) {

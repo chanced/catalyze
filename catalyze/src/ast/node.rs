@@ -1,6 +1,9 @@
 use std::fmt;
 
+use crate::HashMap;
+
 use super::{
+    access,
     r#enum::{self, Enum},
     enum_value::{self, EnumValue},
     extension::{self, Extension},
@@ -11,6 +14,7 @@ use super::{
     oneof::{self, Oneof},
     package::{self, Package},
     service::{self, Service},
+    FullyQualifiedName,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,3 +129,87 @@ pub trait AsNode<'ast>: Into<Node<'ast>> + Copy {
         (*self).into()
     }
 }
+
+/// A node's key, fully-qualified name, name, and node path.
+pub(crate) struct Ident<K> {
+    pub(super) key: K,
+    pub(super) fqn: FullyQualifiedName,
+    pub(super) name: Box<str>,
+}
+
+impl<K> Ident<K>
+where
+    K: Into<Key>,
+{
+    pub(super) fn as_node_entry(&self) -> (FullyQualifiedName, Key) {
+        (self.fqn.clone(), self.key.into())
+    }
+}
+
+pub(super) trait IdentIterExt<'iter, K>: Iterator<Item = &'iter Ident<K>>
+where
+    Self: Sized,
+    K: 'static + Into<Key>,
+{
+    fn as_entries(self) -> impl Iterator<Item = (FullyQualifiedName, Key)> {
+        self.map(Ident::as_node_entry)
+    }
+}
+
+impl<'iter, I, K> IdentIterExt<'iter, K> for I
+where
+    I: Iterator<Item = &'iter Ident<K>> + Sized,
+    K: 'static + Into<Key>,
+{
+}
+
+impl<K> From<&Ident<K>> for (Key, FullyQualifiedName)
+where
+    K: Into<Key>,
+{
+    fn from(value: &Ident<K>) -> Self {
+        (value.key.into(), value.fqn.clone())
+    }
+}
+
+pub(super) trait ExtendNodes
+where
+    Self: Extend<(FullyQualifiedName, Key)> + Sized,
+{
+    fn extend_nodes<'iter, K: 'static + Into<Key>>(
+        &mut self,
+        iter: impl Iterator<Item = &'iter Ident<K>>,
+    ) {
+        self.extend(iter.as_entries())
+    }
+}
+
+impl ExtendNodes for HashMap<FullyQualifiedName, Key> {}
+
+macro_rules! ident_from {
+    ($($mod:ident,)+) => {
+        $(
+            impl From<&mut $mod::Inner> for Ident<$mod::Key> {
+                fn from(inner: &mut $mod::Inner) -> Self {
+                    Self {
+                        key: inner.key(),
+                        fqn: inner.fqn().clone(),
+                        name: inner.name().into(),
+                    }
+                }
+            }
+            impl From<&$mod::Inner> for Ident<$mod::Key> {
+                fn from(inner: &$mod::Inner) -> Self {
+                    Self {
+                        key: inner.key(),
+                        fqn: inner.fqn().clone(),
+                        name: inner.name().into(),
+                    }
+                }
+            }
+        )+
+    };
+}
+ident_from!(
+    package, file, message, r#enum, enum_value, service, method, field, oneof, extension,
+);

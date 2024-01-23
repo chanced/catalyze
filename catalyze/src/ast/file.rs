@@ -14,9 +14,9 @@ use std::{
 
 use super::{
     access::NodeKeys,
-    r#enum, extension, extension_decl,
-    hydrate::{self, Populated},
-    impl_traits_and_methods, location, message, package,
+    r#enum, extension, extension_decl, impl_traits_and_methods, location, message,
+    node::{self, Ident},
+    package,
     resolve::Resolver,
     service,
     uninterpreted::UninterpretedOption,
@@ -33,10 +33,10 @@ pub(super) struct Hydrate {
     pub(super) syntax: Option<String>,
     pub(super) options: FileOptions,
     pub(super) package: Option<package::Key>,
-    pub(super) messages: Vec<Populated<message::Key>>,
-    pub(super) enums: Vec<Populated<r#enum::Key>>,
-    pub(super) services: Vec<Populated<service::Key>>,
-    pub(super) extensions: Vec<Populated<extension::Key>>,
+    pub(super) messages: Vec<node::Ident<message::Key>>,
+    pub(super) enums: Vec<node::Ident<r#enum::Key>>,
+    pub(super) services: Vec<node::Ident<service::Key>>,
+    pub(super) extensions: Vec<node::Ident<extension::Key>>,
     pub(super) extension_blocks: Vec<extension_decl::Key>,
     pub(super) dependencies: DependenciesInner,
     pub(super) package_comments: Option<location::Comments>,
@@ -576,9 +576,6 @@ impl Inner {
         self.transitive_dependents.push(dependent);
     }
 
-    pub(super) fn add_transitive_dependency(&mut self, import: DependencyInner) {
-        self.transitive_dependencies.push(import);
-    }
     pub(super) fn set_name_and_path(&mut self, name: Box<str>) {
         self.path = PathBuf::from(name.as_ref());
         self.set_name(name);
@@ -593,7 +590,7 @@ impl Inner {
         self.is_build_target = is_build_target;
     }
 
-    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Populated<Key>, Error> {
+    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<node::Ident<Key>, Error> {
         self.set_name_and_path(hydrate.name);
         self.syntax = Syntax::parse(&hydrate.syntax.unwrap_or_default())?;
         self.package = hydrate.package;
@@ -607,7 +604,7 @@ impl Inner {
         self.comments = hydrate.comments;
         self.is_build_target = hydrate.is_build_target;
         self.hydrate_options(hydrate.options);
-        Ok((self.key, self.fqn.clone(), self.name.clone()))
+        Ok(self.into())
     }
     /// Hydrates the data within the descriptor.
     ///

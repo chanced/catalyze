@@ -4,7 +4,7 @@ use super::{
     access::{self, NodeKeys},
     container, r#enum, extension, extension_decl,
     field::{self},
-    file, hydrate, impl_traits_and_methods,
+    file, impl_traits_and_methods,
     location::{self, Comments, Span},
     message, node,
     oneof::{self},
@@ -13,7 +13,7 @@ use super::{
     reserved::Reserved,
     resolve::Resolver,
     uninterpreted::UninterpretedOption,
-    FullyQualifiedName, Populated, Set,
+    FullyQualifiedName, Set,
 };
 use protobuf::{
     descriptor::{descriptor_proto, MessageOptions},
@@ -35,11 +35,11 @@ pub(super) struct Hydrate {
     pub(super) reserved_names: Vec<String>,
     pub(super) extension_range: Vec<descriptor_proto::ExtensionRange>,
     pub(super) special_fields: protobuf::SpecialFields,
-    pub(super) messages: Vec<Populated<message::Key>>,
-    pub(super) enums: Vec<Populated<r#enum::Key>>,
-    pub(super) fields: Vec<Populated<field::Key>>,
-    pub(super) oneofs: Vec<Populated<oneof::Key>>,
-    pub(super) extensions: Vec<Populated<extension::Key>>,
+    pub(super) messages: Vec<node::Ident<message::Key>>,
+    pub(super) enums: Vec<node::Ident<r#enum::Key>>,
+    pub(super) fields: Vec<node::Ident<field::Key>>,
+    pub(super) oneofs: Vec<node::Ident<oneof::Key>>,
+    pub(super) extensions: Vec<node::Ident<extension::Key>>,
     pub(super) extension_blocks: Vec<extension_decl::Key>,
 }
 
@@ -56,7 +56,8 @@ pub(super) struct Inner {
     file: file::Key,
 
     extensions: Set<extension::Key>,
-    extension_ranges: Vec<ExtensionRange>,
+    extension_blocks: Vec<extension_decl::Key>,
+
     fields: Set<field::Key>,
     enums: Set<r#enum::Key>,
     messages: Set<message::Key>,
@@ -64,14 +65,13 @@ pub(super) struct Inner {
     real_oneofs: Set<oneof::Key>,
     synthetic_oneofs: Set<oneof::Key>,
 
-    defined_extensions: Set<extension::Key>,
     applied_extensions: Set<extension::Key>,
-
     dependents: Set<file::Key>,
 
     referenced_by: Vec<ReferenceInner>,
     references: Vec<ReferenceInner>,
 
+    extension_ranges: Vec<ExtensionRange>,
     reserved: Reserved,
     message_set_wire_format: bool,
     no_standard_descriptor_accessor: bool,
@@ -101,17 +101,12 @@ impl NodeKeys for Inner {
             .chain(self.enums.iter().copied().map(node::Key::Enum))
             .chain(self.messages.iter().copied().map(node::Key::Message))
             .chain(self.oneofs.iter().copied().map(node::Key::Oneof))
-            .chain(
-                self.defined_extensions
-                    .iter()
-                    .copied()
-                    .map(node::Key::Extension),
-            )
+            .chain(self.extensions.iter().copied().map(node::Key::Extension))
     }
 }
 
 impl Inner {
-    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Populated<Key> {
+    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> node::Ident<Key> {
         let Hydrate {
             name,
             container,
@@ -147,7 +142,7 @@ impl Inner {
         self.hydrate_location(location);
         self.hydrate_options(options.unwrap_or_default());
         self.set_reserved(reserved_names, reserved_ranges);
-        (self.key, self.fqn.clone(), self.name.clone())
+        self.into()
     }
     fn hydrate_options(&mut self, opts: MessageOptions) {
         let MessageOptions {
