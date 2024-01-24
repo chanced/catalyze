@@ -115,6 +115,18 @@ pub(crate) fn run(
     Hydrate::new(file_descriptors, targets).map(Into::into)
 }
 
+enum Node {
+    Message(Message),
+    Enum(Enum),
+    EnumValue(EnumValue),
+    Service(Service),
+    Method(Method),
+    Field(Field),
+    Oneof(Oneof),
+    Extension(Extension),
+    ExtensionDecl(ExtensionDecl),
+}
+
 pub(super) struct Message {
     descriptor: DescriptorProto,
     fqn: FullyQualifiedName,
@@ -177,15 +189,17 @@ struct Oneof {
     package: Option<package::Key>,
 }
 
-struct Extension {}
-
-struct ExtensionDecl {
+struct Extension {
     descriptor: FieldDescriptorProto,
     fqn: FullyQualifiedName,
     container: container::Key,
     file: file::Key,
     package: Option<package::Key>,
+}
+
+struct ExtensionDecl {
     location: location::ExtensionDecl,
+    extensions: Vec<Extension>,
 }
 
 #[derive(Default)]
@@ -202,7 +216,7 @@ struct Hydrate<'input> {
     extensions: Mutex<ExtensionTable>,
     extension_blocks: Mutex<ExtensionDeclTable>,
     well_known: package::Key,
-
+    file_count: usize,
     targets: &'input [String],
     injector: Injector<Job>,
     stealers: Vec<Stealer<Job>>,
@@ -264,6 +278,7 @@ impl<'input> Hydrate<'input> {
         file_descriptors: Vec<FileDescriptorProto>,
         targets: &'input [String],
     ) -> Result<Self, Error> {
+        let file_count = file_descriptors.len();
         let (well_known, packages) = create_packages_table();
         let (workers, stealers) = create_workers(file_descriptors.len());
         let (sender, receiver) = channel::unbounded();
@@ -275,6 +290,7 @@ impl<'input> Hydrate<'input> {
             stealers,
             well_known,
             packages,
+            file_count,
             files: Mutex::new(FileTable::with_capacity(file_descriptors.len())),
             ..Default::default()
         };
@@ -289,7 +305,8 @@ impl<'input> Hydrate<'input> {
         receiver: Receiver,
         workers: Vec<Worker<Job>>,
     ) -> Result<(), Error> {
-        let wg = WaitGroup::new();
+        let link_wg = WaitGroup::new();
+        let finalize_wg = WaitGroup::new();
         let worker_count = workers.len();
 
         for descriptor in descriptors {
@@ -301,10 +318,14 @@ impl<'input> Hydrate<'input> {
             let mut worker_handles = Vec::with_capacity(worker_count);
             for worker in workers {
                 let sender = sender.clone();
-                let wg = wg.clone();
-                worker_handles.push(scope.spawn(move || self.work(worker, sender, wg)));
+                let link_wg = link_wg.clone();
+                let finaliz_wg = finalize_wg.clone();
+                worker_handles
+                    .push(scope.spawn(move || self.work(worker, sender, link_wg, finaliz_wg)));
             }
             drop(sender);
+            drop(link_wg);
+            drop(finalize_wg);
             for handle in worker_handles {
                 handle.join().unwrap();
             }
@@ -318,18 +339,34 @@ impl<'input> Hydrate<'input> {
         todo!()
     }
 
-    fn work(&self, local: Worker<Job>, results: Sender, wg: WaitGroup) {
-        let mut wg = Some(wg);
+    fn finalize(&self, finalize: Finalize) -> Result<Completed, Error> {
+        todo!()
+    }
+
+    fn work(
+        &self,
+        local: Worker<Job>,
+        results: Sender,
+        link_wg: WaitGroup,
+        finalize_wg: WaitGroup,
+    ) {
+        let mut link_wg = Some(link_wg);
+        let mut finalize_wg = Some(finalize_wg);
         while let Some(job) = self.find_work(&local) {
             if match job {
                 Job::Hydrate(desc) => results.send(self.file(desc).map(Completed::Link)),
-                Job::Link(link) => {
-                    if let Some(a) = wg.take() {
-                        WaitGroup::wait(a);
+                Job::Link(job) => {
+                    if let Some(wg) = link_wg.take() {
+                        WaitGroup::wait(wg);
                     }
-                    results.send(self.link(link).map(Completed::Finalize))
+                    results.send(self.link(job).map(Completed::Finalize))
                 }
-                Job::Finalize(done) => ControlFlow::Continue(()),
+                Job::Finalize(job) => {
+                    if let Some(wg) = finalize_wg.take() {
+                        WaitGroup::wait(wg);
+                    }
+                    results.send(self.finalize(job).map(Completed::Finalize))
+                }
             }
             .is_break()
             {
@@ -390,7 +427,7 @@ impl<'input> Hydrate<'input> {
         let fqn = FullyQualifiedName::new(&name, package_fqn);
         let key = self.file_key(fqn.clone());
 
-        let messages = self.messages(
+        let messages = self.hydrate_messages(
             descriptor.message_type,
             locations.messages,
             fqn.clone(),
@@ -400,7 +437,7 @@ impl<'input> Hydrate<'input> {
             &mut nodes,
         )?;
 
-        let enums = self.enums(
+        let enums = self.hydrate_enums(
             descriptor.enum_type,
             locations.enums,
             key.into(),
@@ -419,7 +456,7 @@ impl<'input> Hydrate<'input> {
             &mut nodes,
         )?;
 
-        let (extension_blocks, extensions) = self.extensions(
+        let (extension_blocks, extensions) = self.hydrate_extensions(
             descriptor.extension,
             locations.extensions,
             key.into(),
@@ -429,7 +466,7 @@ impl<'input> Hydrate<'input> {
             &mut nodes,
         )?;
 
-        let dependencies = self.dependencies(
+        let dependencies = self.hydrate_dependencies(
             key,
             descriptor.dependency,
             descriptor.public_dependency,
@@ -481,7 +518,7 @@ impl<'input> Hydrate<'input> {
         (Some(key), Some(fqn))
     }
 
-    fn dependencies(
+    fn hydrate_dependencies(
         &self,
         dependent: file::Key,
         dependencies: Vec<String>,
@@ -522,7 +559,7 @@ impl<'input> Hydrate<'input> {
         }
     }
 
-    fn messages(
+    fn hydrate_messages(
         &self,
         descriptors: Vec<DescriptorProto>,
         locations: Vec<location::Message>,
@@ -544,7 +581,7 @@ impl<'input> Hydrate<'input> {
                 file,
                 package,
             };
-            let msg = self.message(hydrate, nodes)?;
+            let msg = self.hydrate_message(hydrate, nodes)?;
             nodes.insert(msg.fqn(), msg.node_key());
             messages.push(msg);
         }
@@ -559,7 +596,11 @@ impl<'input> Hydrate<'input> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn message(&self, hydrate: Message, nodes: &mut Nodes) -> Result<Ident<message::Key>, Error> {
+    fn hydrate_message(
+        &self,
+        hydrate: Message,
+        nodes: &mut Nodes,
+    ) -> Result<Ident<message::Key>, Error> {
         let Message {
             descriptor,
             fqn,
@@ -575,7 +616,7 @@ impl<'input> Hydrate<'input> {
         } else {
             None
         };
-        let (extension_blocks, extensions) = self.extensions(
+        let (extension_blocks, extensions) = self.hydrate_extensions(
             descriptor.extension,
             location.extensions,
             key.into(),
@@ -585,7 +626,7 @@ impl<'input> Hydrate<'input> {
             nodes,
         )?;
 
-        let messages = self.messages(
+        let messages = self.hydrate_messages(
             descriptor.nested_type,
             location.messages,
             fqn.clone(),
@@ -595,7 +636,7 @@ impl<'input> Hydrate<'input> {
             nodes,
         )?;
 
-        let enums = self.enums(
+        let enums = self.hydrate_enums(
             descriptor.enum_type,
             location.enums,
             key.into(),
@@ -646,7 +687,7 @@ impl<'input> Hydrate<'input> {
         }))
     }
 
-    fn enums(
+    fn hydrate_enums(
         &self,
         descriptors: Vec<EnumDescriptorProto>,
         locations: Vec<location::Enum>,
@@ -813,7 +854,7 @@ impl<'input> Hydrate<'input> {
             descriptor.method,
             location.methods,
             key,
-            fqn.clone(),
+            fqn,
             file,
             package,
             nodes,
@@ -879,7 +920,7 @@ impl<'input> Hydrate<'input> {
         todo!()
     }
 
-    fn extensions(
+    fn hydrate_extensions(
         &self,
         descriptors: Vec<FieldDescriptorProto>,
         locations: Vec<location::ExtensionDecl>,

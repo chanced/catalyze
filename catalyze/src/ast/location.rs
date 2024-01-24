@@ -1,10 +1,13 @@
-use std::iter::Peekable;
+use std::{
+    hash::{Hash, Hasher},
+    iter::Peekable,
+};
 
 use protobuf::descriptor::{source_code_info::Location as ProtoLoc, SourceCodeInfo};
 
 use crate::error::Error;
 
-use super::{node, path};
+use super::path;
 
 /// Zero-based spans of a node.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -49,9 +52,13 @@ impl Span {
 pub struct Comments {
     /// Any comment immediately preceding the node, without any
     /// whitespace between it and the comment.
-    leading: Option<Box<str>>,
-    trailing: Option<Box<str>>,
-    leading_detached: Vec<Box<str>>,
+    pub leading: Option<String>,
+    /// Any comment immediately following the entity, without any
+    /// whitespace between it and the comment. If the comment would be a leading
+    /// comment for another entity, it won't be considered a trailing comment.
+    pub trailing: Option<String>,
+    /// Each comment block or line above the entity but seperated by whitespace.
+    pub leading_detached: Vec<String>,
 }
 
 impl Comments {
@@ -63,12 +70,7 @@ impl Comments {
         if leading.is_none() && trailing.is_none() && leading_detacted.is_empty() {
             return None;
         }
-        let leading = leading.map(String::into_boxed_str);
-        let trailing = trailing.map(String::into_boxed_str);
-        let leading_detached = leading_detacted
-            .into_iter()
-            .map(String::into_boxed_str)
-            .collect();
+        let leading_detached = leading_detacted.into_iter().collect();
         Some(Self {
             leading,
             trailing,
@@ -89,10 +91,11 @@ impl Comments {
     }
 
     /// Each comment block or line above the entity but seperated by whitespace.
-    pub fn leading_detached(&self) -> &[Box<str>] {
+    pub fn leading_detached(&self) -> &[String] {
         &self.leading_detached
     }
 }
+// TODO: newtype this
 type Iter = Peekable<std::vec::IntoIter<ProtoLoc>>;
 
 fn iterate_next<T>(prefix: &[i32], locations: &mut Iter) -> Option<(ProtoLoc, T)>
@@ -106,7 +109,7 @@ where
         return None;
     }
     locations.next().and_then(|next| {
-        let next_path = next.path.get(prefix.len()).map(|&n| T::from(n))?;
+        let next_path = next.path.get(prefix.len()).copied().map(Into::into)?;
         Some((next, next_path))
     })
 }
@@ -285,10 +288,22 @@ impl ExtensionDecl {
     }
 }
 
+impl Hash for ExtensionDecl {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.detail.path.hash(state);
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct Field {
     pub(super) detail: Detail,
 }
+impl Hash for Field {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.detail.path.hash(state);
+    }
+}
+
 impl Field {
     fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, Error> {
         let detail = Detail::new(node)?;
