@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, iter};
 
 use crate::HashMap;
 
@@ -139,7 +139,18 @@ pub(crate) struct Ident<K> {
 
 impl<K> Ident<K>
 where
-    K: Into<Key>,
+    K: Copy + Into<Key>,
+{
+    pub(super) fn node_key(&self) -> Key {
+        self.key.into()
+    }
+    pub(super) fn fqn(&self) -> FullyQualifiedName {
+        self.fqn.clone()
+    }
+}
+impl<K> Ident<K>
+where
+    K: Copy + Into<Key>,
 {
     pub(super) fn as_node_entry(&self) -> (FullyQualifiedName, Key) {
         (self.fqn.clone(), self.key.into())
@@ -149,9 +160,9 @@ where
 pub(super) trait IdentIterExt<'iter, K>: Iterator<Item = &'iter Ident<K>>
 where
     Self: Sized,
-    K: 'static + Into<Key>,
+    K: 'static + Copy + Into<Key>,
 {
-    fn as_entries(self) -> impl Iterator<Item = (FullyQualifiedName, Key)> {
+    fn into_entries(self) -> impl Iterator<Item = (FullyQualifiedName, Key)> {
         self.map(Ident::as_node_entry)
     }
 }
@@ -159,13 +170,13 @@ where
 impl<'iter, I, K> IdentIterExt<'iter, K> for I
 where
     I: Iterator<Item = &'iter Ident<K>> + Sized,
-    K: 'static + Into<Key>,
+    K: 'static + Copy + Into<Key>,
 {
 }
 
 impl<K> From<&Ident<K>> for (Key, FullyQualifiedName)
 where
-    K: Into<Key>,
+    K: Copy + Into<Key>,
 {
     fn from(value: &Ident<K>) -> Self {
         (value.key.into(), value.fqn.clone())
@@ -176,11 +187,11 @@ pub(super) trait ExtendNodes
 where
     Self: Extend<(FullyQualifiedName, Key)> + Sized,
 {
-    fn extend_nodes<'iter, K: 'static + Into<Key>>(
-        &mut self,
-        iter: impl Iterator<Item = &'iter Ident<K>>,
-    ) {
-        self.extend(iter.as_entries())
+    fn extend_nodes<'iter, K>(&mut self, iter: impl IntoIterator<Item = &'iter Ident<K>>)
+    where
+        K: 'static + Copy + Into<Key>,
+    {
+        self.extend(iter.into_iter().into_entries());
     }
 }
 

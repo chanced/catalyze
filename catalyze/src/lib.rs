@@ -18,7 +18,8 @@
     clippy::wildcard_imports,
     clippy::module_inception,
 	clippy::struct_excessive_bools,
-    clippy::missing_const_for_fn
+    clippy::missing_const_for_fn,
+    clippy::too_many_arguments
 )]
 #![cfg_attr(test, allow(clippy::too_many_lines))]
 
@@ -27,8 +28,6 @@ use std::{fmt::Display, ops::DerefMut};
 pub mod ast;
 pub mod error;
 pub mod generator;
-
-const CPU_COUNT: usize = num_cpus::get();
 
 type HashMap<K, V> = ahash::HashMap<K, V>;
 type HashSet<V> = ahash::HashSet<V>;

@@ -42,6 +42,7 @@ pub(super) struct Hydrate {
     pub(super) package_comments: Option<location::Comments>,
     pub(super) comments: Option<location::Comments>,
     pub(super) is_build_target: bool,
+    pub(super) nodes: HashMap<FullyQualifiedName, node::Key>,
 }
 
 pub struct File<'ast>(Resolver<'ast, Key, Inner>);
@@ -527,8 +528,7 @@ pub(super) struct Inner {
     is_build_target: bool,
     syntax: Syntax,
 
-    nodes_by_path: HashMap<Box<[i32]>, super::node::Key>,
-    nodes_by_fqn: HashMap<FullyQualifiedName, super::node::Key>,
+    nodes: HashMap<FullyQualifiedName, super::node::Key>,
 
     java_package: Option<String>,
     java_outer_classname: Option<String>,
@@ -569,7 +569,6 @@ impl NodeKeys for Inner {
 impl Inner {
     pub(super) fn add_dependent(&mut self, dependent: DependentInner) {
         self.dependents.push(dependent);
-        self.transitive_dependents.push(dependent);
     }
 
     pub(super) fn add_transitive_dependent(&mut self, dependent: DependentInner) {
@@ -603,6 +602,7 @@ impl Inner {
         self.package_comments = hydrate.package_comments;
         self.comments = hydrate.comments;
         self.is_build_target = hydrate.is_build_target;
+        self.nodes = hydrate.nodes;
         self.hydrate_options(hydrate.options);
         Ok(self.into())
     }
@@ -638,16 +638,12 @@ impl Inner {
         self.options_special_fields = opts.special_fields;
     }
 
-    pub(crate) fn set_nodes_by_path(&mut self, mut nodes: HashMap<Box<[i32]>, super::node::Key>) {
-        nodes.shrink_to_fit();
-        self.nodes_by_path = nodes;
-    }
     pub(crate) fn set_nodes_by_fqn(
         &mut self,
         mut nodes: HashMap<FullyQualifiedName, super::node::Key>,
     ) {
         nodes.shrink_to_fit();
-        self.nodes_by_fqn = nodes;
+        self.nodes = nodes;
     }
 }
 

@@ -4,7 +4,7 @@ use protobuf::descriptor::{source_code_info::Location as ProtoLoc, SourceCodeInf
 
 use crate::error::Error;
 
-use super::path;
+use super::{node, path};
 
 /// Zero-based spans of a node.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -143,7 +143,9 @@ pub(super) struct File {
     pub(super) enums: Vec<Enum>,
     pub(super) services: Vec<Service>,
     pub(super) extensions: Vec<ExtensionDecl>,
+    pub(super) node_count: usize,
 }
+
 impl File {
     pub(super) fn new(info: SourceCodeInfo) -> Result<Self, Error> {
         let mut locations = info.location.into_iter().peekable();
@@ -154,6 +156,7 @@ impl File {
         let mut services = Vec::new();
         let mut dependencies = Vec::new();
         let mut extensions = Vec::new();
+        let mut node_count = 0;
         let Detail {
             path,
             span,
@@ -172,13 +175,19 @@ impl File {
                     package = Some(Detail::new(loc)?);
                 }
                 path::File::Message => {
-                    messages.push(Message::new(loc, &mut locations)?);
+                    let message = Message::new(loc, &mut locations)?;
+                    node_count += 1 + message.node_count;
+                    messages.push(message);
                 }
                 path::File::Enum => {
-                    enums.push(Enum::new(loc, &mut locations)?);
+                    let r#enum = Enum::new(loc, &mut locations)?;
+                    node_count += 1 + r#enum.values.len();
+                    enums.push(r#enum);
                 }
                 path::File::Service => {
-                    services.push(Service::new(loc, &mut locations)?);
+                    let service = Service::new(loc, &mut locations)?;
+                    node_count += 1 + service.methods.len();
+                    services.push(service);
                 }
                 path::File::Extension => extensions.push(ExtensionDecl::new(loc, &mut locations)?),
                 _ => continue,
@@ -192,6 +201,7 @@ impl File {
             enums,
             services,
             extensions,
+            node_count,
         })
     }
 }
@@ -204,12 +214,13 @@ pub(super) struct Message {
     pub(super) extensions: Vec<ExtensionDecl>,
     pub(super) oneofs: Vec<Oneof>,
     pub(super) fields: Vec<Field>,
+    pub(super) node_count: usize,
 }
 
 impl Message {
     fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, Error> {
         let detail = Detail::new(node)?;
-
+        let mut node_count = 0;
         let mut messages = Vec::new();
         let mut enums = Vec::new();
         let mut extensions = Vec::new();
@@ -218,18 +229,26 @@ impl Message {
         while let Some((loc, path)) = iterate_next(&detail.path, locations) {
             match path {
                 path::Message::Field => {
+                    node_count += 1;
                     fields.push(Field::new(loc, locations)?);
                 }
                 path::Message::Nested => {
-                    messages.push(Self::new(loc, locations)?);
+                    let message = Self::new(loc, locations)?;
+                    node_count += 1 + message.node_count;
+                    messages.push(message);
                 }
                 path::Message::Enum => {
-                    enums.push(Enum::new(loc, locations)?);
+                    let r#enum = Enum::new(loc, locations)?;
+                    node_count += 1 + r#enum.values.len();
+                    enums.push(r#enum);
                 }
                 path::Message::Extension => {
-                    extensions.push(ExtensionDecl::new(loc, locations)?);
+                    let ext_decl = ExtensionDecl::new(loc, locations)?;
+                    node_count += ext_decl.extensions.len();
+                    extensions.push(ext_decl);
                 }
                 path::Message::Oneof => {
+                    node_count += 1;
                     oneofs.push(Oneof::new(loc, locations)?);
                 }
                 path::Message::Unknown(_) => continue,
@@ -242,6 +261,7 @@ impl Message {
             extensions,
             oneofs,
             fields,
+            node_count,
         })
     }
 }

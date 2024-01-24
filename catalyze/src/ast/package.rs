@@ -54,7 +54,7 @@ impl Inner {
             comments: Vec::default(),
         }
     }
-    pub(super) fn populate(&mut self, name: String) {
+    pub(super) fn hydrate(&mut self, name: String) {
         if !self.name.is_empty() {
             return;
         }

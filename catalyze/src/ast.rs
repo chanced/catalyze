@@ -148,18 +148,23 @@ where
         }
     }
     fn get_or_insert_key(&mut self, fqn: FullyQualifiedName) -> K {
-        self.get_or_insert(fqn).0
+        self.get_or_insert_key_and_value(fqn).0
     }
 
-    fn get_or_insert(&mut self, fqn: FullyQualifiedName) -> (K, &mut V) {
+    fn get_or_insert(&mut self, fqn: FullyQualifiedName) -> &mut V {
+        self.get_or_insert_key_and_value(fqn).1
+    }
+    fn get_or_insert_key_and_value(&mut self, fqn: FullyQualifiedName) -> (K, &mut V) {
         let key = *self
             .index
             .entry(fqn.clone())
             .or_insert_with(|| self.map.insert(fqn.into()));
         let value = &mut self.map[key];
-        if value.key() != key {
+
+        if value.key() == K::default() {
             value.set_key(key);
         }
+
         (key, value)
     }
 }
@@ -873,6 +878,18 @@ use node_method_new;
 
 // use impl_state;
 
+#[cfg(test)]
+mod test {
+    use protobuf::{plugin::CodeGeneratorRequest, Message};
+    pub(super) fn code_generator_request(bytes: impl AsRef<[u8]>) -> CodeGeneratorRequest {
+        CodeGeneratorRequest::parse_from_bytes(bytes.as_ref()).unwrap()
+    }
+    pub(super) fn commented_cgr() -> CodeGeneratorRequest {
+        code_generator_request(include_bytes!(
+            "../../fixtures/cgr/commented/code_generator_request.bin"
+        ))
+    }
+}
 #[cfg(test)]
 mod tests {
 

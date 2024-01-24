@@ -7,10 +7,10 @@ use crossbeam::{
 use itertools::Itertools;
 use std::{
     self,
-    ops::{Add, ControlFlow},
+    ops::ControlFlow,
     path::PathBuf,
     str::FromStr,
-    thread,
+    thread::{self},
 };
 
 use crate::HashMap;
@@ -19,24 +19,26 @@ use protobuf::descriptor::{
     FileDescriptorProto, MethodDescriptorProto, OneofDescriptorProto, ServiceDescriptorProto,
 };
 
-use crate::{error::Error, to_i32, CPU_COUNT};
+use crate::{error::Error, to_i32};
 use parking_lot::Mutex;
 
 use super::{
     container,
     r#enum::{self},
     enum_value, extension, extension_decl, field,
-    file::{self},
+    file::{self, DependenciesInner},
     location,
     message::{self},
     method,
-    node::{self, ExtendNodes, Ident},
+    node::{self, Ident},
     oneof, package, service, EnumTable, EnumValueTable, ExtensionDeclTable, ExtensionTable,
     FieldTable, FileTable, FullyQualifiedName, MessageTable, MethodTable, OneofTable, PackageTable,
     ServiceTable,
 };
 
+type Nodes = HashMap<FullyQualifiedName, node::Key>;
 type Receiver = channel::Receiver<Result<Completed, Error>>;
+
 #[derive(Clone)]
 struct Sender(channel::Sender<Result<Completed, Error>>);
 impl Sender {
@@ -56,7 +58,7 @@ enum Completed {
 impl From<Job> for Completed {
     fn from(job: Job) -> Self {
         match job {
-            Job::Populate(_) => unreachable!(),
+            Job::Hydrate(_) => unreachable!(),
             Job::Link(link) => Self::Link(link),
             Job::Finalize(finalize) => Self::Finalize(finalize),
         }
@@ -78,8 +80,7 @@ struct Link {
     file: file::Key,
     fqn: FullyQualifiedName,
     nodes: HashMap<FullyQualifiedName, node::Key>,
-    dependencies: Vec<file::DependencyInner>,
-    dependents: Vec<file::DependentInner>,
+    dependencies: DependenciesInner,
 }
 
 struct Finalize {
@@ -87,9 +88,10 @@ struct Finalize {
     fqn: FullyQualifiedName,
     name: Box<str>,
     path: PathBuf,
+    nodes: HashMap<FullyQualifiedName, node::Key>,
 }
 enum Job {
-    Populate(FileDescriptorProto),
+    Hydrate(FileDescriptorProto),
     Link(Link),
     Finalize(Finalize),
 }
@@ -102,7 +104,7 @@ impl From<Link> for Job {
 
 impl From<FileDescriptorProto> for Job {
     fn from(v: FileDescriptorProto) -> Self {
-        Self::Populate(v)
+        Self::Hydrate(v)
     }
 }
 
@@ -120,10 +122,6 @@ pub(super) struct Message {
     container: container::Key,
     file: file::Key,
     package: Option<package::Key>,
-}
-
-fn x(p: PathBuf) {
-    println!("{}", p.display());
 }
 
 struct Enum {
@@ -243,7 +241,6 @@ macro_rules! key_methods {
 }
 
 key_methods!(
-    (package, packages) =>  package_key,
     (file, files) =>  file_key,
     (message, messages) =>  message_key,
     (r#enum, enums) =>  enum_key,
@@ -258,8 +255,8 @@ key_methods!(
 #[derive(Default)]
 struct Accumulated {
     nodes: HashMap<FullyQualifiedName, node::Key>,
-    by_name: HashMap<Box<str>, file::Key>,
-    by_path: HashMap<PathBuf, file::Key>,
+    files_by_name: HashMap<Box<str>, file::Key>,
+    files_by_path: HashMap<PathBuf, file::Key>,
 }
 
 impl<'input> Hydrate<'input> {
@@ -268,11 +265,11 @@ impl<'input> Hydrate<'input> {
         targets: &'input [String],
     ) -> Result<Self, Error> {
         let (well_known, packages) = create_packages_table();
-        let (workers, stealers) = create_workers();
+        let (workers, stealers) = create_workers(file_descriptors.len());
         let (sender, receiver) = channel::unbounded();
-
+        let sender = Sender(sender);
         let injector = Injector::new();
-        Self {
+        let this = Self {
             injector,
             targets,
             stealers,
@@ -280,36 +277,41 @@ impl<'input> Hydrate<'input> {
             packages,
             files: Mutex::new(FileTable::with_capacity(file_descriptors.len())),
             ..Default::default()
-        }
-        .start(file_descriptors, Sender(sender), receiver, workers)
+        };
+        this.run(file_descriptors, sender, receiver, workers)?;
+        Ok(this)
     }
 
-    fn start(
-        mut self,
+    fn run(
+        &self,
         descriptors: Vec<FileDescriptorProto>,
         sender: Sender,
         receiver: Receiver,
         workers: Vec<Worker<Job>>,
-    ) -> Result<Self, Error> {
+    ) -> Result<(), Error> {
         let wg = WaitGroup::new();
         let worker_count = workers.len();
+
+        for descriptor in descriptors {
+            self.injector.push(Job::Hydrate(descriptor));
+        }
+
         let res = thread::scope(|scope| {
             let acc_handle = scope.spawn(move || self.accumulate(receiver));
             let mut worker_handles = Vec::with_capacity(worker_count);
-            for worker in workers.into_iter() {
+            for worker in workers {
                 let sender = sender.clone();
                 let wg = wg.clone();
-                let worker =
-                    worker_handles.push(scope.spawn(move || self.work(worker, sender, wg.clone())));
+                worker_handles.push(scope.spawn(move || self.work(worker, sender, wg)));
             }
             drop(sender);
             for handle in worker_handles {
                 handle.join().unwrap();
             }
             acc_handle.join().unwrap()
-        });
-        todo!()
-        // Ok(self)
+        })?;
+
+        Ok(())
     }
 
     fn link(&self, link: Link) -> Result<Finalize, Error> {
@@ -318,13 +320,12 @@ impl<'input> Hydrate<'input> {
 
     fn work(&self, local: Worker<Job>, results: Sender, wg: WaitGroup) {
         let mut wg = Some(wg);
-
-        let link = while let Some(job) = self.find_work(&local) {
+        while let Some(job) = self.find_work(&local) {
             if match job {
-                Job::Populate(desc) => results.send(self.file(desc).map(Completed::Link)),
+                Job::Hydrate(desc) => results.send(self.file(desc).map(Completed::Link)),
                 Job::Link(link) => {
-                    if let Some(wg) = wg.take() {
-                        wg.wait();
+                    if let Some(a) = wg.take() {
+                        WaitGroup::wait(a);
                     }
                     results.send(self.link(link).map(Completed::Finalize))
                 }
@@ -334,24 +335,37 @@ impl<'input> Hydrate<'input> {
             {
                 break;
             }
-        };
+        }
     }
 
     fn queue(&self, descriptors: Vec<FileDescriptorProto>) {
         for descriptor in descriptors {
-            self.injector.push(Job::Populate(descriptor));
+            self.injector.push(Job::Hydrate(descriptor));
         }
+    }
+
+    fn link_dependencies(&self) {
+        todo!()
+    }
+    fn completed(&self, acc: &mut Accumulated, completed: Completed) -> Result<(), Error> {
+        match completed {
+            Completed::Link(file) => {
+                self.injector.push(Job::Finalize(self.link(file)?));
+            }
+            Completed::Finalize(finalize) => {
+                acc.files_by_name.insert(finalize.name, finalize.key);
+                acc.files_by_path.insert(finalize.path, finalize.key);
+                acc.nodes.extend(finalize.nodes);
+            }
+        }
+        Ok(())
     }
 
     fn accumulate(&self, results: Receiver) -> Result<Accumulated, Error> {
         let mut acc = Accumulated::default();
         loop {
-            if let Ok(result) = results.recv() {
-                match result? {
-                    Completed::Link(_) => todo!(),
-                    Completed::Finalize(_) => todo!(),
-                }
-                todo!()
+            if let Ok(completed) = results.recv() {
+                self.completed(&mut acc, completed?)?;
             } else {
                 return Ok(acc);
             }
@@ -370,8 +384,8 @@ impl<'input> Hydrate<'input> {
         let locations = location::File::new(descriptor.source_code_info.unwrap_or_else(|| {
             panic!("source_code_info not found on FileDescriptorProto for \"{name}\"")
         }))?;
+        let mut nodes = HashMap::with_capacity(locations.node_count);
         let is_build_target = self.targets.iter().any(|t| t == name.as_ref());
-
         let (package, package_fqn) = self.package(descriptor.package);
         let fqn = FullyQualifiedName::new(&name, package_fqn);
         let key = self.file_key(fqn.clone());
@@ -383,6 +397,7 @@ impl<'input> Hydrate<'input> {
             key.into(),
             key,
             package,
+            &mut nodes,
         )?;
 
         let enums = self.enums(
@@ -392,6 +407,7 @@ impl<'input> Hydrate<'input> {
             fqn.clone(),
             key,
             package,
+            &mut nodes,
         );
 
         let services = self.services(
@@ -400,15 +416,17 @@ impl<'input> Hydrate<'input> {
             fqn.clone(),
             key,
             package,
+            &mut nodes,
         )?;
 
         let (extension_blocks, extensions) = self.extensions(
             descriptor.extension,
             locations.extensions,
             key.into(),
-            fqn,
+            fqn.clone(),
             key,
             package,
+            &mut nodes,
         )?;
 
         let dependencies = self.dependencies(
@@ -417,9 +435,12 @@ impl<'input> Hydrate<'input> {
             descriptor.public_dependency,
             descriptor.weak_dependency,
         );
+
         let file = &mut self.files.lock()[key];
-        let Ident { key, fqn, name } = file.hydrate(file::Hydrate {
+
+        let ident = file.hydrate(file::Hydrate {
             name,
+            nodes: nodes.clone(),
             syntax: descriptor.syntax,
             options: descriptor.options.unwrap_or_default(),
             package,
@@ -428,68 +449,62 @@ impl<'input> Hydrate<'input> {
             services,
             extensions,
             extension_blocks,
-            dependencies,
+            dependencies: dependencies.clone(),
             package_comments: locations.package.and_then(|loc| loc.comments),
             comments: locations.syntax.and_then(|loc| loc.comments),
             is_build_target,
         })?;
-        todo!()
+
+        Ok(Link {
+            file: ident.key,
+            fqn,
+            nodes,
+            dependencies,
+        })
     }
+
     fn package(
         &self,
         package: Option<String>,
     ) -> (Option<package::Key>, Option<FullyQualifiedName>) {
-        let Some(package) = package else {
+        let Some(name) = package else {
             return (None, None);
         };
-        if package.is_empty() {
+        if name.is_empty() {
             return (None, None);
         }
-        let fqn = FullyQualifiedName::for_package(&package);
-        let key = self.package_key(fqn.clone());
+        let fqn = FullyQualifiedName::for_package(&name);
         let mut packages = self.packages.lock();
-        packages.get_mut(key).unwrap().populate(package);
+        let (key, pkg) = packages.get_or_insert_key_and_value(fqn.clone());
+        pkg.hydrate(name);
+        drop(packages);
         (Some(key), Some(fqn))
-    }
-
-    fn insert_dependency(
-        &self,
-        index: i32,
-        fqn: FullyQualifiedName,
-        dependent: file::Key,
-        is_public: bool,
-        is_weak: bool,
-    ) -> file::DependencyInner {
-        let mut files = self.files.lock();
-        let (dependency_key, dependency_file) = files.get_or_insert(fqn.clone());
-        let dependency = file::DependencyInner {
-            is_used: bool::default(),
-            is_public,
-            is_weak,
-            dependent,
-            dependency: dependency_key,
-        };
-        dependency_file.add_dependent(dependency.into());
-        dependency
     }
 
     fn dependencies(
         &self,
         dependent: file::Key,
-        dependencies_by_fqn: Vec<String>,
+        dependencies: Vec<String>,
         public_dependencies: Vec<i32>,
         weak_dependencies: Vec<i32>,
     ) -> file::DependenciesInner {
-        let mut direct = Vec::with_capacity(dependencies_by_fqn.len());
+        let mut direct = Vec::with_capacity(dependencies.len());
         let mut weak = Vec::with_capacity(weak_dependencies.len());
         let mut public = Vec::with_capacity(public_dependencies.len());
 
-        for (i, dependency) in dependencies_by_fqn.into_iter().enumerate() {
+        for (i, dependency) in dependencies.into_iter().enumerate() {
             let index = to_i32(i);
             let is_weak = weak_dependencies.contains(&index);
             let is_public = public_dependencies.contains(&index);
             let fqn = FullyQualifiedName(dependency.into());
-            let dependency = self.insert_dependency(index, fqn, dependent, is_public, is_weak);
+            let dependency_file = self.file_key(fqn.clone());
+            let dependency = file::DependencyInner {
+                is_used: bool::default(),
+                is_public,
+                is_weak,
+                dependent,
+                dependency: dependency_file,
+            };
             direct.push(dependency);
             if is_public {
                 public.push(dependency);
@@ -515,23 +530,24 @@ impl<'input> Hydrate<'input> {
         container: container::Key,
         file: file::Key,
         package: Option<package::Key>,
+        nodes: &mut Nodes,
     ) -> Result<Vec<Ident<message::Key>>, Error> {
-        assert_message_locations(&container_fqn, &locations, &descriptors);
         assert_message_locations(&container_fqn, &locations, &descriptors);
         let mut messages = Vec::with_capacity(descriptors.len());
         for (descriptor, location) in descriptors.into_iter().zip(locations) {
             let fqn = FullyQualifiedName::new(descriptor.name(), Some(container_fqn.clone()));
-            let populated = self.message(Message {
+            let hydrate = Message {
                 descriptor,
                 fqn,
                 location,
                 container,
                 file,
                 package,
-            })?;
-            messages.push(populated);
+            };
+            let msg = self.message(hydrate, nodes)?;
+            nodes.insert(msg.fqn(), msg.node_key());
+            messages.push(msg);
         }
-
         Ok(messages)
     }
 
@@ -543,7 +559,7 @@ impl<'input> Hydrate<'input> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn message(&self, hydrate: Message) -> Result<Ident<message::Key>, Error> {
+    fn message(&self, hydrate: Message, nodes: &mut Nodes) -> Result<Ident<message::Key>, Error> {
         let Message {
             descriptor,
             fqn,
@@ -559,17 +575,6 @@ impl<'input> Hydrate<'input> {
         } else {
             None
         };
-
-        let direct_node_count = descriptor
-            .nested_type
-            .len()
-            .add(descriptor.enum_type.len())
-            .add(descriptor.extension.len())
-            .add(descriptor.oneof_decl.len())
-            .add(descriptor.field.len());
-
-        let mut descendants: HashMap<FullyQualifiedName, node::Key> =
-            HashMap::with_capacity(direct_node_count);
         let (extension_blocks, extensions) = self.extensions(
             descriptor.extension,
             location.extensions,
@@ -577,8 +582,8 @@ impl<'input> Hydrate<'input> {
             fqn.clone(),
             file,
             package,
+            nodes,
         )?;
-        descendants.extend_nodes(extensions.iter());
 
         let messages = self.messages(
             descriptor.nested_type,
@@ -587,6 +592,7 @@ impl<'input> Hydrate<'input> {
             key.into(),
             file,
             package,
+            nodes,
         )?;
 
         let enums = self.enums(
@@ -596,6 +602,7 @@ impl<'input> Hydrate<'input> {
             fqn.clone(),
             file,
             package,
+            nodes,
         );
 
         let oneofs = self.oneofs(
@@ -605,6 +612,7 @@ impl<'input> Hydrate<'input> {
             fqn.clone(),
             file,
             package,
+            nodes,
         )?;
 
         let fields = self.fields(
@@ -614,10 +622,11 @@ impl<'input> Hydrate<'input> {
             fqn,
             file,
             package,
+            nodes,
         )?;
 
         let location = location.detail;
-        let populated = self.messages.lock()[key].hydrate(message::Hydrate {
+        Ok(self.messages.lock()[key].hydrate(message::Hydrate {
             name,
             container,
             fields,
@@ -634,8 +643,7 @@ impl<'input> Hydrate<'input> {
             reserved_ranges: descriptor.reserved_range,
             special_fields: descriptor.special_fields,
             extension_range: descriptor.extension_range,
-        });
-        Ok(populated)
+        }))
     }
 
     fn enums(
@@ -646,14 +654,23 @@ impl<'input> Hydrate<'input> {
         container_fqn: FullyQualifiedName,
         file: file::Key,
         package: Option<package::Key>,
+        nodes: &mut Nodes,
     ) -> Vec<Ident<r#enum::Key>> {
         assert_enum_locations(&container_fqn, &locations, &descriptors);
         let mut enums = Vec::with_capacity(descriptors.len());
         for (descriptor, location) in descriptors.into_iter().zip(locations) {
             let fqn = FullyQualifiedName::new(descriptor.name(), Some(container_fqn.clone()));
-            let populated =
-                self.r#enum(descriptor, fqn.clone(), location, container, file, package);
-            enums.push(populated);
+            let r#enum = self.r#enum(
+                descriptor,
+                fqn.clone(),
+                location,
+                container,
+                file,
+                package,
+                nodes,
+            );
+            nodes.insert(r#enum.fqn.clone(), r#enum.key.into());
+            enums.push(r#enum);
         }
         enums
     }
@@ -666,10 +683,19 @@ impl<'input> Hydrate<'input> {
         container: container::Key,
         file: file::Key,
         package: Option<package::Key>,
+        nodes: &mut Nodes,
     ) -> Ident<r#enum::Key> {
         let name = descriptor.name.clone().unwrap_or_default().into_boxed_str();
         let key = self.enums.lock().get_or_insert_key(fqn.clone());
-        let values = self.enum_values(descriptor.value, location.values, key, fqn, file, package);
+        let values = self.enum_values(
+            descriptor.value,
+            location.values,
+            key,
+            fqn,
+            file,
+            package,
+            nodes,
+        );
         let well_known = if self.is_well_known(package) {
             r#enum::WellKnownEnum::from_str(&name).ok()
         } else {
@@ -696,28 +722,38 @@ impl<'input> Hydrate<'input> {
         enum_fqn: FullyQualifiedName,
         file: file::Key,
         package: Option<package::Key>,
+        nodes: &mut Nodes,
     ) -> Vec<Ident<enum_value::Key>> {
         assert_enum_value_locations(&enum_fqn, &locations, &descriptors);
         let mut values = Vec::with_capacity(descriptors.len());
         for (descriptor, location) in descriptors.into_iter().zip(locations) {
             let fqn = FullyQualifiedName::new(descriptor.name(), Some(enum_fqn.clone()));
-            let ident = self.enum_value(descriptor, fqn.clone(), location, r#enum, file, package);
-            values.push(ident);
+
+            let enum_value = self.enum_value(EnumValue {
+                descriptor,
+                fqn: fqn.clone(),
+                location,
+                r#enum,
+                file,
+                package,
+            });
+            nodes.insert(enum_value.fqn(), enum_value.node_key());
+            values.push(enum_value);
         }
         values
     }
 
-    fn enum_value(
-        &self,
-        descriptor: EnumValueDescriptorProto,
-        fqn: FullyQualifiedName,
-        location: location::EnumValue,
-        r#enum: r#enum::Key,
-        file: file::Key,
-        package: Option<package::Key>,
-    ) -> Ident<enum_value::Key> {
+    fn enum_value(&self, hydrate: EnumValue) -> Ident<enum_value::Key> {
+        let EnumValue {
+            descriptor,
+            fqn,
+            location,
+            r#enum,
+            file,
+            package,
+        } = hydrate;
         let mut enum_values = self.enum_values.lock();
-        let key = enum_values.get_or_insert_key(fqn);
+        let key = enum_values.get_or_insert_key(fqn.clone());
         enum_values[key].hydrate(enum_value::Hydrate {
             name: descriptor.name().into(),
             number: descriptor.number(),
@@ -737,24 +773,33 @@ impl<'input> Hydrate<'input> {
         container_fqn: FullyQualifiedName,
         file: file::Key,
         package: Option<package::Key>,
+        nodes: &mut Nodes,
     ) -> Result<Vec<Ident<service::Key>>, Error> {
         assert_service_locations(&container_fqn, &locations, &descriptors);
         let mut services = Vec::with_capacity(descriptors.len());
         for (descriptor, location) in descriptors.into_iter().zip(locations) {
             let fqn = FullyQualifiedName::new(descriptor.name(), Some(container_fqn.clone()));
-            let ident = self.service(Service {
-                descriptor,
-                fqn,
-                location,
-                file,
-                package,
-            })?;
+            let ident = self.service(
+                Service {
+                    descriptor,
+                    fqn,
+                    location,
+                    file,
+                    package,
+                },
+                nodes,
+            )?;
+            nodes.insert(ident.fqn(), ident.node_key());
             services.push(ident);
         }
         Ok(services)
     }
 
-    fn service(&self, service: Service) -> Result<Ident<service::Key>, Error> {
+    fn service(
+        &self,
+        service: Service,
+        nodes: &mut HashMap<FullyQualifiedName, node::Key>,
+    ) -> Result<Ident<service::Key>, Error> {
         let Service {
             file,
             package,
@@ -762,17 +807,36 @@ impl<'input> Hydrate<'input> {
             fqn,
             location,
         } = service;
-        todo!()
+
+        let key = self.service_key(fqn.clone());
+        let methods = self.methods(
+            descriptor.method,
+            location.methods,
+            key,
+            fqn.clone(),
+            file,
+            package,
+            nodes,
+        )?;
+        self.services.lock()[key].hydrate(service::Hydrate {
+            methods,
+            location: location.detail,
+            special_fields: descriptor.special_fields,
+            options: descriptor.options.unwrap_or_default(),
+            file,
+            package,
+        })
     }
 
     fn methods(
         &self,
         descriptors: Vec<MethodDescriptorProto>,
         locations: Vec<location::Method>,
+        service: service::Key,
         container_fqn: FullyQualifiedName,
-        container: container::Key,
         file: file::Key,
         package: Option<package::Key>,
+        nodes: &mut Nodes,
     ) -> Result<Vec<Ident<method::Key>>, Error> {
         todo!()
     }
@@ -789,6 +853,7 @@ impl<'input> Hydrate<'input> {
         container_fqn: FullyQualifiedName,
         file: file::Key,
         package: Option<package::Key>,
+        nodes: &mut Nodes,
     ) -> Result<Vec<Ident<field::Key>>, Error> {
         todo!()
     }
@@ -805,6 +870,7 @@ impl<'input> Hydrate<'input> {
         message_fqn: FullyQualifiedName,
         file: file::Key,
         package: Option<package::Key>,
+        nodes: &mut Nodes,
     ) -> Result<Vec<Ident<oneof::Key>>, Error> {
         todo!()
     }
@@ -821,6 +887,7 @@ impl<'input> Hydrate<'input> {
         container_fqn: FullyQualifiedName,
         file: file::Key,
         package: Option<package::Key>,
+        nodes: &mut Nodes,
     ) -> Result<(Vec<extension_decl::Key>, Vec<Ident<extension::Key>>), Error> {
         // let mut services = Vec::with_capacity(service.len());
         // for (i, descriptor) in nodes.service.into_iter().enumerate() {
@@ -965,8 +1032,8 @@ fn assert_file_locations(locations: &[location::File], descriptors: &[FileDescri
     );
 }
 
-fn create_workers() -> (Vec<Worker<Job>>, Vec<Stealer<Job>>) {
-    let worker_count = (CPU_COUNT - 1).min(1);
+fn create_workers(descriptors_len: usize) -> (Vec<Worker<Job>>, Vec<Stealer<Job>>) {
+    let worker_count = (descriptors_len.max(num_cpus::get()) - 1).min(1);
     let workers = (0..worker_count)
         .map(|_| Worker::<Job>::new_lifo())
         .collect_vec();
@@ -978,4 +1045,17 @@ fn create_packages_table() -> (package::Key, Mutex<PackageTable>) {
     let mut packages = PackageTable::with_capacity(1);
     let key = packages.get_or_insert_key(FullyQualifiedName::for_package("google.protobuf"));
     (key, Mutex::new(packages))
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use crate::ast;
+    #[test]
+    fn test_hydration() {
+        let commented = ast::test::commented_cgr();
+        let files = commented.proto_file;
+        super::run(files, &commented.file_to_generate);
+    }
 }
