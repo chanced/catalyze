@@ -14,7 +14,7 @@ use super::{
     oneof::{self, Oneof},
     package::{self, Package},
     service::{self, Service},
-    FullyQualifiedName,
+    FullyQualifiedName, Name,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,7 +134,7 @@ pub trait AsNode<'ast>: Into<Node<'ast>> + Copy {
 pub(crate) struct Ident<K> {
     pub(super) key: K,
     pub(super) fqn: FullyQualifiedName,
-    pub(super) name: Box<str>,
+    pub(super) name: Name,
 }
 
 impl<K> Ident<K>

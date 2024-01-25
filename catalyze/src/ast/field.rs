@@ -28,7 +28,7 @@ pub(super) struct Inner {
     node_path: Box<[i32]>,
     span: location::Span,
     comments: Option<location::Comments>,
-    name: Box<str>,
+    name: Name,
     number: i32,
     label: Option<Label>,
     ///  If type_name is set, this need not be set.  If both this and type_name

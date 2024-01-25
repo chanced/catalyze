@@ -24,7 +24,7 @@ pub(super) struct Inner {
     comments: Option<Comments>,
     package: Option<package::Key>,
     file: file::Key,
-    name: Box<str>,
+    name: Name,
     uninterpreted_options: Vec<UninterpretedOption>,
     input: message::Key,
     output: message::Key,

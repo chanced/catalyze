@@ -14,7 +14,7 @@ pub struct Oneof<'ast>(Resolver<'ast, Key, Inner>);
 pub(super) struct Inner {
     key: Key,
     fqn: FullyQualifiedName,
-    name: Box<str>,
+    name: Name,
     package: Option<package::Key>,
     node_path: Box<[i32]>,
     span: Span,

@@ -5,65 +5,164 @@ use crossbeam::{
     sync::WaitGroup,
 };
 use itertools::Itertools;
-use std::{
-    self,
-    ops::ControlFlow,
-    path::PathBuf,
-    str::FromStr,
-    thread::{self},
-};
+use std::{self, ops::ControlFlow, path::PathBuf, thread, time::Duration};
 
-use crate::HashMap;
+use crate::{error::Error, to_i32, HashMap};
 use protobuf::descriptor::{
     DescriptorProto, EnumDescriptorProto, EnumValueDescriptorProto, FieldDescriptorProto,
     FileDescriptorProto, MethodDescriptorProto, OneofDescriptorProto, ServiceDescriptorProto,
 };
 
-use crate::{error::Error, to_i32};
-use parking_lot::Mutex;
-
 use super::{
-    container,
-    r#enum::{self},
-    enum_value, extension, extension_decl, field,
-    file::{self, DependenciesInner},
-    location,
-    message::{self},
+    container, r#enum, enum_value, extension, extension_decl, field, file, location, message,
     method,
     node::{self, Ident},
-    oneof, package, service, EnumTable, EnumValueTable, ExtensionDeclTable, ExtensionTable,
-    FieldTable, FileTable, FullyQualifiedName, MessageTable, MethodTable, OneofTable, PackageTable,
-    ServiceTable,
+    oneof, package, relationship, service, Ast, FullyQualifiedName, Name,
 };
 
 type Nodes = HashMap<FullyQualifiedName, node::Key>;
 type Receiver = channel::Receiver<Result<Completed, Error>>;
 
-#[derive(Clone)]
-struct Sender(channel::Sender<Result<Completed, Error>>);
-impl Sender {
-    fn send(&self, result: Result<Completed, Error>) -> ControlFlow<()> {
-        match self.0.send(result) {
-            Ok(()) => ControlFlow::Continue(()),
-            Err(_) => ControlFlow::Break(()),
-        }
+enum Job {
+    Initialize(Initialize),
+    Populate(Populate),
+    Link(Link),
+    Finalize(Finalize),
+}
+impl From<Initialize> for Job {
+    fn from(v: Initialize) -> Self {
+        Self::Initialize(v)
+    }
+}
+impl From<Populate> for Job {
+    fn from(v: Populate) -> Self {
+        Self::Populate(v)
+    }
+}
+impl From<Link> for Job {
+    fn from(v: Link) -> Self {
+        Self::Link(v)
+    }
+}
+impl From<Finalize> for Job {
+    fn from(v: Finalize) -> Self {
+        Self::Finalize(v)
+    }
+}
+
+enum Initialize {
+    File(File),
+    Message(Message),
+    Enum(Enum),
+    EnumValue(EnumValue),
+    Service(Service),
+    Method(Method),
+    Field(Field),
+    Oneof(Oneof),
+    Extension(Extension),
+    ExtensionDecl(ExtensionDecl),
+}
+
+enum Populated {
+    Package(package::Inner),
+    File(file::Inner),
+    Message(message::Inner),
+    Enum(r#enum::Inner),
+    EnumValue(enum_value::Inner),
+    Service(service::Inner),
+    Method(method::Inner),
+    Field(field::Inner),
+    Oneof(oneof::Inner),
+    Extension(extension::Inner),
+    ExtensionDecl(extension_decl::Inner),
+}
+
+enum Populate {
+    File(FileDescriptorProto),
+    Package(FullyQualifiedName),
+    Message(Message),
+    Enum(Enum),
+    EnumValue(EnumValue),
+    Service(Service),
+    Method(Method),
+    Field(Field),
+    Oneof(Oneof),
+    Extension(Extension),
+    ExtensionDecl(ExtensionDecl),
+}
+
+impl From<ExtensionDecl> for Populate {
+    fn from(v: ExtensionDecl) -> Self {
+        Self::ExtensionDecl(v)
+    }
+}
+
+impl From<Extension> for Populate {
+    fn from(v: Extension) -> Self {
+        Self::Extension(v)
+    }
+}
+
+impl From<Oneof> for Populate {
+    fn from(v: Oneof) -> Self {
+        Self::Oneof(v)
+    }
+}
+
+impl From<Field> for Populate {
+    fn from(v: Field) -> Self {
+        Self::Field(v)
+    }
+}
+
+impl From<Method> for Populate {
+    fn from(v: Method) -> Self {
+        Self::Method(v)
+    }
+}
+
+impl From<Service> for Populate {
+    fn from(v: Service) -> Self {
+        Self::Service(v)
+    }
+}
+
+impl From<EnumValue> for Populate {
+    fn from(v: EnumValue) -> Self {
+        Self::EnumValue(v)
+    }
+}
+
+impl From<Enum> for Populate {
+    fn from(v: Enum) -> Self {
+        Self::Enum(v)
+    }
+}
+
+impl From<Message> for Populate {
+    fn from(v: Message) -> Self {
+        Self::Message(v)
+    }
+}
+
+impl From<FullyQualifiedName> for Populate {
+    fn from(v: FullyQualifiedName) -> Self {
+        Self::Package(v)
+    }
+}
+
+impl From<FileDescriptorProto> for Populate {
+    fn from(v: FileDescriptorProto) -> Self {
+        Self::File(v)
     }
 }
 
 enum Completed {
+    Populate(Populated),
     Link(Link),
     Finalize(Finalize),
 }
 
-impl From<Job> for Completed {
-    fn from(job: Job) -> Self {
-        match job {
-            Job::Hydrate(_) => unreachable!(),
-            Job::Link(link) => Self::Link(link),
-            Job::Finalize(finalize) => Self::Finalize(finalize),
-        }
-    }
-}
 impl From<Finalize> for Completed {
     fn from(v: Finalize) -> Self {
         Self::Finalize(v)
@@ -77,23 +176,18 @@ impl From<Link> for Completed {
 }
 
 struct Link {
-    file: file::Key,
-    fqn: FullyQualifiedName,
-    nodes: HashMap<FullyQualifiedName, node::Key>,
-    dependencies: DependenciesInner,
+    key: Key,
 }
 
 struct Finalize {
     key: file::Key,
     fqn: FullyQualifiedName,
-    name: Box<str>,
+    name: Name,
     path: PathBuf,
     nodes: HashMap<FullyQualifiedName, node::Key>,
 }
-enum Job {
-    Hydrate(FileDescriptorProto),
-    Link(Link),
-    Finalize(Finalize),
+enum Associate {
+    Package(),
 }
 
 impl From<Link> for Job {
@@ -104,7 +198,7 @@ impl From<Link> for Job {
 
 impl From<FileDescriptorProto> for Job {
     fn from(v: FileDescriptorProto) -> Self {
-        Self::Hydrate(v)
+        Self::Populate(v.into())
     }
 }
 
@@ -112,22 +206,17 @@ pub(crate) fn run(
     file_descriptors: Vec<FileDescriptorProto>,
     targets: &[String],
 ) -> Result<super::Ast, Error> {
-    Hydrate::new(file_descriptors, targets).map(Into::into)
+    // Hydrator::new(file_descriptors, targets).map(Into::into)
+    todo!()
 }
 
-enum Node {
-    Message(Message),
-    Enum(Enum),
-    EnumValue(EnumValue),
-    Service(Service),
-    Method(Method),
-    Field(Field),
-    Oneof(Oneof),
-    Extension(Extension),
-    ExtensionDecl(ExtensionDecl),
+struct File {
+    descriptor: FileDescriptorProto,
+    location: location::File,
+    package: Option<package::Key>,
 }
 
-pub(super) struct Message {
+struct Message {
     descriptor: DescriptorProto,
     fqn: FullyQualifiedName,
     location: location::Message,
@@ -202,140 +291,110 @@ struct ExtensionDecl {
     extensions: Vec<Extension>,
 }
 
-#[derive(Default)]
-struct Hydrate<'input> {
-    packages: Mutex<PackageTable>,
-    files: Mutex<FileTable>,
-    messages: Mutex<MessageTable>,
-    enums: Mutex<EnumTable>,
-    enum_values: Mutex<EnumValueTable>,
-    services: Mutex<ServiceTable>,
-    methods: Mutex<MethodTable>,
-    fields: Mutex<FieldTable>,
-    oneofs: Mutex<OneofTable>,
-    extensions: Mutex<ExtensionTable>,
-    extension_blocks: Mutex<ExtensionDeclTable>,
-    well_known: package::Key,
-    file_count: usize,
+struct Accumulator<'input> {
+    ast: Ast,
     targets: &'input [String],
+}
+
+impl<'input> Accumulator<'input> {
+    fn new(file_count: usize, targets: &'input [String]) -> Self {
+        Self {
+            ast: Ast::new(file_count),
+            targets,
+        }
+    }
+    fn receive(&self, receiver: &Receiver) -> Result<Completed, Error> {
+        receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("hydration failed due to timeout.")
+    }
+
+    fn complete_populate(hydrated: Populated) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn complete_populate_file(file: file::Inner) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn complete_populate_package(package: package::Package) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn accumulate(&self, receiver: Receiver) -> Result<Ast, Error> {
+        // let is_build_target = self.targets.iter().any(|t| t == name.as_ref());
+
+        // TODO: configure timeout duration
+        while let completed = self.receive(&receiver)? {
+            match completed {
+                Completed::Populate(hydrated) => todo!(),
+                Completed::Link(_) => todo!(),
+                Completed::Finalize(_) => todo!(),
+            }
+        }
+        todo!()
+    }
+}
+
+struct Hydrator<'input> {
+    file_count: usize,
     injector: Injector<Job>,
     stealers: Vec<Stealer<Job>>,
+    accumulator: Accumulator<'input>,
 }
 
-#[allow(clippy::from_over_into)]
-impl Into<super::Ast> for Hydrate<'_> {
-    fn into(self) -> super::Ast {
-        let nodes = HashMap::default();
-        super::Ast {
-            packages: self.packages.into_inner(),
-            files: self.files.into_inner(),
-            messages: self.messages.into_inner(),
-            enums: self.enums.into_inner(),
-            enum_values: self.enum_values.into_inner(),
-            services: self.services.into_inner(),
-            methods: self.methods.into_inner(),
-            fields: self.fields.into_inner(),
-            oneofs: self.oneofs.into_inner(),
-            extensions: self.extensions.into_inner(),
-            extension_blocks: self.extension_blocks.into_inner(),
-            well_known_package: self.well_known,
-            nodes,
-        }
-    }
-}
-
-macro_rules! key_methods {
-    ($(($mod:ident, $col:ident) => $key_fn:ident,)+) => {
-        impl Hydrate<'_> {
-            $(fn $key_fn(&self, fqn: FullyQualifiedName) -> $mod::Key {
-                self.$col.lock().get_or_insert_key(fqn)
-            })+
-        }
-    };
-}
-
-key_methods!(
-    (file, files) =>  file_key,
-    (message, messages) =>  message_key,
-    (r#enum, enums) =>  enum_key,
-    (enum_value, enum_values) =>  enum_value_key,
-    (service, services) =>  service_key,
-    (method, methods) =>  method_key,
-    (field, fields) =>  field_key,
-    (oneof, oneofs) =>  oneof_key,
-    (extension, extensions) =>  extension_key,
-);
-
-#[derive(Default)]
-struct Accumulated {
-    nodes: HashMap<FullyQualifiedName, node::Key>,
-    files_by_name: HashMap<Box<str>, file::Key>,
-    files_by_path: HashMap<PathBuf, file::Key>,
-}
-
-impl<'input> Hydrate<'input> {
-    fn new(
+impl<'input> Hydrator<'input> {
+    fn execute(
         file_descriptors: Vec<FileDescriptorProto>,
         targets: &'input [String],
-    ) -> Result<Self, Error> {
+    ) -> Result<Ast, Error> {
         let file_count = file_descriptors.len();
-        let (well_known, packages) = create_packages_table();
         let (workers, stealers) = create_workers(file_descriptors.len());
         let (sender, receiver) = channel::unbounded();
-        let sender = Sender(sender);
+        let senders = Sender::new_vec(sender, workers.len());
         let injector = Injector::new();
-        let this = Self {
-            injector,
-            targets,
-            stealers,
-            well_known,
-            packages,
-            file_count,
-            files: Mutex::new(FileTable::with_capacity(file_descriptors.len())),
-            ..Default::default()
-        };
-        this.run(file_descriptors, sender, receiver, workers)?;
-        Ok(this)
-    }
-
-    fn run(
-        &self,
-        descriptors: Vec<FileDescriptorProto>,
-        sender: Sender,
-        receiver: Receiver,
-        workers: Vec<Worker<Job>>,
-    ) -> Result<(), Error> {
-        let link_wg = WaitGroup::new();
-        let finalize_wg = WaitGroup::new();
-        let worker_count = workers.len();
-
-        for descriptor in descriptors {
-            self.injector.push(Job::Hydrate(descriptor));
+        let accumulator = Accumulator::new(file_count, targets);
+        let rally_points = RallyPoints::new_vec(workers.len());
+        for descriptor in file_descriptors {
+            injector.push(descriptor.into());
         }
 
-        let res = thread::scope(|scope| {
-            let acc_handle = scope.spawn(move || self.accumulate(receiver));
-            let mut worker_handles = Vec::with_capacity(worker_count);
-            for worker in workers {
-                let sender = sender.clone();
-                let link_wg = link_wg.clone();
-                let finaliz_wg = finalize_wg.clone();
-                worker_handles
-                    .push(scope.spawn(move || self.work(worker, sender, link_wg, finaliz_wg)));
+        Self {
+            accumulator,
+            injector,
+            stealers,
+            file_count,
+        }
+        .spawn(workers, receiver, senders, rally_points)
+    }
+
+    fn spawn(
+        &self,
+        workers: Vec<Worker<Job>>,
+        receiver: Receiver,
+        senders: Vec<Sender>,
+        rally_points: Vec<RallyPoints>,
+    ) -> Result<Ast, Error> {
+        let mut worker_handles = Vec::with_capacity(workers.len());
+        let mut iter = workers
+            .into_iter()
+            .zip(senders.into_iter())
+            .zip(rally_points.into_iter())
+            .map(|((w, s), g)| (w, s, g));
+
+        thread::scope(|scope| {
+            let ast = scope.spawn(move || self.accumulator.accumulate(receiver));
+            for (worker, sender, wg) in iter {
+                worker_handles.push(scope.spawn(move || self.work(worker, sender, wg)));
             }
-            drop(sender);
-            drop(link_wg);
-            drop(finalize_wg);
             for handle in worker_handles {
                 handle.join().unwrap();
             }
-            acc_handle.join().unwrap()
-        })?;
-
-        Ok(())
+            ast.join().unwrap()
+        })
     }
 
-    fn link(&self, link: Link) -> Result<Finalize, Error> {
+    fn link(&self, link: Link) -> Result<Key, Error> {
         todo!()
     }
 
@@ -343,29 +402,19 @@ impl<'input> Hydrate<'input> {
         todo!()
     }
 
-    fn work(
-        &self,
-        local: Worker<Job>,
-        results: Sender,
-        link_wg: WaitGroup,
-        finalize_wg: WaitGroup,
-    ) {
-        let mut link_wg = Some(link_wg);
-        let mut finalize_wg = Some(finalize_wg);
+    fn work(&self, local: Worker<Job>, results: Sender, mut rally: RallyPoints) {
         while let Some(job) = self.find_work(&local) {
             if match job {
-                Job::Hydrate(desc) => results.send(self.file(desc).map(Completed::Link)),
+                Job::Populate(job) => results.send(self.populate(job).map(Completed::Populate)),
                 Job::Link(job) => {
-                    if let Some(wg) = link_wg.take() {
-                        WaitGroup::wait(wg);
-                    }
-                    results.send(self.link(job).map(Completed::Finalize))
+                    rally.at_link();
+                    todo!()
+                    // results.send(self.link(job).map(Completed::Li))
                 }
                 Job::Finalize(job) => {
-                    if let Some(wg) = finalize_wg.take() {
-                        WaitGroup::wait(wg);
-                    }
-                    results.send(self.finalize(job).map(Completed::Finalize))
+                    rally.at_finalize();
+                    todo!()
+                    // results.send(self.finalize(job).map(Completed::Finalize))
                 }
             }
             .is_break()
@@ -374,20 +423,33 @@ impl<'input> Hydrate<'input> {
             }
         }
     }
-
-    fn queue(&self, descriptors: Vec<FileDescriptorProto>) {
-        for descriptor in descriptors {
-            self.injector.push(Job::Hydrate(descriptor));
-        }
+    fn populate(&self, hydrate: Populate) -> Result<Populated, Error> {
+        // match hydrate {
+        //     Hydrate::File(file) => self.hydrate_file(file),
+        //     Hydrate::Package(fqn) => self.hydrate_package(fqn),
+        //     Hydrate::Message(message) => self.hydrate_message(message),
+        //     Hydrate::Enum(r#enum) => self.hydrate_enum(r#enum),
+        //     Hydrate::EnumValue(enum_value) => self.enum_value(enum_value),
+        //     Hydrate::Service(service) => self.hydrate_service(service),
+        //     Hydrate::Method(method) => self.hydrate_method(method),
+        //     Hydrate::Field(field) => self.hydrate_field(field),
+        //     Hydrate::Oneof(oneof) => self.hydrate_oneof(oneof),
+        //     Hydrate::Extension(extension) => self.extension(extension),
+        //     Hydrate::ExtensionDecl(extension_decl) =>
+        // self.extension_decl(extension_decl), }
+        todo!()
     }
 
     fn link_dependencies(&self) {
         todo!()
     }
-    fn completed(&self, acc: &mut Accumulated, completed: Completed) -> Result<(), Error> {
+
+    fn completed(&self, acc: &mut Ast, completed: Completed) -> Result<(), Error> {
         match completed {
-            Completed::Link(file) => {
-                self.injector.push(Job::Finalize(self.link(file)?));
+            Completed::Populate(hydrate) => todo!(),
+            Completed::Link(link) => {
+
+                // self.injector.push(Job::Finalize(self.link(link)?));
             }
             Completed::Finalize(finalize) => {
                 acc.files_by_name.insert(finalize.name, finalize.key);
@@ -398,17 +460,6 @@ impl<'input> Hydrate<'input> {
         Ok(())
     }
 
-    fn accumulate(&self, results: Receiver) -> Result<Accumulated, Error> {
-        let mut acc = Accumulated::default();
-        loop {
-            if let Ok(completed) = results.recv() {
-                self.completed(&mut acc, completed?)?;
-            } else {
-                return Ok(acc);
-            }
-        }
-    }
-
     fn find_work(&self, local: &Worker<Job>) -> Option<Job> {
         local
             .pop()
@@ -416,18 +467,36 @@ impl<'input> Hydrate<'input> {
             .or_else(|| self.stealers.iter().find_map(|s| s.steal().success()))
     }
 
-    fn file(&self, descriptor: FileDescriptorProto) -> Result<Link, Error> {
-        let name = descriptor.name.unwrap_or_default().into_boxed_str();
+    fn populate_package(&self, package: Option<String>) -> Option<package::Inner> {
+        todo!()
+    }
+
+    fn package(
+        &self,
+        package: Option<String>,
+    ) -> (Option<package::Key>, Option<FullyQualifiedName>) {
+        let Some(name) = package else {
+            return (None, None);
+        };
+        if name.is_empty() {
+            return (None, None);
+        }
+        let fqn = FullyQualifiedName::for_package(name);
+        self.injector.push(Populate::Package(fqn.clone()).into());
+        (Some(package::Key::default()), Some(fqn))
+    }
+
+    fn populate_file(&self, descriptor: FileDescriptorProto) -> Result<Link, Error> {
+        let name = descriptor.name.unwrap_or_default().into();
         let locations = location::File::new(descriptor.source_code_info.unwrap_or_else(|| {
             panic!("source_code_info not found on FileDescriptorProto for \"{name}\"")
         }))?;
         let mut nodes = HashMap::with_capacity(locations.node_count);
-        let is_build_target = self.targets.iter().any(|t| t == name.as_ref());
+
         let (package, package_fqn) = self.package(descriptor.package);
         let fqn = FullyQualifiedName::new(&name, package_fqn);
-        let key = self.file_key(fqn.clone());
 
-        let messages = self.hydrate_messages(
+        let messages = self.messages(
             descriptor.message_type,
             locations.messages,
             fqn.clone(),
@@ -437,7 +506,7 @@ impl<'input> Hydrate<'input> {
             &mut nodes,
         )?;
 
-        let enums = self.hydrate_enums(
+        let enums = self.populate_enums(
             descriptor.enum_type,
             locations.enums,
             key.into(),
@@ -447,7 +516,7 @@ impl<'input> Hydrate<'input> {
             &mut nodes,
         );
 
-        let services = self.services(
+        let services = self.populate_services(
             descriptor.service,
             locations.services,
             fqn.clone(),
@@ -456,7 +525,7 @@ impl<'input> Hydrate<'input> {
             &mut nodes,
         )?;
 
-        let (extension_blocks, extensions) = self.hydrate_extensions(
+        let (extension_blocks, extensions) = self.populate_extensions(
             descriptor.extension,
             locations.extensions,
             key.into(),
@@ -466,7 +535,7 @@ impl<'input> Hydrate<'input> {
             &mut nodes,
         )?;
 
-        let dependencies = self.hydrate_dependencies(
+        let dependencies = self.populate_dependencies(
             key,
             descriptor.dependency,
             descriptor.public_dependency,
@@ -492,33 +561,39 @@ impl<'input> Hydrate<'input> {
             is_build_target,
         })?;
 
-        Ok(Link {
-            file: ident.key,
-            fqn,
-            nodes,
-            dependencies,
-        })
+        Ok(Link { nodes })
     }
 
-    fn package(
+    fn messages(
         &self,
-        package: Option<String>,
-    ) -> (Option<package::Key>, Option<FullyQualifiedName>) {
-        let Some(name) = package else {
-            return (None, None);
-        };
-        if name.is_empty() {
-            return (None, None);
+        descriptors: Vec<DescriptorProto>,
+        locations: Vec<location::Message>,
+        container: container::Key,
+        container_fqn: FullyQualifiedName,
+        file: file::Key,
+        package: Option<package::Key>,
+        nodes: &mut Nodes,
+    ) -> Result<Vec<message::Ident>, Error> {
+        assert_message_locations(&container_fqn, &locations, &descriptors);
+        let mut messages = Vec::with_capacity(descriptors.len());
+        for (descriptor, location) in descriptors.into_iter().zip(locations) {
+            let fqn = FullyQualifiedName::new(descriptor.name(), Some(container_fqn.clone()));
+            let hydrate = Message {
+                descriptor,
+                fqn,
+                location,
+                container,
+                file,
+                package,
+            };
+            let msg = self.populate_message(hydrate, nodes)?;
+            nodes.insert(msg.fqn(), msg.node_key());
+            messages.push(msg);
         }
-        let fqn = FullyQualifiedName::for_package(&name);
-        let mut packages = self.packages.lock();
-        let (key, pkg) = packages.get_or_insert_key_and_value(fqn.clone());
-        pkg.hydrate(name);
-        drop(packages);
-        (Some(key), Some(fqn))
+        Ok(messages)
     }
 
-    fn hydrate_dependencies(
+    fn populate_dependencies(
         &self,
         dependent: file::Key,
         dependencies: Vec<String>,
@@ -559,44 +634,8 @@ impl<'input> Hydrate<'input> {
         }
     }
 
-    fn hydrate_messages(
-        &self,
-        descriptors: Vec<DescriptorProto>,
-        locations: Vec<location::Message>,
-        container_fqn: FullyQualifiedName,
-        container: container::Key,
-        file: file::Key,
-        package: Option<package::Key>,
-        nodes: &mut Nodes,
-    ) -> Result<Vec<Ident<message::Key>>, Error> {
-        assert_message_locations(&container_fqn, &locations, &descriptors);
-        let mut messages = Vec::with_capacity(descriptors.len());
-        for (descriptor, location) in descriptors.into_iter().zip(locations) {
-            let fqn = FullyQualifiedName::new(descriptor.name(), Some(container_fqn.clone()));
-            let hydrate = Message {
-                descriptor,
-                fqn,
-                location,
-                container,
-                file,
-                package,
-            };
-            let msg = self.hydrate_message(hydrate, nodes)?;
-            nodes.insert(msg.fqn(), msg.node_key());
-            messages.push(msg);
-        }
-        Ok(messages)
-    }
-
-    fn is_well_known(&self, package: Option<package::Key>) -> bool {
-        if let Some(package) = package {
-            return package == self.well_known;
-        }
-        false
-    }
-
     #[allow(clippy::too_many_arguments)]
-    fn hydrate_message(
+    fn populate_message(
         &self,
         hydrate: Message,
         nodes: &mut Nodes,
@@ -616,7 +655,7 @@ impl<'input> Hydrate<'input> {
         } else {
             None
         };
-        let (extension_blocks, extensions) = self.hydrate_extensions(
+        let (extension_blocks, extensions) = self.populate_extensions(
             descriptor.extension,
             location.extensions,
             key.into(),
@@ -626,7 +665,7 @@ impl<'input> Hydrate<'input> {
             nodes,
         )?;
 
-        let messages = self.hydrate_messages(
+        let messages = self.populate_messages(
             descriptor.nested_type,
             location.messages,
             fqn.clone(),
@@ -636,7 +675,7 @@ impl<'input> Hydrate<'input> {
             nodes,
         )?;
 
-        let enums = self.hydrate_enums(
+        let enums = self.populate_enums(
             descriptor.enum_type,
             location.enums,
             key.into(),
@@ -646,7 +685,7 @@ impl<'input> Hydrate<'input> {
             nodes,
         );
 
-        let oneofs = self.oneofs(
+        let oneofs = self.populate_oneofs(
             descriptor.oneof_decl,
             location.oneofs,
             key,
@@ -656,7 +695,7 @@ impl<'input> Hydrate<'input> {
             nodes,
         )?;
 
-        let fields = self.fields(
+        let fields = self.populate_fields(
             descriptor.field,
             location.fields,
             key.into(),
@@ -687,7 +726,7 @@ impl<'input> Hydrate<'input> {
         }))
     }
 
-    fn hydrate_enums(
+    fn populate_enums(
         &self,
         descriptors: Vec<EnumDescriptorProto>,
         locations: Vec<location::Enum>,
@@ -701,7 +740,7 @@ impl<'input> Hydrate<'input> {
         let mut enums = Vec::with_capacity(descriptors.len());
         for (descriptor, location) in descriptors.into_iter().zip(locations) {
             let fqn = FullyQualifiedName::new(descriptor.name(), Some(container_fqn.clone()));
-            let r#enum = self.r#enum(
+            let r#enum = self.populate_enum(
                 descriptor,
                 fqn.clone(),
                 location,
@@ -716,7 +755,7 @@ impl<'input> Hydrate<'input> {
         enums
     }
 
-    fn r#enum(
+    fn populate_enum(
         &self,
         descriptor: EnumDescriptorProto,
         fqn: FullyQualifiedName,
@@ -728,7 +767,7 @@ impl<'input> Hydrate<'input> {
     ) -> Ident<r#enum::Key> {
         let name = descriptor.name.clone().unwrap_or_default().into_boxed_str();
         let key = self.enums.lock().get_or_insert_key(fqn.clone());
-        let values = self.enum_values(
+        let values = self.populate_enum_values(
             descriptor.value,
             location.values,
             key,
@@ -755,7 +794,7 @@ impl<'input> Hydrate<'input> {
         })
     }
 
-    fn enum_values(
+    fn populate_enum_values(
         &self,
         descriptors: Vec<EnumValueDescriptorProto>,
         locations: Vec<location::EnumValue>,
@@ -793,7 +832,7 @@ impl<'input> Hydrate<'input> {
             file,
             package,
         } = hydrate;
-        let mut enum_values = self.enum_values.lock();
+        let mut enum_values = self.populate_enum_values.lock();
         let key = enum_values.get_or_insert_key(fqn.clone());
         enum_values[key].hydrate(enum_value::Hydrate {
             name: descriptor.name().into(),
@@ -807,7 +846,7 @@ impl<'input> Hydrate<'input> {
         })
     }
 
-    fn services(
+    fn populate_services(
         &self,
         descriptors: Vec<ServiceDescriptorProto>,
         locations: Vec<location::Service>,
@@ -820,7 +859,7 @@ impl<'input> Hydrate<'input> {
         let mut services = Vec::with_capacity(descriptors.len());
         for (descriptor, location) in descriptors.into_iter().zip(locations) {
             let fqn = FullyQualifiedName::new(descriptor.name(), Some(container_fqn.clone()));
-            let ident = self.service(
+            let ident = self.populate_service(
                 Service {
                     descriptor,
                     fqn,
@@ -836,7 +875,7 @@ impl<'input> Hydrate<'input> {
         Ok(services)
     }
 
-    fn service(
+    fn populate_service(
         &self,
         service: Service,
         nodes: &mut HashMap<FullyQualifiedName, node::Key>,
@@ -850,7 +889,7 @@ impl<'input> Hydrate<'input> {
         } = service;
 
         let key = self.service_key(fqn.clone());
-        let methods = self.methods(
+        let methods = self.populate_methods(
             descriptor.method,
             location.methods,
             key,
@@ -859,7 +898,7 @@ impl<'input> Hydrate<'input> {
             package,
             nodes,
         )?;
-        self.services.lock()[key].hydrate(service::Hydrate {
+        self.populate_services.lock()[key].hydrate(service::Hydrate {
             methods,
             location: location.detail,
             special_fields: descriptor.special_fields,
@@ -869,7 +908,7 @@ impl<'input> Hydrate<'input> {
         })
     }
 
-    fn methods(
+    fn populate_methods(
         &self,
         descriptors: Vec<MethodDescriptorProto>,
         locations: Vec<location::Method>,
@@ -882,11 +921,11 @@ impl<'input> Hydrate<'input> {
         todo!()
     }
 
-    fn method(&self) -> Result<Ident<method::Key>, Error> {
+    fn populate_method(&self) -> Result<Ident<method::Key>, Error> {
         todo!()
     }
 
-    fn fields(
+    fn populate_fields(
         &self,
         descriptors: Vec<FieldDescriptorProto>,
         locations: Vec<location::Field>,
@@ -899,11 +938,11 @@ impl<'input> Hydrate<'input> {
         todo!()
     }
 
-    fn field(&self) -> Result<Ident<field::Key>, Error> {
+    fn populate_field(&self) -> Result<Ident<field::Key>, Error> {
         todo!()
     }
 
-    fn oneofs(
+    fn populate_oneofs(
         &self,
         descriptors: Vec<OneofDescriptorProto>,
         locations: Vec<location::Oneof>,
@@ -916,11 +955,11 @@ impl<'input> Hydrate<'input> {
         todo!()
     }
 
-    fn oneof(&self) -> Result<Ident<oneof::Key>, Error> {
+    fn populate_oneof(&self) -> Result<Ident<oneof::Key>, Error> {
         todo!()
     }
 
-    fn hydrate_extensions(
+    fn populate_extensions(
         &self,
         descriptors: Vec<FieldDescriptorProto>,
         locations: Vec<location::ExtensionDecl>,
@@ -951,6 +990,72 @@ impl<'input> Hydrate<'input> {
         todo!()
     }
 }
+
+#[derive(Clone)]
+struct Sender(channel::Sender<Result<Completed, Error>>);
+impl Sender {
+    fn new_vec(sender: channel::Sender<Result<Completed, Error>>, len: usize) -> Vec<Self> {
+        let mut senders = Vec::with_capacity(len);
+        for _ in 0..(len - 1) {
+            senders.push(Self(sender.clone()));
+        }
+        senders.push(Self(sender));
+        senders
+    }
+    fn send(&self, result: Result<Completed, Error>) -> ControlFlow<()> {
+        match self.0.send(result) {
+            Ok(()) => ControlFlow::Continue(()),
+            Err(_) => ControlFlow::Break(()),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct RallyPoint(Option<WaitGroup>);
+impl Default for RallyPoint {
+    fn default() -> Self {
+        Self(Some(WaitGroup::new()))
+    }
+}
+impl RallyPoint {
+    fn rally(&mut self) {
+        if let Some(wg) = self.0.take() {
+            WaitGroup::wait(wg);
+        }
+    }
+}
+
+#[derive(Default, Clone)]
+struct RallyPoints {
+    populate: RallyPoint,
+    link: RallyPoint,
+    finalize: RallyPoint,
+}
+
+impl RallyPoints {
+    fn new_vec(len: usize) -> Vec<Self> {
+        let mut rps = Vec::with_capacity(len);
+        let rp = Self::default();
+        for _ in 0..(len - 1) {
+            rps.push(rp.clone());
+        }
+        rps.push(rp);
+        rps
+    }
+
+    fn at_populate(&mut self) {
+        self.populate.rally();
+    }
+    fn at_link(&mut self) {
+        self.at_populate();
+        self.link.rally();
+    }
+    fn at_finalize(&mut self) {
+        self.at_link();
+        self.finalize.rally();
+    }
+}
+
 fn assert_enum_locations(
     container_fqn: &str,
     locations: &[location::Enum],
@@ -1076,16 +1181,10 @@ fn assert_file_locations(locations: &[location::File], descriptors: &[FileDescri
 fn create_workers(descriptors_len: usize) -> (Vec<Worker<Job>>, Vec<Stealer<Job>>) {
     let worker_count = (descriptors_len.max(num_cpus::get()) - 1).min(1);
     let workers = (0..worker_count)
-        .map(|_| Worker::<Job>::new_lifo())
+        .map(|_| Worker::<Job>::new_fifo())
         .collect_vec();
     let stealers = workers.iter().map(Worker::stealer).collect_vec();
     (workers, stealers)
-}
-
-fn create_packages_table() -> (package::Key, Mutex<PackageTable>) {
-    let mut packages = PackageTable::with_capacity(1);
-    let key = packages.get_or_insert_key(FullyQualifiedName::for_package("google.protobuf"));
-    (key, Mutex::new(packages))
 }
 
 #[cfg(test)]

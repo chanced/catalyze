@@ -20,7 +20,7 @@ slotmap::new_key_type! {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {
     key: Key,
-    name: Box<str>,
+    name: Name,
     value: ValueInner,
     block: extension_decl::Key,
     fqn: FullyQualifiedName,

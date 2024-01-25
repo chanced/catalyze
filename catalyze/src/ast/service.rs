@@ -28,7 +28,7 @@ pub(super) struct Hydrate {
 pub(super) struct Inner {
     key: Key,
     fqn: FullyQualifiedName,
-    name: Box<str>,
+    name: Name,
     node_path: Box<[i32]>,
     span: location::Span,
     file: file::Key,

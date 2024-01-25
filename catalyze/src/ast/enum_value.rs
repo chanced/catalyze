@@ -5,7 +5,7 @@ use crate::ast::{
     FullyQualifiedName,
 };
 
-use super::{access::NodeKeys, file, hydrate, location, node, package};
+use super::{access::NodeKeys, file, location, node, package, Name};
 
 pub struct EnumValue<'ast>(Resolver<'ast, Key, Inner>);
 
@@ -15,7 +15,7 @@ slotmap::new_key_type! {
 impl_traits_and_methods!(EnumValue, Key, Inner);
 
 pub(super) struct Hydrate {
-    pub(super) name: Box<str>,
+    pub(super) name: Name,
     pub(super) number: i32,
     pub(super) location: location::Detail,
     pub(super) options: protobuf::MessageField<EnumValueOptions>,
@@ -31,7 +31,7 @@ pub(super) struct Inner {
     /// enum_value::Key
     key: Key,
     fqn: FullyQualifiedName,
-    name: Box<str>,
+    name: Name,
     node_path: Box<[i32]>,
 
     number: i32,

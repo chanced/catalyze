@@ -14,14 +14,17 @@ use crate::ast::{
 
 use std::{fmt, str::FromStr};
 
-use super::{container, enum_value, location, node, Set};
+use super::{
+    collection::{self, Collection},
+    container, enum_value, location, node, Name,
+};
 
 slotmap::new_key_type! {
     pub(super) struct Key;
 }
 
 pub(super) struct Hydrate {
-    pub(super) name: Box<str>,
+    pub(super) name: Name,
     pub(super) values: Vec<node::Ident<enum_value::Key>>,
     pub(super) location: location::Detail,
     pub(super) options: protobuf::MessageField<EnumOptions>,
@@ -36,7 +39,7 @@ pub(super) struct Hydrate {
 pub(super) struct Inner {
     key: Key,
     fqn: FullyQualifiedName,
-    name: Box<str>,
+    name: Name,
     node_path: Box<[i32]>,
     span: Span,
     comments: Option<Comments>,
@@ -45,7 +48,7 @@ pub(super) struct Inner {
     file: file::Key,
     container: container::Key,
     referenced_by: Vec<ReferrerKey>,
-    values: Set<super::enum_value::Key>,
+    values: Collection<super::enum_value::Key>,
     well_known: Option<WellKnownEnum>,
     allow_alias: bool,
     deprecated: bool,

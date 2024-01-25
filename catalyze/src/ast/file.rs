@@ -7,20 +7,21 @@ use protobuf::{
 use std::{
     fmt,
     hash::Hash,
-    ops::Deref,
     path::{Path, PathBuf},
     str::FromStr,
 };
 
 use super::{
     access::NodeKeys,
+    collection::Collection,
     r#enum, extension, extension_decl, impl_traits_and_methods, location, message,
-    node::{self, Ident},
+    node::{self},
     package,
+    relationship::{DependenciesInner, DependentInner},
     resolve::Resolver,
     service,
     uninterpreted::UninterpretedOption,
-    FullyQualifiedName, Set,
+    FullyQualifiedName, Name,
 };
 
 slotmap::new_key_type! {
@@ -29,7 +30,7 @@ slotmap::new_key_type! {
 }
 
 pub(super) struct Hydrate {
-    pub(super) name: Box<str>,
+    pub(super) name: Name,
     pub(super) syntax: Option<String>,
     pub(super) options: FileOptions,
     pub(super) package: Option<package::Key>,
@@ -338,184 +339,20 @@ impl From<protobuf::descriptor::file_options::OptimizeMode> for OptimizeMode {
     }
 }
 
-pub(super) struct DependentsInner {
-    pub(super) direct: Vec<DependentInner>,
-    pub(super) transitive: Vec<DependentInner>,
-    pub(super) public: Vec<DependentInner>,
-    pub(super) weak: Vec<DependentInner>,
-    pub(super) unusued: Vec<DependentInner>,
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub(super) struct DependentInner {
-    pub(super) is_used: bool,
-    pub(super) is_public: bool,
-    pub(super) is_weak: bool,
-    pub(super) dependent: Key,
-    pub(super) dependency: Key,
-}
-impl DependentInner {
-    pub(super) fn set_is_used(&mut self, is_used: bool) {
-        self.is_used = is_used;
-    }
-}
-impl From<DependencyInner> for DependentInner {
-    fn from(dep: DependencyInner) -> Self {
-        Self {
-            is_used: dep.is_used,
-            is_public: dep.is_public,
-            is_weak: dep.is_weak,
-            dependent: dep.dependent,
-            dependency: dep.dependency,
-        }
-    }
-}
-impl From<DependentInner> for DependencyInner {
-    fn from(dep: DependentInner) -> Self {
-        Self {
-            is_used: dep.is_used,
-            is_public: dep.is_public,
-            is_weak: dep.is_weak,
-            dependent: dep.dependent,
-            dependency: dep.dependency,
-        }
-    }
-}
-pub struct Dependent<'ast> {
-    pub is_used: bool,
-    pub is_public: bool,
-    pub is_weak: bool,
-    /// The `File`
-    pub dependent: File<'ast>,
-    /// The [`File`] containing this import.
-    pub dependency: File<'ast>,
-}
-
-impl<'ast> Dependent<'ast> {
-    pub fn as_dependency(self) -> Dependency<'ast> {
-        Dependency {
-            is_used: self.is_used,
-            is_public: self.is_public,
-            is_weak: self.is_weak,
-            dependency: self.dependency,
-            dependent: self.dependent,
-        }
-    }
-    #[must_use]
-    pub fn is_used(self) -> bool {
-        self.is_used
-    }
-    #[must_use]
-    pub fn is_public(self) -> bool {
-        self.is_public
-    }
-    #[must_use]
-    pub fn is_weak(self) -> bool {
-        self.is_weak
-    }
-    #[must_use]
-    pub fn dependent(self) -> File<'ast> {
-        self.dependent
-    }
-    #[must_use]
-    pub fn dependency(self) -> File<'ast> {
-        self.dependency
-    }
-    #[must_use]
-    pub fn as_file(self) -> File<'ast> {
-        self.dependent
-    }
-}
-
-impl<'ast> Deref for Dependent<'ast> {
-    type Target = File<'ast>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.dependent
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub(super) struct DependencyInner {
-    pub(super) is_used: bool,
-    pub(super) is_public: bool,
-    pub(super) is_weak: bool,
-    pub(super) dependency: Key,
-    pub(super) dependent: Key,
-}
-impl DependencyInner {
-    pub(super) fn set_is_used(&mut self, is_used: bool) {
-        self.is_used = is_used;
-    }
-}
-
-pub struct Dependency<'ast> {
-    pub is_used: bool,
-    pub is_public: bool,
-    pub is_weak: bool,
-    /// The imported `File`
-    pub dependency: File<'ast>,
-    /// The [`File`] containing this import.
-    pub dependent: File<'ast>,
-}
-
-impl<'ast> Deref for Dependency<'ast> {
-    type Target = File<'ast>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.dependency
-    }
-}
-
-impl<'ast> Dependency<'ast> {
-    #[must_use]
-    pub fn is_used(self) -> bool {
-        self.is_used
-    }
-    #[must_use]
-    pub fn is_public(self) -> bool {
-        self.is_public
-    }
-    #[must_use]
-    pub fn is_weak(self) -> bool {
-        self.is_weak
-    }
-    /// The imported [`File`]
-    #[must_use]
-    pub fn import(self) -> File<'ast> {
-        self.dependency
-    }
-
-    /// The [`File`] containing this import.
-    #[must_use]
-    pub fn imported_by(self) -> File<'ast> {
-        self.dependent
-    }
-}
-
-#[derive(Debug, Default, Clone, PartialEq)]
-pub(super) struct DependenciesInner {
-    pub(super) direct: Vec<DependencyInner>,
-    pub(super) transitive: Vec<DependenciesInner>,
-    pub(super) public: Vec<DependencyInner>,
-    pub(super) weak: Vec<DependencyInner>,
-    pub(super) unusued: Vec<DependencyInner>,
-}
-
 #[derive(Debug, Default, Clone, PartialEq)]
 #[doc(hidden)]
 pub(super) struct Inner {
     key: Key,
     fqn: FullyQualifiedName,
-    name: Box<str>,
+    name: Name,
     path: PathBuf,
 
     package: Option<package::Key>,
-    messages: Set<message::Key>,
-    enums: Set<r#enum::Key>,
-    services: Set<service::Key>,
+    messages: Collection<message::Key>,
+    enums: Collection<r#enum::Key>,
+    services: Collection<service::Key>,
 
-    extensions: Set<extension::Key>,
+    extensions: Collection<extension::Key>,
     extension_blocks: Vec<extension_decl::Key>,
 
     dependencies: DependenciesInner,
@@ -575,9 +412,9 @@ impl Inner {
         self.transitive_dependents.push(dependent);
     }
 
-    pub(super) fn set_name_and_path(&mut self, name: Box<str>) {
+    pub(super) fn set_name_and_path(&mut self, name: Name) {
         self.path = PathBuf::from(name.as_ref());
-        self.set_name(name);
+        self.name = name;
     }
     pub(super) fn set_fqn(&mut self, fqn: FullyQualifiedName) {
         self.fqn = fqn;

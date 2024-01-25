@@ -2,6 +2,7 @@ use std::iter;
 
 use super::{
     access::{self, NodeKeys},
+    collection::Collection,
     container, r#enum, extension, extension_decl,
     field::{self},
     file, impl_traits_and_methods,
@@ -13,7 +14,7 @@ use super::{
     reserved::Reserved,
     resolve::Resolver,
     uninterpreted::UninterpretedOption,
-    FullyQualifiedName, Set,
+    FullyQualifiedName, Name,
 };
 use protobuf::{
     descriptor::{descriptor_proto, MessageOptions},
@@ -25,7 +26,7 @@ slotmap::new_key_type! {
 }
 
 pub(super) struct Hydrate {
-    pub(super) name: Box<str>,
+    pub(super) name: Name,
     pub(super) container: container::Key,
     pub(super) package: Option<package::Key>,
     pub(super) well_known: Option<WellKnownMessage>,
@@ -43,11 +44,13 @@ pub(super) struct Hydrate {
     pub(super) extension_blocks: Vec<extension_decl::Key>,
 }
 
+pub(super) type Ident = node::Ident<Key>;
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Inner {
     key: Key,
     fqn: FullyQualifiedName,
-    name: Box<str>,
+    name: Name,
     node_path: Box<[i32]>,
     span: Span,
     comments: Option<Comments>,
@@ -55,18 +58,18 @@ pub(super) struct Inner {
     package: Option<package::Key>,
     file: file::Key,
 
-    extensions: Set<extension::Key>,
+    extensions: Collection<extension::Key>,
     extension_blocks: Vec<extension_decl::Key>,
 
-    fields: Set<field::Key>,
-    enums: Set<r#enum::Key>,
-    messages: Set<message::Key>,
-    oneofs: Set<oneof::Key>,
-    real_oneofs: Set<oneof::Key>,
-    synthetic_oneofs: Set<oneof::Key>,
+    fields: Collection<field::Key>,
+    enums: Collection<r#enum::Key>,
+    messages: Collection<message::Key>,
+    oneofs: Collection<oneof::Key>,
+    real_oneofs: Collection<oneof::Key>,
+    synthetic_oneofs: Collection<oneof::Key>,
 
-    applied_extensions: Set<extension::Key>,
-    dependents: Set<file::Key>,
+    applied_extensions: Collection<extension::Key>,
+    dependents: Collection<file::Key>,
 
     referenced_by: Vec<ReferenceInner>,
     references: Vec<ReferenceInner>,
