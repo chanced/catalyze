@@ -182,8 +182,6 @@ pub mod node_pathed {
 
 pub type FilePathed<E> = file_pathed::Error<E>;
 pub mod file_pathed {
-    use std::path::PathBuf;
-
     #[derive(Debug, snafu::Snafu)]
     #[snafu(
         visibility(pub),
@@ -191,7 +189,7 @@ pub mod file_pathed {
     )]
     pub struct Error<E> where E: 'static + snafu::Error + snafu::ErrorCompat {
         pub source: E,
-        pub file_path: PathBuf,
+        pub file_path: std::path::PathBuf,
     }
     deref!(Error, E);
 }
@@ -200,19 +198,15 @@ pub mod file_pathed {
 
 pub type FullyQualified<E> = fully_qualified::Error<E>;
 pub mod fully_qualified {
-    use std::ops::Deref;
-
-    use crate::ast::FullyQualifiedName;
     #[derive(Debug, snafu::Snafu)]
     #[snafu(
         visibility(pub),
         display("{source} at \"{fully_qualified_name}\"")
     )]
-
     pub struct Error<E> where E: 'static + snafu::Error + snafu::ErrorCompat {
         #[snafu(backtrace)]
         pub source: E,
-        pub fully_qualified_name: FullyQualifiedName,
+        pub fully_qualified_name: crate::ast::FullyQualifiedName,
     }
     deref!(Error, E);
 }
