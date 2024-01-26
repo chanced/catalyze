@@ -1,6 +1,6 @@
 pub mod access;
 pub mod container;
-pub mod r#enum;
+pub mod enum_;
 pub mod enum_value;
 pub mod extension;
 pub mod extension_decl;
@@ -18,266 +18,35 @@ pub mod reserved;
 pub mod service;
 pub mod uninterpreted;
 
+mod collection;
 mod hydrate;
 mod resolve;
+mod table;
 
 use crate::HashMap;
 
 use protobuf::descriptor::FileDescriptorProto;
 use std::{
+    borrow::Borrow,
     fmt,
     ops::{Deref, Index, IndexMut},
+    path::PathBuf,
 };
 
 use slotmap::SlotMap;
 
-use crate::error::Error;
+use crate::error::HydrateError;
 
 trait FromFqn {
     fn from_fqn(fqn: FullyQualifiedName) -> Self;
-}
-
-#[derive(Debug, Clone)]
-struct Table<K, V, I = HashMap<FullyQualifiedName, K>>
-where
-    K: slotmap::Key,
-{
-    map: SlotMap<K, V>,
-    index: I,
-    order: Vec<K>,
-}
-
-trait WithCapacity {
-    fn with_capacity(len: usize) -> Self;
-}
-impl<K, V> WithCapacity for HashMap<K, V> {
-    fn with_capacity(capacity: usize) -> Self {
-        ahash::HashMapExt::with_capacity(capacity)
-    }
-}
-
-impl<K, V, I> Table<K, V, I>
-where
-    K: slotmap::Key,
-    I: Default,
-{
-    fn with_capacity(len: usize) -> Self {
-        Self {
-            map: SlotMap::with_capacity_and_key(len),
-            index: I::default(),
-            order: Vec::with_capacity(len),
-        }
-    }
-}
-
-impl<K, V, N> Default for Table<K, V, N>
-where
-    K: slotmap::Key,
-    N: Default,
-{
-    fn default() -> Self {
-        Self {
-            map: SlotMap::with_key(),
-            index: Default::default(),
-            order: Vec::default(),
-        }
-    }
-}
-impl<K, V> Table<K, V, HashMap<FullyQualifiedName, K>>
-where
-    K: slotmap::Key,
-    V: access::FullyQualifiedName,
-{
-    fn get_by_fqn(&self, fqn: &FullyQualifiedName) -> Option<&V> {
-        self.index.get(fqn).map(|key| &self.map[*key])
-    }
-    fn get_mut_by_fqn(&mut self, fqn: &FullyQualifiedName) -> Option<&mut V> {
-        self.index.get(fqn).map(|key| &mut self.map[*key])
-    }
-}
-
-impl<K, V, N> Table<K, V, N>
-where
-    K: slotmap::Key,
-{
-    fn get(&self, key: K) -> Option<&V> {
-        self.map.get(key)
-    }
-    fn get_mut(&mut self, key: K) -> Option<&mut V> {
-        self.map.get_mut(key)
-    }
-    fn iter(&self) -> impl Iterator<Item = (K, &V)> {
-        self.order.iter().map(move |key| (*key, &self.map[*key]))
-    }
-    fn iter_mut(&mut self) -> impl Iterator<Item = (K, &mut V)> {
-        self.map.iter_mut()
-    }
-    fn keys(&self) -> impl '_ + Iterator<Item = K> {
-        self.order.iter().copied()
-    }
-}
-
-impl<K, V, N> Index<K> for Table<K, V, N>
-where
-    K: slotmap::Key,
-{
-    type Output = V;
-    fn index(&self, key: K) -> &Self::Output {
-        &self.map[key]
-    }
-}
-impl<K, V> IndexMut<K> for Table<K, V>
-where
-    K: slotmap::Key,
-{
-    fn index_mut(&mut self, key: K) -> &mut Self::Output {
-        &mut self.map[key]
-    }
-}
-
-impl<K, V> Table<K, V>
-where
-    K: slotmap::Key,
-    V: From<FullyQualifiedName> + access::Key<Key = K>,
-{
-    pub fn new() -> Self {
-        Self {
-            map: SlotMap::with_key(),
-            index: HashMap::default(),
-            order: Vec::new(),
-        }
-    }
-    fn get_or_insert_key(&mut self, fqn: FullyQualifiedName) -> K {
-        self.get_or_insert_key_and_value(fqn).0
-    }
-
-    fn get_or_insert(&mut self, fqn: FullyQualifiedName) -> &mut V {
-        self.get_or_insert_key_and_value(fqn).1
-    }
-    fn get_or_insert_key_and_value(&mut self, fqn: FullyQualifiedName) -> (K, &mut V) {
-        let key = *self
-            .index
-            .entry(fqn.clone())
-            .or_insert_with(|| self.map.insert(fqn.into()));
-        let value = &mut self.map[key];
-
-        if value.key() == K::default() {
-            value.set_key(key);
-        }
-
-        (key, value)
-    }
-}
-
-type PackageTable = Table<package::Key, package::Inner>;
-type FileTable = Table<file::Key, file::Inner>;
-type MessageTable = Table<message::Key, message::Inner>;
-type EnumTable = Table<r#enum::Key, r#enum::Inner>;
-type EnumValueTable = Table<enum_value::Key, enum_value::Inner>;
-type ServiceTable = Table<service::Key, service::Inner>;
-type MethodTable = Table<method::Key, method::Inner>;
-type FieldTable = Table<field::Key, field::Inner>;
-type OneofTable = Table<oneof::Key, oneof::Inner>;
-type ExtensionTable = Table<extension::Key, extension::Inner>;
-type ExtensionDeclTable = Table<extension_decl::Key, extension_decl::Inner, ()>;
-
-#[derive(Debug, Clone)]
-struct Set<K> {
-    set: Vec<K>,
-    by_name: HashMap<Box<str>, K>,
-}
-
-impl<K> Extend<node::Ident<K>> for Set<K>
-where
-    K: Copy,
-{
-    fn extend<T>(&mut self, iter: T)
-    where
-        T: IntoIterator<Item = node::Ident<K>>,
-    {
-    }
-}
-
-impl<K> Default for Set<K> {
-    fn default() -> Self {
-        Self {
-            set: Vec::default(),
-            by_name: HashMap::default(),
-        }
-    }
-}
-
-impl<K> Set<K>
-where
-    K: Copy,
-{
-    fn from_vec(nodes: Vec<node::Ident<K>>) -> Self {
-        let mut set = Vec::with_capacity(nodes.len());
-        let mut by_name = HashMap::with_capacity(nodes.len());
-        for node in nodes {
-            set.push(node.key);
-            by_name.insert(node.name, node.key);
-        }
-        Self { set, by_name }
-    }
-}
-impl<K> Set<K>
-where
-    K: slotmap::Key + Copy,
-{
-    fn by_name(&self, name: &str) -> Option<K> {
-        self.by_name.get(name).copied()
-    }
-    fn get(&self, index: usize) -> Option<K> {
-        self.set.get(index).copied()
-    }
-
-    fn from_slice(nodes: &[node::Ident<K>]) -> Self {
-        let mut set = Vec::with_capacity(nodes.len());
-        let mut by_name = HashMap::with_capacity(nodes.len());
-        for node in nodes {
-            set.push(node.key);
-            by_name.insert(node.name.clone(), node.key);
-        }
-        Self { set, by_name }
-    }
-}
-impl<K> From<Vec<node::Ident<K>>> for Set<K>
-where
-    K: Copy,
-{
-    fn from(v: Vec<node::Ident<K>>) -> Self {
-        Self::from_vec(v)
-    }
-}
-impl Index<usize> for Set<package::Key> {
-    type Output = package::Key;
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.set[index]
-    }
-}
-
-impl<K> PartialEq for Set<K>
-where
-    K: PartialEq,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.set == other.set
-    }
-}
-impl<K> Eq for Set<K> where K: PartialEq {}
-
-impl<K> Deref for Set<K> {
-    type Target = [K];
-    fn deref(&self) -> &Self::Target {
-        &self.set
-    }
 }
 
 #[derive(Debug, Default)]
 pub struct Ast {
     packages: PackageTable,
     files: FileTable,
+    files_by_name: HashMap<Name, file::Key>,
+    files_by_path: HashMap<PathBuf, file::Key>,
     messages: MessageTable,
     enums: EnumTable,
     enum_values: EnumValueTable,
@@ -288,18 +57,41 @@ pub struct Ast {
     extensions: ExtensionTable,
     extension_blocks: ExtensionDeclTable,
     nodes: HashMap<FullyQualifiedName, node::Key>,
-    well_known_package: package::Key,
+    well_known: package::Key,
 }
 
 impl Ast {
-    fn new(file_descriptors: Vec<FileDescriptorProto>, targets: &[String]) -> Result<Self, Error> {
+    fn build(
+        file_descriptors: Vec<FileDescriptorProto>,
+        targets: &[String],
+    ) -> Result<Self, HydrateError> {
         hydrate::run(file_descriptors, targets)
+    }
+    fn new(file_count: usize) -> Self {
+        let (well_known, packages) = Self::create_package_table();
+        let files = FileTable::with_capacity(file_count);
+        Self {
+            packages,
+            well_known,
+            files,
+            ..Default::default()
+        }
+    }
+    fn reserve(&mut self, additional: usize) {
+        self.nodes.reserve(additional);
+    }
+    fn create_package_table() -> (package::Key, PackageTable) {
+        let mut packages = PackageTable::with_capacity(1);
+        let key = packages.get_or_insert_key(FullyQualifiedName::for_package(
+            package::WELL_KNOWN.to_string(),
+        ));
+        (key, packages)
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WellKnownType {
-    Enum(r#enum::WellKnownEnum),
+    Enum(enum_::WellKnownEnum),
     Message(message::WellKnownMessage),
 }
 
@@ -310,6 +102,22 @@ impl WellKnownType {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FullyQualifiedName(Box<str>);
 
+impl From<&std::path::Path> for FullyQualifiedName {
+    fn from(path: &std::path::Path) -> Self {
+        // safety: we know the path is valid utf8
+        Self(path.to_str().unwrap().into())
+    }
+}
+impl Borrow<str> for FullyQualifiedName {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+impl PartialEq<&str> for FullyQualifiedName {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
 impl AsRef<str> for FullyQualifiedName {
     fn as_ref(&self) -> &str {
         &self.0
@@ -345,8 +153,7 @@ impl From<String> for FullyQualifiedName {
 }
 
 impl FullyQualifiedName {
-    pub fn new(value: impl AsRef<str>, container: Option<Self>) -> Self {
-        let value = value.as_ref();
+    pub fn new(value: &str, container: Option<Self>) -> Self {
         if value.is_empty() {
             if let Some(fqn) = container {
                 return fqn;
@@ -377,7 +184,7 @@ impl FullyQualifiedName {
         existing.push_str(value);
         self.0 = existing.into();
     }
-    fn for_package(package: &str) -> Self {
+    fn for_package(package: String) -> Self {
         if package.is_empty() {
             return Self::default();
         }
@@ -390,6 +197,85 @@ impl FullyQualifiedName {
 }
 
 impl fmt::Display for FullyQualifiedName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Name(Box<str>);
+
+impl PartialEq<str> for Name {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
+    }
+}
+impl PartialEq<&str> for Name {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+impl Borrow<str> for Name {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+impl From<String> for Name {
+    fn from(value: String) -> Self {
+        Self(value.into())
+    }
+}
+impl AsRef<str> for Name {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+impl From<Box<str>> for Name {
+    fn from(value: Box<str>) -> Self {
+        Self(value)
+    }
+}
+impl From<&str> for Name {
+    fn from(value: &str) -> Self {
+        Self(value.into())
+    }
+}
+impl Deref for Name {
+    type Target = str;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Default for Name {
+    fn default() -> Self {
+        Self(Box::default())
+    }
+}
+
+impl Name {
+    pub fn new(value: impl AsRef<str>, container: Option<Self>) -> Self {
+        let value = value.as_ref();
+        if value.is_empty() {
+            if let Some(fqn) = container {
+                return fqn;
+            }
+            return Self::default();
+        }
+        let container = container.unwrap_or_default();
+        if container.is_empty() {
+            return Self(value.into());
+        }
+        Self(format!("{container}.{value}").into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for Name {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
@@ -615,9 +501,6 @@ macro_rules! impl_access_name {
         impl $inner {
             pub(super) fn name(&self) -> &str {
                 &self.name
-            }
-            pub(super) fn set_name(&mut self, name: impl Into<Box<str>>) {
-                self.name = name.into();
             }
         }
         impl<'ast> crate::ast::access::Name for $inner {
@@ -875,6 +758,11 @@ use inner_method_package;
 use node_method_ast;
 use node_method_key;
 use node_method_new;
+
+use self::table::{
+    EnumTable, EnumValueTable, ExtensionDeclTable, ExtensionTable, FieldTable, FileTable,
+    MessageTable, MethodTable, OneofTable, PackageTable, ServiceTable,
+};
 
 // use impl_state;
 

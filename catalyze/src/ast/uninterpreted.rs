@@ -135,6 +135,12 @@ impl Deref for UninterpretedOptions {
     }
 }
 
+pub(super) fn into_uninterpreted_options(
+    opts: Vec<protobuf::descriptor::UninterpretedOption>,
+) -> Vec<UninterpretedOption> {
+    opts.into_iter().map(Into::into).collect()
+}
+
 /// A message representing an option that parser does not recognize.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UninterpretedOption {

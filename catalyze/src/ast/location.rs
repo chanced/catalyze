@@ -5,7 +5,7 @@ use std::{
 
 use protobuf::descriptor::{source_code_info::Location as ProtoLoc, SourceCodeInfo};
 
-use crate::error::Error;
+use crate::error::HydrateError;
 
 use super::path;
 
@@ -121,8 +121,8 @@ pub(super) struct Detail {
     pub(super) comments: Option<Comments>,
 }
 impl Detail {
-    pub(super) fn new(loc: ProtoLoc) -> Result<Self, Error> {
-        let span = Span::new(&loc.span).map_err(|()| Error::invalid_span(&loc))?;
+    pub(super) fn new(loc: ProtoLoc) -> Result<Self, HydrateError> {
+        let span = Span::new(&loc.span).map_err(|()| HydrateError::invalid_span(&loc))?;
         let comments = Comments::new_maybe(
             loc.leading_comments,
             loc.trailing_comments,
@@ -150,7 +150,7 @@ pub(super) struct File {
 }
 
 impl File {
-    pub(super) fn new(info: SourceCodeInfo) -> Result<Self, Error> {
+    pub(super) fn new(info: SourceCodeInfo) -> Result<Self, HydrateError> {
         let mut locations = info.location.into_iter().peekable();
         let mut package = None;
         let mut syntax = None;
@@ -183,9 +183,9 @@ impl File {
                     messages.push(message);
                 }
                 path::File::Enum => {
-                    let r#enum = Enum::new(loc, &mut locations)?;
-                    node_count += 1 + r#enum.values.len();
-                    enums.push(r#enum);
+                    let enumeration = Enum::new(loc, &mut locations)?;
+                    node_count += 1 + enumeration.values.len();
+                    enums.push(enumeration);
                 }
                 path::File::Service => {
                     let service = Service::new(loc, &mut locations)?;
@@ -221,7 +221,7 @@ pub(super) struct Message {
 }
 
 impl Message {
-    fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, Error> {
+    fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, HydrateError> {
         let detail = Detail::new(node)?;
         let mut node_count = 0;
         let mut messages = Vec::new();
@@ -241,9 +241,9 @@ impl Message {
                     messages.push(message);
                 }
                 path::Message::Enum => {
-                    let r#enum = Enum::new(loc, locations)?;
-                    node_count += 1 + r#enum.values.len();
-                    enums.push(r#enum);
+                    let enumeration = Enum::new(loc, locations)?;
+                    node_count += 1 + enumeration.values.len();
+                    enums.push(enumeration);
                 }
                 path::Message::Extension => {
                     let ext_decl = ExtensionDecl::new(loc, locations)?;
@@ -278,7 +278,7 @@ impl ExtensionDecl {
     fn new(
         node: ProtoLoc,
         locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, HydrateError> {
         let mut extensions = Vec::new();
         let detail = Detail::new(node)?;
         while let Some((next, _)) = iterate_next::<i32>(&detail.path, locations) {
@@ -305,7 +305,7 @@ impl Hash for Field {
 }
 
 impl Field {
-    fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, Error> {
+    fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, HydrateError> {
         let detail = Detail::new(node)?;
         while iterate_next::<i32>(&detail.path, locations).is_some() {}
         Ok(Self { detail })
@@ -317,7 +317,7 @@ pub(super) struct Oneof {
     pub(super) detail: Detail,
 }
 impl Oneof {
-    fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, Error> {
+    fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, HydrateError> {
         let detail = Detail::new(node)?;
         while iterate_next::<i32>(&detail.path, locations).is_some() {}
         Ok(Self { detail })
@@ -333,7 +333,7 @@ impl Enum {
     fn new(
         node: ProtoLoc,
         locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, HydrateError> {
         let detail = Detail::new(node)?;
         let mut values = Vec::new();
         while let Some((next, next_path)) = iterate_next(&detail.path, locations) {
@@ -355,7 +355,7 @@ impl EnumValue {
     fn new(
         node: ProtoLoc,
         locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, HydrateError> {
         let detail = Detail::new(node)?;
         while iterate_next::<i32>(&detail.path, locations).is_some() {}
         Ok(Self { detail })
@@ -370,7 +370,7 @@ impl Service {
     fn new(
         node: ProtoLoc,
         locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, HydrateError> {
         let detail = Detail::new(node)?;
         let mut methods = Vec::new();
         while let Some((next, next_path)) = iterate_next(&detail.path, locations) {
@@ -393,7 +393,7 @@ impl Method {
     fn new(
         node: ProtoLoc,
         locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, HydrateError> {
         let detail = Detail::new(node)?;
         while iterate_next::<i32>(&detail.path, locations).is_some() {}
         Ok(Self { detail })

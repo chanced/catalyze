@@ -1,11 +1,14 @@
 use protobuf::{descriptor::EnumValueOptions, SpecialFields};
 
-use crate::ast::{
-    impl_traits_and_methods, resolve::Resolver, uninterpreted::UninterpretedOption,
-    FullyQualifiedName,
+use crate::{
+    ast::{
+        impl_traits_and_methods, resolve::Resolver, uninterpreted::UninterpretedOption,
+        FullyQualifiedName,
+    },
+    error::HydrateError,
 };
 
-use super::{access::NodeKeys, file, hydrate, location, node, package};
+use super::{access::NodeKeys, file, location, node, package, Name};
 
 pub struct EnumValue<'ast>(Resolver<'ast, Key, Inner>);
 
@@ -14,13 +17,15 @@ slotmap::new_key_type! {
 }
 impl_traits_and_methods!(EnumValue, Key, Inner);
 
+pub(super) type Ident = node::Ident<Key>;
+
 pub(super) struct Hydrate {
-    pub(super) name: Box<str>,
+    pub(super) name: Name,
     pub(super) number: i32,
     pub(super) location: location::Detail,
     pub(super) options: protobuf::MessageField<EnumValueOptions>,
     pub(super) special_fields: protobuf::SpecialFields,
-    pub(super) r#enum: super::r#enum::Key,
+    pub(super) enum_: super::enum_::Key,
     pub(super) file: file::Key,
     pub(super) package: Option<package::Key>,
 }
@@ -31,12 +36,12 @@ pub(super) struct Inner {
     /// enum_value::Key
     key: Key,
     fqn: FullyQualifiedName,
-    name: Box<str>,
+    name: Name,
     node_path: Box<[i32]>,
 
     number: i32,
 
-    r#enum: super::r#enum::Key,
+    enum_: super::enum_::Key,
     file: file::Key,
     package: Option<package::Key>,
 
@@ -52,23 +57,35 @@ pub(super) struct Inner {
     options_special_fields: SpecialFields,
 }
 impl Inner {
-    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> super::node::Ident<Key> {
-        self.name = hydrate.name;
-        self.number = hydrate.number;
-        self.comments = hydrate.location.comments;
-        self.file = hydrate.file;
-        self.span = hydrate.location.span;
-        self.package = hydrate.package;
-        self.special_fields = hydrate.special_fields;
-        self.r#enum = hydrate.r#enum;
-        self.hydrate_options(hydrate.options.unwrap_or_default());
-        self.into()
+    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrateError> {
+        let Hydrate {
+            name,
+            number,
+            location,
+            options,
+            special_fields,
+            enum_,
+            file,
+            package,
+        } = hydrate;
+        self.name = name;
+        self.number = number;
+        self.comments = location.comments;
+        self.file = file;
+        self.span = location.span;
+        self.package = package;
+        self.special_fields = special_fields;
+        self.enum_ = enum_;
+        self.hydrate_options(options.unwrap_or_default())?;
+        self.hydrate_location(location);
+        Ok(self.into())
     }
 
-    fn hydrate_options(&mut self, options: EnumValueOptions) {
+    fn hydrate_options(&mut self, options: EnumValueOptions) -> Result<(), HydrateError> {
         self.options_special_fields = options.special_fields;
         self.deprecated = options.deprecated.unwrap_or(false);
         self.set_uninterpreted_options(options.uninterpreted_option);
+        Ok(())
     }
 }
 

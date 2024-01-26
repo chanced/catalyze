@@ -93,7 +93,7 @@ macro_rules! impl_resolve {
 }
 
 use super::{
-    r#enum, enum_value, extension, extension_decl, field, file, message, method, oneof, package,
+    enum_, enum_value, extension, extension_decl, field, file, message, method, oneof, package,
     service,
 };
 
@@ -101,7 +101,7 @@ impl_resolve!(
     packages -> package,
     files -> file,
     messages -> message,
-    enums -> r#enum,
+    enums -> enum_,
     enum_values -> enum_value,
     oneofs -> oneof,
     services -> service,

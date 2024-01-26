@@ -4,7 +4,7 @@ use crate::HashMap;
 
 use super::{
     access,
-    r#enum::{self, Enum},
+    enum_::{self, Enum},
     enum_value::{self, EnumValue},
     extension::{self, Extension},
     field::{self, Field},
@@ -14,7 +14,7 @@ use super::{
     oneof::{self, Oneof},
     package::{self, Package},
     service::{self, Service},
-    FullyQualifiedName,
+    FullyQualifiedName, Name,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,7 +22,7 @@ pub(super) enum Key {
     Package(package::Key),
     File(file::Key),
     Message(message::Key),
-    Enum(r#enum::Key),
+    Enum(enum_::Key),
     EnumValue(enum_value::Key),
     Service(service::Key),
     Method(method::Key),
@@ -30,6 +30,8 @@ pub(super) enum Key {
     Oneof(oneof::Key),
     Extension(extension::Key),
 }
+
+pub(super) type NodeMap = HashMap<FullyQualifiedName, Key>;
 
 impl From<package::Key> for Key {
     fn from(key: package::Key) -> Self {
@@ -46,8 +48,8 @@ impl From<message::Key> for Key {
         Self::Message(key)
     }
 }
-impl From<r#enum::Key> for Key {
-    fn from(key: r#enum::Key) -> Self {
+impl From<enum_::Key> for Key {
+    fn from(key: enum_::Key) -> Self {
         Self::Enum(key)
     }
 }
@@ -134,7 +136,7 @@ pub trait AsNode<'ast>: Into<Node<'ast>> + Copy {
 pub(crate) struct Ident<K> {
     pub(super) key: K,
     pub(super) fqn: FullyQualifiedName,
-    pub(super) name: Box<str>,
+    pub(super) name: Name,
 }
 
 impl<K> Ident<K>
@@ -222,5 +224,5 @@ macro_rules! ident_from {
     };
 }
 ident_from!(
-    package, file, message, r#enum, enum_value, service, method, field, oneof, extension,
+    package, file, message, enum_, enum_value, service, method, field, oneof, extension,
 );

@@ -1,48 +1,68 @@
 use crate::{
     ast::{impl_traits_and_methods, uninterpreted::UninterpretedOption, Ast, FullyQualifiedName},
-    error::Error,
+    error::HydrateError,
 };
 use ::std::vec::Vec;
 use protobuf::{
-    descriptor::{field_descriptor_proto, field_options::CType as ProtobufCType},
-    EnumOrUnknown,
+    descriptor::{field_descriptor_proto, field_options::CType as ProtobufCType, FieldOptions},
+    EnumOrUnknown, SpecialFields,
 };
 use std::fmt;
 
 use super::{
     access::NodeKeys,
-    r#enum::{self, Enum},
+    enum_::{self, Enum},
     file, location,
     message::{self, Message},
     node, package,
     reference::{ReferenceInner, References},
     resolve::Resolver,
+    Name,
 };
+
+pub(super) type Ident = node::Ident<Key>;
+
+pub(super) struct Hydrate {
+    pub(super) name: Name,
+    pub(super) file: file::Key,
+    pub(super) package: Option<package::Key>,
+    pub(super) message: message::Key,
+    pub(super) location: location::Detail,
+    pub(super) number: Option<i32>,
+    pub(super) type_: Option<EnumOrUnknown<field_descriptor_proto::Type>>,
+    pub(super) type_name: Option<String>,
+    pub(super) default_value: Option<String>,
+    pub(super) json_name: Option<String>,
+    pub(super) proto3_optional: Option<bool>,
+    pub(super) oneof_index: Option<i32>,
+    pub(super) special_fields: protobuf::SpecialFields,
+    pub(super) label: Option<protobuf::EnumOrUnknown<field_descriptor_proto::Label>>,
+    pub(super) options: protobuf::MessageField<FieldOptions>,
+}
 
 #[derive(Debug, Default, Clone)]
 pub(super) struct Inner {
     key: Key,
-
-    value: ValueInner,
     fqn: FullyQualifiedName,
+    name: Name,
+    value: ValueInner,
     node_path: Box<[i32]>,
     span: location::Span,
     comments: Option<location::Comments>,
-    name: Box<str>,
     number: i32,
     label: Option<Label>,
+
+    proto_type: field_descriptor_proto::Type,
+
     ///  If type_name is set, this need not be set.  If both this and type_name
     ///  are set, this must be one of TYPE_ENUM, TYPE_MESSAGE or TYPE_GROUP.
-    field_type: TypeInner,
+    type_: TypeInner,
     ///  For message and enum types, this is the name of the type.  If the name
     ///  starts with a '.', it is fully-qualified.  Otherwise, C++-like scoping
     ///  rules are used to find the type (i.e. first the nested types within
     /// this  message are searched, then within the parent, on up to the
     /// root  namespace).
     type_name: Option<String>,
-    ///  For extensions, this is the name of the type being extended.  It is
-    ///  resolved in the same manner as type_name.
-    extendee: Option<String>,
     ///  For numeric types, contains the original text representation of the
     /// value.  For booleans, "true" or "false".
     ///  For strings, contains the default text contents (not escaped in any
@@ -148,11 +168,75 @@ pub(super) struct Inner {
     package: Option<package::Key>,
     reference: Option<ReferenceInner>,
     file: file::Key,
+
+    special_fields: SpecialFields,
+    options_special_fields: SpecialFields,
 }
 
 impl Inner {
     pub(super) fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut ReferenceInner> {
         self.reference.iter_mut()
+    }
+
+    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrateError> {
+        let Hydrate {
+            location,
+            file,
+            number,
+            label,
+            options,
+            name,
+            message,
+            package,
+            type_,
+            type_name,
+            default_value,
+            json_name,
+            proto3_optional,
+            oneof_index,
+            special_fields,
+        } = hydrate;
+
+        self.name = name;
+        self.file = file;
+        self.type_name = type_name;
+        self.default_value = default_value;
+        self.oneof_index = oneof_index;
+        self.json_name = json_name;
+        self.proto3_optional = proto3_optional;
+        self.number = number.unwrap();
+        self.label = label.map(Into::into);
+        self.proto_type = type_
+            .unwrap()
+            .enum_value()
+            .map_err(|type_| HydrateError::FieldType {
+                fully_qualified_name: self.fqn.clone(),
+                type_,
+            })?;
+        self.hydrate_location(location);
+        self.hydrate_options(options.unwrap_or_default())?;
+        Ok(self.into())
+    }
+    fn hydrate_options(&mut self, opts: FieldOptions) -> Result<(), HydrateError> {
+        let FieldOptions {
+            ctype,
+            packed,
+            jstype,
+            lazy,
+            deprecated,
+            weak,
+            uninterpreted_option,
+            special_fields,
+        } = opts;
+        self.ctype = ctype.map(Into::into);
+        self.packed = packed.unwrap_or(false);
+        self.jstype = jstype.map(Into::into);
+        self.lazy = lazy.unwrap_or(false);
+        self.deprecated = deprecated.unwrap_or(false);
+        self.weak = weak.unwrap_or(false);
+        self.uninterpreted_options = uninterpreted_option.into_iter().map(Into::into).collect();
+        self.options_special_fields = special_fields;
+        Ok(())
     }
 }
 
@@ -173,6 +257,25 @@ pub enum Label {
     Optional = 2,
     Repeated = 3,
     Unkown(i32),
+}
+impl From<EnumOrUnknown<field_descriptor_proto::Label>> for Label {
+    fn from(value: EnumOrUnknown<field_descriptor_proto::Label>) -> Self {
+        match value.enum_value() {
+            Ok(v) => v.into(),
+            Err(v) => Self::Unkown(v),
+        }
+    }
+}
+
+impl From<field_descriptor_proto::Label> for Label {
+    fn from(value: field_descriptor_proto::Label) -> Self {
+        use field_descriptor_proto::Label as ProtoLabel;
+        match value {
+            ProtoLabel::LABEL_OPTIONAL => Self::Optional,
+            ProtoLabel::LABEL_REQUIRED => Self::Required,
+            ProtoLabel::LABEL_REPEATED => Self::Repeated,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -346,7 +449,7 @@ impl Default for TypeInner {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ValueInner {
     Scalar(Scalar),
-    Enum(r#enum::Key),
+    Enum(enum_::Key),
     Message(message::Key),
     Unknown(i32),
 }
@@ -405,8 +508,8 @@ impl<'ast> From<(message::Key, &'ast Ast)> for Value<'ast> {
         Self::from(Message::from((key, ast)))
     }
 }
-impl<'ast> From<(r#enum::Key, &'ast Ast)> for Value<'ast> {
-    fn from((key, ast): (r#enum::Key, &'ast Ast)) -> Self {
+impl<'ast> From<(enum_::Key, &'ast Ast)> for Value<'ast> {
+    fn from((key, ast): (enum_::Key, &'ast Ast)) -> Self {
         Self::from(Enum::from((key, ast)))
     }
 }
@@ -519,9 +622,9 @@ impl<'ast> Value<'ast> {
 impl ValueInner {
     pub(super) fn new(
         typ: field_descriptor_proto::Type,
-        enum_: Option<r#enum::Key>,
+        enum_: Option<enum_::Key>,
         msg: Option<message::Key>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, HydrateError> {
         use field_descriptor_proto::Type::*;
         match typ {
             TYPE_DOUBLE => Ok(Self::Scalar(Scalar::Double)),
@@ -541,7 +644,7 @@ impl ValueInner {
             TYPE_SINT64 => Ok(Self::Scalar(Scalar::Sint64)),
             TYPE_ENUM => Ok(Self::Enum(enum_.unwrap())),
             TYPE_MESSAGE => Ok(Self::Message(msg.unwrap())),
-            TYPE_GROUP => Err(Error::GroupNotSupported),
+            TYPE_GROUP => Err(HydrateError::GroupNotSupported),
         }
     }
 }

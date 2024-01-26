@@ -4,7 +4,7 @@ use super::{
     access::NodeKeys,
     extension_decl,
     field::{TypeInner, ValueInner},
-    file, location, message, package,
+    file, location, message, node, package,
     reference::{ReferenceInner, References},
     resolve,
     uninterpreted::UninterpretedOption,
@@ -16,6 +16,8 @@ pub use super::field::{CType, JsType, Label};
 slotmap::new_key_type! {
     pub(super) struct Key;
 }
+
+pub(super) type Ident = node::Ident<Key>;
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {

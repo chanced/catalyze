@@ -1,8 +1,11 @@
 use std::iter;
 
+use crate::error::HydrateError;
+
 use super::{
     access::{self, NodeKeys},
-    container, r#enum, extension, extension_decl,
+    collection::Collection,
+    container, enum_, extension, extension_decl,
     field::{self},
     file, impl_traits_and_methods,
     location::{self, Comments, Span},
@@ -12,8 +15,8 @@ use super::{
     reference::{ReferenceInner, References},
     reserved::Reserved,
     resolve::Resolver,
-    uninterpreted::UninterpretedOption,
-    FullyQualifiedName, Set,
+    uninterpreted::{into_uninterpreted_options, UninterpretedOption},
+    FullyQualifiedName, Name,
 };
 use protobuf::{
     descriptor::{descriptor_proto, MessageOptions},
@@ -23,31 +26,32 @@ use protobuf::{
 slotmap::new_key_type! {
     pub(super) struct Key;
 }
+pub(super) type Ident = node::Ident<Key>;
 
 pub(super) struct Hydrate {
-    pub(super) name: Box<str>,
+    pub(super) name: Name,
     pub(super) container: container::Key,
     pub(super) package: Option<package::Key>,
     pub(super) well_known: Option<WellKnownMessage>,
     pub(super) location: location::Detail,
-    pub(super) options: protobuf::MessageField<MessageOptions>,
     pub(super) reserved_ranges: Vec<descriptor_proto::ReservedRange>,
     pub(super) reserved_names: Vec<String>,
     pub(super) extension_range: Vec<descriptor_proto::ExtensionRange>,
     pub(super) special_fields: protobuf::SpecialFields,
     pub(super) messages: Vec<node::Ident<message::Key>>,
-    pub(super) enums: Vec<node::Ident<r#enum::Key>>,
+    pub(super) enums: Vec<node::Ident<enum_::Key>>,
     pub(super) fields: Vec<node::Ident<field::Key>>,
     pub(super) oneofs: Vec<node::Ident<oneof::Key>>,
     pub(super) extensions: Vec<node::Ident<extension::Key>>,
-    pub(super) extension_blocks: Vec<extension_decl::Key>,
+    pub(super) extension_decls: Vec<extension_decl::Key>,
+    pub(super) options: protobuf::MessageField<MessageOptions>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Inner {
     key: Key,
     fqn: FullyQualifiedName,
-    name: Box<str>,
+    name: Name,
     node_path: Box<[i32]>,
     span: Span,
     comments: Option<Comments>,
@@ -55,18 +59,18 @@ pub(super) struct Inner {
     package: Option<package::Key>,
     file: file::Key,
 
-    extensions: Set<extension::Key>,
-    extension_blocks: Vec<extension_decl::Key>,
+    extensions: Collection<extension::Key>,
+    extension_decls: Vec<extension_decl::Key>,
 
-    fields: Set<field::Key>,
-    enums: Set<r#enum::Key>,
-    messages: Set<message::Key>,
-    oneofs: Set<oneof::Key>,
-    real_oneofs: Set<oneof::Key>,
-    synthetic_oneofs: Set<oneof::Key>,
+    fields: Collection<field::Key>,
+    enums: Collection<enum_::Key>,
+    messages: Collection<message::Key>,
+    oneofs: Collection<oneof::Key>,
+    real_oneofs: Collection<oneof::Key>,
+    synthetic_oneofs: Collection<oneof::Key>,
 
-    applied_extensions: Set<extension::Key>,
-    dependents: Set<file::Key>,
+    applied_extensions: Collection<extension::Key>,
+    dependents: Collection<file::Key>,
 
     referenced_by: Vec<ReferenceInner>,
     references: Vec<ReferenceInner>,
@@ -106,7 +110,7 @@ impl NodeKeys for Inner {
 }
 
 impl Inner {
-    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> node::Ident<Key> {
+    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrateError> {
         let Hydrate {
             name,
             container,
@@ -123,7 +127,7 @@ impl Inner {
             fields,
             oneofs,
             extensions,
-            extension_blocks,
+            extension_decls,
         } = hydrate;
         self.name = name;
         self.package = package;
@@ -131,20 +135,17 @@ impl Inner {
         self.extension_ranges = extension_range.into_iter().map(Into::into).collect();
         self.special_fields = special_fields;
         self.messages = messages.into();
-
         self.enums = enums.into();
         self.fields = fields.into();
         self.oneofs = oneofs.into();
-
         self.extensions = extensions.into();
-        self.extension_blocks = extension_blocks;
-
+        self.extension_decls = extension_decls;
         self.hydrate_location(location);
-        self.hydrate_options(options.unwrap_or_default());
+        self.hydrate_options(options.unwrap_or_default())?;
         self.set_reserved(reserved_names, reserved_ranges);
-        self.into()
+        Ok(self.into())
     }
-    fn hydrate_options(&mut self, opts: MessageOptions) {
+    fn hydrate_options(&mut self, opts: MessageOptions) -> Result<(), HydrateError> {
         let MessageOptions {
             message_set_wire_format,
             no_standard_descriptor_accessor,
@@ -157,8 +158,9 @@ impl Inner {
         self.no_standard_descriptor_accessor = no_standard_descriptor_accessor.unwrap_or(false);
         self.deprecated = deprecated.unwrap_or(false);
         self.map_entry = map_entry.unwrap_or(false);
-        self.uninterpreted_options = uninterpreted_option.into_iter().map(Into::into).collect();
+        self.uninterpreted_options = into_uninterpreted_options(uninterpreted_option);
         self.options_special_fields = special_fields;
+        Ok(())
     }
 }
 

@@ -1,33 +1,43 @@
-use protobuf::{descriptor::EnumOptions, SpecialFields};
+use protobuf::{
+    descriptor::{enum_descriptor_proto, EnumOptions},
+    SpecialFields,
+};
 use snafu::location;
 
-use crate::ast::{
-    access::NodeKeys,
-    file, impl_traits_and_methods,
-    location::{Comments, Span},
-    package,
-    reference::ReferrerKey,
-    resolve::Resolver,
-    uninterpreted::UninterpretedOption,
-    FullyQualifiedName,
+use crate::{
+    ast::{
+        access::NodeKeys,
+        file, impl_traits_and_methods,
+        location::{Comments, Span},
+        package,
+        reference::ReferrerKey,
+        resolve::Resolver,
+        uninterpreted::UninterpretedOption,
+        FullyQualifiedName,
+    },
+    error::HydrateError,
 };
 
 use std::{fmt, str::FromStr};
 
-use super::{container, enum_value, location, node, Set};
+use super::{collection::Collection, container, enum_value, location, node, Name};
 
 slotmap::new_key_type! {
     pub(super) struct Key;
 }
 
+pub(super) type Ident = node::Ident<Key>;
+
 pub(super) struct Hydrate {
-    pub(super) name: Box<str>,
+    pub(super) name: Name,
+    pub(super) package: Option<package::Key>,
+    pub(super) file: file::Key,
     pub(super) values: Vec<node::Ident<enum_value::Key>>,
     pub(super) location: location::Detail,
     pub(super) options: protobuf::MessageField<EnumOptions>,
     pub(super) special_fields: protobuf::SpecialFields,
     pub(super) reserved_names: Vec<String>,
-    pub(super) reserved_ranges: Vec<protobuf::descriptor::enum_descriptor_proto::EnumReservedRange>,
+    pub(super) reserved_ranges: Vec<enum_descriptor_proto::EnumReservedRange>,
     pub(super) container: container::Key,
     pub(super) well_known: Option<WellKnownEnum>,
 }
@@ -36,7 +46,7 @@ pub(super) struct Hydrate {
 pub(super) struct Inner {
     key: Key,
     fqn: FullyQualifiedName,
-    name: Box<str>,
+    name: Name,
     node_path: Box<[i32]>,
     span: Span,
     comments: Option<Comments>,
@@ -45,7 +55,7 @@ pub(super) struct Inner {
     file: file::Key,
     container: container::Key,
     referenced_by: Vec<ReferrerKey>,
-    values: Set<super::enum_value::Key>,
+    values: Collection<super::enum_value::Key>,
     well_known: Option<WellKnownEnum>,
     allow_alias: bool,
     deprecated: bool,
@@ -56,16 +66,33 @@ pub(super) struct Inner {
 }
 
 impl Inner {
-    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> node::Ident<Key> {
-        self.values = hydrate.values.into();
-        self.name = hydrate.name;
-        self.set_reserved(hydrate.reserved_names, hydrate.reserved_ranges);
-        self.container = hydrate.container;
-        self.well_known = hydrate.well_known;
-        self.special_fields = hydrate.special_fields;
-        self.hydrate_location(hydrate.location);
-        self.hydrate_options(hydrate.options.unwrap_or_default());
-        self.into()
+    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrateError> {
+        let Hydrate {
+            name,
+            package,
+            file,
+            values,
+            location,
+            options,
+            special_fields,
+            reserved_names,
+            reserved_ranges,
+            container,
+            well_known,
+        } = hydrate;
+
+        self.values = values.into();
+        self.name = name;
+        self.file = file;
+        self.package = package;
+
+        self.set_reserved(reserved_names, reserved_ranges);
+        self.container = container;
+        self.well_known = well_known;
+        self.special_fields = special_fields;
+        self.hydrate_location(location);
+        self.hydrate_options(options.unwrap_or_default());
+        Ok(self.into())
     }
 
     fn hydrate_options(&mut self, options: EnumOptions) {

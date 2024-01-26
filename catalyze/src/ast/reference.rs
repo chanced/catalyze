@@ -3,7 +3,7 @@ use std::{iter::Copied, option, slice};
 use either::Either;
 
 use super::{
-    r#enum::{self, Enum},
+    enum_::{self, Enum},
     extension::{self, Extension},
     field::{self, Field},
     message::{self, Message},
@@ -60,11 +60,11 @@ pub struct ReferenceInner {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ReferentKey {
     Message(message::Key),
-    Enum(r#enum::Key),
+    Enum(enum_::Key),
 }
 
-impl From<r#enum::Key> for ReferentKey {
-    fn from(v: r#enum::Key) -> Self {
+impl From<enum_::Key> for ReferentKey {
+    fn from(v: enum_::Key) -> Self {
         Self::Enum(v)
     }
 }
@@ -95,8 +95,8 @@ impl<'ast> Referent<'ast> {
     }
 }
 
-impl<'ast> From<(r#enum::Key, &'ast Ast)> for Referent<'ast> {
-    fn from((key, ast): (r#enum::Key, &'ast Ast)) -> Self {
+impl<'ast> From<(enum_::Key, &'ast Ast)> for Referent<'ast> {
+    fn from((key, ast): (enum_::Key, &'ast Ast)) -> Self {
         Self::Enum((key, ast).into())
     }
 }

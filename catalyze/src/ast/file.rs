@@ -1,10 +1,11 @@
-use crate::error::Error;
-use ahash::HashMap;
+use crate::error::HydrateError;
+use ahash::{HashMap, HashSet};
 use protobuf::{
     descriptor::{file_options::OptimizeMode as ProtoOptimizeMode, FileOptions},
     SpecialFields,
 };
 use std::{
+    borrow::Borrow,
     fmt,
     hash::Hash,
     ops::Deref,
@@ -13,14 +14,9 @@ use std::{
 };
 
 use super::{
-    access::NodeKeys,
-    r#enum, extension, extension_decl, impl_traits_and_methods, location, message,
-    node::{self, Ident},
-    package,
-    resolve::Resolver,
-    service,
-    uninterpreted::UninterpretedOption,
-    FullyQualifiedName, Set,
+    access::NodeKeys, collection::Collection, enum_, extension, extension_decl,
+    impl_traits_and_methods, location, message, node, package, resolve::Resolver, service,
+    uninterpreted::UninterpretedOption, FullyQualifiedName, Name,
 };
 
 slotmap::new_key_type! {
@@ -28,19 +24,21 @@ slotmap::new_key_type! {
     pub struct Key;
 }
 
+pub type Ident = node::Ident<Key>;
+
 pub(super) struct Hydrate {
-    pub(super) name: Box<str>,
+    pub(super) name: Name,
     pub(super) syntax: Option<String>,
-    pub(super) options: FileOptions,
+    pub(super) options: protobuf::MessageField<FileOptions>,
     pub(super) package: Option<package::Key>,
-    pub(super) messages: Vec<node::Ident<message::Key>>,
-    pub(super) enums: Vec<node::Ident<r#enum::Key>>,
-    pub(super) services: Vec<node::Ident<service::Key>>,
-    pub(super) extensions: Vec<node::Ident<extension::Key>>,
-    pub(super) extension_blocks: Vec<extension_decl::Key>,
+    pub(super) messages: Vec<message::Ident>,
+    pub(super) enums: Vec<enum_::Ident>,
+    pub(super) services: Vec<service::Ident>,
+    pub(super) extensions: Vec<extension::Ident>,
+    pub(super) extension_decls: Vec<extension_decl::Key>,
     pub(super) dependencies: DependenciesInner,
-    pub(super) package_comments: Option<location::Comments>,
-    pub(super) comments: Option<location::Comments>,
+    pub(super) package_comments: Option<location::Detail>,
+    pub(super) comments: Option<location::Detail>,
     pub(super) is_build_target: bool,
     pub(super) nodes: HashMap<FullyQualifiedName, node::Key>,
 }
@@ -225,11 +223,11 @@ impl Syntax {
             Self::Proto3 => Self::PROTO3,
         }
     }
-    pub fn parse(s: &str) -> Result<Self, Error> {
+    pub fn parse(s: &str) -> Result<Self, ()> {
         match s {
             Self::PROTO2 => Ok(Self::Proto2),
             Self::PROTO3 => Ok(Self::Proto3),
-            _ => Err(Error::unsupported_syntax(s.to_owned())),
+            _ => Err(()),
         }
     }
 }
@@ -426,7 +424,16 @@ impl<'ast> Dependent<'ast> {
         self.dependent
     }
 }
-
+impl<'ast> Borrow<File<'ast>> for Dependent<'ast> {
+    fn borrow(&self) -> &File<'ast> {
+        &self.dependent
+    }
+}
+impl<'ast> AsRef<File<'ast>> for Dependent<'ast> {
+    fn as_ref(&self) -> &File<'ast> {
+        &self.dependent
+    }
+}
 impl<'ast> Deref for Dependent<'ast> {
     type Target = File<'ast>;
 
@@ -443,6 +450,7 @@ pub(super) struct DependencyInner {
     pub(super) dependency: Key,
     pub(super) dependent: Key,
 }
+
 impl DependencyInner {
     pub(super) fn set_is_used(&mut self, is_used: bool) {
         self.is_used = is_used;
@@ -505,18 +513,18 @@ pub(super) struct DependenciesInner {
 #[derive(Debug, Default, Clone, PartialEq)]
 #[doc(hidden)]
 pub(super) struct Inner {
-    key: Key,
-    fqn: FullyQualifiedName,
-    name: Box<str>,
-    path: PathBuf,
+    pub(super) key: Key,
+    pub(super) fqn: FullyQualifiedName,
+    pub(super) name: Name,
+    pub(super) path: PathBuf,
 
     package: Option<package::Key>,
-    messages: Set<message::Key>,
-    enums: Set<r#enum::Key>,
-    services: Set<service::Key>,
+    messages: Collection<message::Key>,
+    enums: Collection<enum_::Key>,
+    services: Collection<service::Key>,
 
-    extensions: Set<extension::Key>,
-    extension_blocks: Vec<extension_decl::Key>,
+    defined_extensions: Collection<extension::Key>,
+    extension_decls: Vec<extension_decl::Key>,
 
     dependencies: DependenciesInner,
     package_comments: Option<location::Comments>,
@@ -562,7 +570,7 @@ impl NodeKeys for Inner {
             .chain(self.messages.iter().copied().map(Into::into))
             .chain(self.enums.iter().copied().map(Into::into))
             .chain(self.services.iter().copied().map(Into::into))
-            .chain(self.extensions.iter().copied().map(Into::into))
+            .chain(self.defined_extensions.iter().copied().map(Into::into))
     }
 }
 
@@ -575,9 +583,9 @@ impl Inner {
         self.transitive_dependents.push(dependent);
     }
 
-    pub(super) fn set_name_and_path(&mut self, name: Box<str>) {
+    pub(super) fn set_name_and_path(&mut self, name: Name) {
         self.path = PathBuf::from(name.as_ref());
-        self.set_name(name);
+        self.name = name;
     }
     pub(super) fn set_fqn(&mut self, fqn: FullyQualifiedName) {
         self.fqn = fqn;
@@ -589,27 +597,32 @@ impl Inner {
         self.is_build_target = is_build_target;
     }
 
-    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<node::Ident<Key>, Error> {
+    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<node::Ident<Key>, HydrateError> {
         self.set_name_and_path(hydrate.name);
-        self.syntax = Syntax::parse(&hydrate.syntax.unwrap_or_default())?;
+        self.syntax = Syntax::parse(&hydrate.syntax.unwrap_or_default()).map_err(|_| {
+            HydrateError::UnsupportedSyntax {
+                value: hydrate.syntax.unwrap_or_default(),
+                path: self.path.clone(),
+            }
+        })?;
         self.package = hydrate.package;
         self.messages = hydrate.messages.into();
         self.enums = hydrate.enums.into();
         self.services = hydrate.services.into();
-        self.extensions = hydrate.extensions.into();
-        self.extension_blocks = hydrate.extension_blocks;
+        self.defined_extensions = hydrate.extensions.into();
+        self.extension_decls = hydrate.extension_decls;
         self.dependencies = hydrate.dependencies;
-        self.package_comments = hydrate.package_comments;
-        self.comments = hydrate.comments;
+        self.package_comments = hydrate.package_comments.and_then(|c| c.comments);
+        self.comments = hydrate.comments.and_then(|c| c.comments);
         self.is_build_target = hydrate.is_build_target;
         self.nodes = hydrate.nodes;
-        self.hydrate_options(hydrate.options);
+        self.hydrate_options(hydrate.options.unwrap_or_default())?;
         Ok(self.into())
     }
     /// Hydrates the data within the descriptor.
     ///
     /// Note: References and nested nodes are not hydrated.
-    fn hydrate_options(&mut self, opts: FileOptions) {
+    fn hydrate_options(&mut self, opts: FileOptions) -> Result<(), HydrateError> {
         self.java_package = opts.java_package;
         self.java_outer_classname = opts.java_outer_classname;
         self.java_multiple_files = opts.java_multiple_files.unwrap_or(false);
@@ -636,6 +649,7 @@ impl Inner {
             .map(Into::into)
             .collect();
         self.options_special_fields = opts.special_fields;
+        Ok(())
     }
 
     pub(crate) fn set_nodes_by_fqn(
@@ -644,14 +658,6 @@ impl Inner {
     ) {
         nodes.shrink_to_fit();
         self.nodes = nodes;
-    }
-}
-
-fn parse_syntax(syntax: &str) -> Result<Syntax, Error> {
-    match syntax {
-        "proto2" => Ok(Syntax::Proto2),
-        "proto3" => Ok(Syntax::Proto3),
-        _ => Err(Error::unsupported_syntax(syntax)),
     }
 }
 

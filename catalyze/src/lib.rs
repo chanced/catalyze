@@ -32,7 +32,7 @@ pub mod generator;
 type HashMap<K, V> = ahash::HashMap<K, V>;
 type HashSet<V> = ahash::HashSet<V>;
 
-fn to_i32<T>(value: T) -> i32
+fn as_i32<T>(value: T) -> i32
 where
     T: TryInto<i32>,
     T::Error: Display,

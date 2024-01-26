@@ -1,7 +1,7 @@
 use super::{
     access::NodeKeys,
     file::{self, File},
-    impl_traits_and_methods, location, resolve, FullyQualifiedName,
+    impl_traits_and_methods, location, resolve, FullyQualifiedName, Name,
 };
 
 use std::fmt::Debug;
@@ -38,23 +38,24 @@ pub(super) struct Inner {
 
     fqn: FullyQualifiedName,
     comments: Vec<CommentsInner>,
-    name: Box<str>,
+    name: Name,
     is_well_known: bool,
     files: Vec<file::Key>,
 }
 
 impl Inner {
     pub fn new(name: &str) -> Self {
+        let fqn = FullyQualifiedName::for_package(name.into());
         Self {
             key: Key::default(),
             name: name.into(),
             is_well_known: name == WELL_KNOWN,
             files: Vec::default(),
-            fqn: FullyQualifiedName::for_package(name),
+            fqn,
             comments: Vec::default(),
         }
     }
-    pub(super) fn hydrate(&mut self, name: String) {
+    pub(super) fn hydrate(&mut self, name: Name) {
         if !self.name.is_empty() {
             return;
         }
