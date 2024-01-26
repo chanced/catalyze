@@ -66,6 +66,7 @@ pub mod hydrate {
         Locations {
             source: super::LocationsError,
         },
+
     }
 }
 
@@ -110,7 +111,6 @@ pub mod syntax {
 }
 
 pub type FieldTypeError = FullyQualified<field_type::Error>;
-
 pub mod field_type {
     #[derive(Debug, snafu::Snafu)]
     #[snafu(
@@ -157,8 +157,8 @@ pub mod index {
     impl std::fmt::Display for Kind {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
-                Kind::Oneof => write!(f, "Oneof"),
-                Kind::WeakDependency => write!(f, "Weak dependency"),
+                Self::Oneof => write!(f, "Oneof"),
+                Self::WeakDependency => write!(f, "Weak dependency"),
             }
         }
     }
@@ -177,6 +177,7 @@ pub mod node_pathed {
         pub node_path: Vec<i32>,
         pub source: E,
     }
+    deref!(Error, E);
 }
 
 pub type FilePathed<E> = file_pathed::Error<E>;
@@ -199,6 +200,8 @@ pub mod file_pathed {
 
 pub type FullyQualified<E> = fully_qualified::Error<E>;
 pub mod fully_qualified {
+    use std::ops::Deref;
+
     use crate::ast::FullyQualifiedName;
     #[derive(Debug, snafu::Snafu)]
     #[snafu(
@@ -211,6 +214,6 @@ pub mod fully_qualified {
         pub source: E,
         pub fully_qualified_name: FullyQualifiedName,
     }
-
+    deref!(Error, E);
 }
 

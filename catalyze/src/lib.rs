@@ -19,7 +19,8 @@
     clippy::module_inception,
 	clippy::struct_excessive_bools,
     clippy::missing_const_for_fn,
-    clippy::too_many_arguments
+    clippy::too_many_arguments,
+    unnecessary_wraps
 )]
 #![cfg_attr(test, allow(clippy::too_many_lines))]
 

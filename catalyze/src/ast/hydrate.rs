@@ -43,16 +43,6 @@ impl Hydrator {
         Ok(hydrator.ast)
     }
 
-    fn file_location(
-        &self,
-        fqn: &Name,
-        info: MessageField<SourceCodeInfo>,
-    ) -> Result<location::File, HydrateError> {
-        location::File::new(
-            info.unwrap_or_else(|| panic!("File \"{fqn}\" is missing SourceCodeInfo")),
-        )
-    }
-
     fn messages(
         &mut self,
         descriptors: Vec<DescriptorProto>,
@@ -183,11 +173,11 @@ impl Hydrator {
 
         let fqn = FullyQualifiedName::new(&name, package_fqn);
         let key = self.ast.files.get_or_insert_key(fqn.clone());
-        let location = self
-            .file_location(&name, descriptor.source_code_info)
-            .with_context(|_| error::file_pathed::Snafu {
+        let location = file_location(&name, descriptor.source_code_info).with_context(|_| {
+            error::file_pathed::Snafu {
                 file_path: name.as_str(),
-            })?;
+            }
+        })?;
         let mut nodes = HashMap::with_capacity(location.node_count);
         self.ast.reserve(location.node_count);
 
@@ -332,7 +322,7 @@ impl Hydrator {
                 .with_context(|_| error::fully_qualified::Snafu {
                     fully_qualified_name: self.ast.files[dependent].fqn().clone(),
                 })?;
-            let dep = &mut direct.get_mut(i).ok_or_else(|| error::IndexError {
+            let dep = direct.get_mut(i).ok_or_else(|| error::IndexError {
                 fully_qualified_name: self.ast.files[dependent].fqn().clone(),
                 source: error::index::Error {
                     index,
@@ -341,7 +331,7 @@ impl Hydrator {
                 },
             })?;
             dep.is_public = true;
-            public.push(dep.clone());
+            public.push(*dep);
         }
 
         let mut weak = Vec::with_capacity(weak_dependencies.len());
@@ -356,7 +346,7 @@ impl Hydrator {
                 .with_context(|_| error::fully_qualified::Snafu {
                     fully_qualified_name: self.ast.files[dependent].fqn().clone(),
                 })?;
-            let dep = &mut direct.get_mut(i).ok_or_else(|| error::IndexError {
+            let dep = direct.get_mut(i).ok_or_else(|| error::IndexError {
                 fully_qualified_name: self.ast.files[dependent].fqn().clone(),
                 source: error::index::Error {
                     index,
@@ -365,7 +355,7 @@ impl Hydrator {
                 },
             })?;
             dep.is_weak = true;
-            weak.push(dep.clone());
+            weak.push(*dep);
         }
         Ok(file::DependenciesInner {
             transitive: Vec::default(),
@@ -470,10 +460,10 @@ impl Hydrator {
                 let fqn = FullyQualifiedName::new(descriptor.name(), Some(message_fqn.clone()));
                 self.field(
                     Field {
-                        fqn,
-                        message,
                         descriptor,
+                        fqn,
                         location,
+                        message,
                         file,
                         package,
                     },
@@ -501,10 +491,10 @@ impl Hydrator {
                 let fqn = FullyQualifiedName::new(descriptor.name(), Some(message_fqn.clone()));
                 self.oneof(
                     Oneof {
-                        message,
-                        fqn,
                         descriptor,
+                        fqn,
                         location,
+                        message,
                         file,
                         package,
                     },
@@ -549,8 +539,8 @@ impl Hydrator {
                 let fqn = FullyQualifiedName::new(descriptor.name(), Some(file_fqn.clone()));
                 self.service(
                     Service {
-                        fqn,
                         descriptor,
+                        fqn,
                         location,
                         file,
                         package,
@@ -901,4 +891,14 @@ fn assert_locations<T, L>(
     } else {
         Ok(())
     }
+}
+
+fn file_location(
+    fqn: &Name,
+    info: MessageField<SourceCodeInfo>,
+) -> Result<location::File, HydrateError> {
+    let info = info
+        .0
+        .ok_or_else(|| error::HydrateError::MissingSourceCodeInfo)?;
+    location::File::new(info)
 }

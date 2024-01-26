@@ -156,7 +156,7 @@ pub(super) struct File {
 }
 
 impl File {
-    pub(super) fn new(info: SourceCodeInfo) -> Result<Self, HydrateError> {
+    pub(super) fn new(info: Box<SourceCodeInfo>) -> Result<Self, HydrateError> {
         let mut locations = info.location.into_iter().peekable();
         let mut package = None;
         let mut syntax = None;
