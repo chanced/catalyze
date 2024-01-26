@@ -23,19 +23,10 @@ mod hydrate;
 mod resolve;
 mod table;
 
-use crate::HashMap;
+use crate::{error::Error, HashMap};
 
 use protobuf::descriptor::FileDescriptorProto;
-use std::{
-    borrow::Borrow,
-    fmt,
-    ops::{Deref, Index, IndexMut},
-    path::PathBuf,
-};
-
-use slotmap::SlotMap;
-
-use crate::error::HydrateError;
+use std::{borrow::Borrow, fmt, ops::Deref, path::PathBuf};
 
 trait FromFqn {
     fn from_fqn(fqn: FullyQualifiedName) -> Self;
@@ -43,19 +34,19 @@ trait FromFqn {
 
 #[derive(Debug, Default)]
 pub struct Ast {
-    packages: PackageTable,
-    files: FileTable,
+    packages: package::Table,
+    files: file::Table,
     files_by_name: HashMap<Name, file::Key>,
     files_by_path: HashMap<PathBuf, file::Key>,
-    messages: MessageTable,
-    enums: EnumTable,
-    enum_values: EnumValueTable,
-    services: ServiceTable,
-    methods: MethodTable,
-    fields: FieldTable,
-    oneofs: OneofTable,
-    extensions: ExtensionTable,
-    extension_blocks: ExtensionDeclTable,
+    messages: message::Table,
+    enums: enum_::Table,
+    enum_values: enum_value::Table,
+    services: service::Table,
+    methods: method::Table,
+    fields: field::Table,
+    oneofs: oneof::Table,
+    extensions: extension::Table,
+    extension_blocks: extension_decl::Table,
     nodes: HashMap<FullyQualifiedName, node::Key>,
     well_known: package::Key,
 }
@@ -64,24 +55,24 @@ impl Ast {
     fn build(
         file_descriptors: Vec<FileDescriptorProto>,
         targets: &[String],
-    ) -> Result<Self, HydrateError> {
+    ) -> Result<Self, Error> {
         hydrate::run(file_descriptors, targets)
     }
     fn new(file_count: usize) -> Self {
         let (well_known, packages) = Self::create_package_table();
-        let files = FileTable::with_capacity(file_count);
+        let files = file::Table::with_capacity(file_count);
         Self {
             packages,
-            well_known,
             files,
+            well_known,
             ..Default::default()
         }
     }
     fn reserve(&mut self, additional: usize) {
         self.nodes.reserve(additional);
     }
-    fn create_package_table() -> (package::Key, PackageTable) {
-        let mut packages = PackageTable::with_capacity(1);
+    fn create_package_table() -> (package::Key, package::Table) {
+        let mut packages = package::Table::with_capacity(1);
         let key = packages.get_or_insert_key(FullyQualifiedName::for_package(
             package::WELL_KNOWN.to_string(),
         ));
@@ -202,7 +193,7 @@ impl fmt::Display for FullyQualifiedName {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Name(Box<str>);
 
 impl PartialEq<str> for Name {
@@ -245,12 +236,6 @@ impl Deref for Name {
     type Target = str;
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-impl Default for Name {
-    fn default() -> Self {
-        Self(Box::default())
     }
 }
 
@@ -758,11 +743,6 @@ use inner_method_package;
 use node_method_ast;
 use node_method_key;
 use node_method_new;
-
-use self::table::{
-    EnumTable, EnumValueTable, ExtensionDeclTable, ExtensionTable, FieldTable, FileTable,
-    MessageTable, MethodTable, OneofTable, PackageTable, ServiceTable,
-};
 
 // use impl_state;
 

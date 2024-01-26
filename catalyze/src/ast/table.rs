@@ -4,22 +4,7 @@ use slotmap::SlotMap;
 
 use crate::HashMap;
 
-use super::{
-    access, enum_, enum_value, extension, extension_decl, field, file, message, method, oneof,
-    package, service, FullyQualifiedName,
-};
-
-pub(super) type PackageTable = Table<package::Key, package::Inner>;
-pub(super) type FileTable = Table<file::Key, file::Inner>;
-pub(super) type MessageTable = Table<message::Key, message::Inner>;
-pub(super) type EnumTable = Table<enum_::Key, enum_::Inner>;
-pub(super) type EnumValueTable = Table<enum_value::Key, enum_value::Inner>;
-pub(super) type ServiceTable = Table<service::Key, service::Inner>;
-pub(super) type MethodTable = Table<method::Key, method::Inner>;
-pub(super) type FieldTable = Table<field::Key, field::Inner>;
-pub(super) type OneofTable = Table<oneof::Key, oneof::Inner>;
-pub(super) type ExtensionTable = Table<extension::Key, extension::Inner>;
-pub(super) type ExtensionDeclTable = Table<extension_decl::Key, extension_decl::Inner, ()>;
+use super::{access, FullyQualifiedName};
 
 #[derive(Debug, Clone)]
 pub(super) struct Table<K, V, I = HashMap<FullyQualifiedName, K>>

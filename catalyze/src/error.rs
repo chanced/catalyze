@@ -1,5 +1,19 @@
 
 
+macro_rules! deref {
+    ($err: ident, $E: ident) => {
+        impl<$E> std::ops::Deref for $err<$E>
+        where
+            E: snafu::Error + snafu::ErrorCompat,
+        {
+            type Target = $E;
+            fn deref(&self) -> &Self::Target {
+                &self.source
+            }
+        }        
+    };
+}
+
 #[derive(snafu::Snafu, Debug)]
 pub enum Error {
     /// Hydration errors occur due to incompatibility or malformed data. 
@@ -8,7 +22,7 @@ pub enum Error {
     /// compiler.
     #[snafu(transparent)]
     Hydration{
-        source: Pathed<HydrateError>
+        source: FilePathed<HydrateError>
     }
 }
 
@@ -22,6 +36,7 @@ pub type HydrateError = hydrate::Error;
 pub mod hydrate {
 
    #[derive(Debug,snafu::Snafu)] 
+   #[snafu(visibility(pub(crate)))]
     pub enum Error {
         #[snafu(transparent)]
         UnsupportedSyntax { source: super::SyntaxError },
@@ -82,13 +97,14 @@ pub mod group {
 
 pub type SyntaxError = syntax::Error;
 pub mod syntax {
-    #[derive(Debug, PartialEq, Eq, snafu::Snafu)]
+    #[derive(Debug, snafu::Snafu)]
     
     #[snafu(
         display("Unsupported or invalid syntax: {value:?}; expected either \"proto2\" or \"proto3\""),
         visibility(pub(crate))
     )]
     pub struct Error {
+        pub backtrace: snafu::Backtrace,
         pub value: String,
     }
 }
@@ -103,22 +119,22 @@ pub mod field_type {
     )]
     pub struct Error {
         pub backtrace: snafu::Backtrace,
-        value: i32,
+        pub value: i32,
     }
 }
 
-pub type SpanError = span::Error;
+
+pub type SpanError = NodePathed<span::Error>;
 pub mod span {
     #[derive(Debug, snafu::Snafu)]
     #[snafu(
         visibility(pub(crate)), 
         display(
-            "Invalid span: {span:?}; path: {path:?}; expected a span length of either 3 or 4, found {}", span.len(),
+            "Invalid span: {span:?}; expected a span length of either 3 or 4, found {}", span.len(),
         ),
     )]
     pub struct Error {
         pub span: Vec<i32>,
-        pub path: Vec<i32>,
         pub backtrace: snafu::Backtrace,
     }
 }
@@ -128,6 +144,7 @@ pub mod index {
     #[derive(Debug, snafu::Snafu)]
     #[snafu(visibility(pub(crate)), display("Invalid index: {index}"))]
     pub struct Error {
+        pub collection: &'static str,
         pub index: i32,
         pub backtrace: snafu::Backtrace,
     }
@@ -147,30 +164,38 @@ pub mod index {
     }
 }
 
-pub type Pathed<E> = pathed::Error<E>;
-pub mod pathed {
-    use std::{ops::Deref, path::PathBuf};
+
+
+pub type NodePathed<E> = node_pathed::Error<E>;
+pub mod node_pathed {
+    #[derive(Debug, snafu::Snafu)]
+    #[snafu(
+        visibility(pub),
+        display("{source} at node path {node_path:?}")
+    )]
+    pub struct Error<E> where E: 'static + snafu::Error + snafu::ErrorCompat { 
+        pub node_path: Vec<i32>,
+        pub source: E,
+    }
+}
+
+pub type FilePathed<E> = file_pathed::Error<E>;
+pub mod file_pathed {
+    use std::path::PathBuf;
 
     #[derive(Debug, snafu::Snafu)]
     #[snafu(
         visibility(pub),
-        display("{source} at path {:?}", path.display())
+        display("{source} at path {:?}", file_path.display())
     )]
-    pub struct Error<E> where E: snafu::Error + snafu::ErrorCompat {
+    pub struct Error<E> where E: 'static + snafu::Error + snafu::ErrorCompat {
         pub source: E,
-        pub path: PathBuf,
+        pub file_path: PathBuf,
     }
-
-    impl<E> Deref for Error<E>
-    where
-        E: snafu::Error + snafu::ErrorCompat,
-    {
-        type Target = E;
-        fn deref(&self) -> &Self::Target {
-            &self.source
-        }
-    }
+    deref!(Error, E);
 }
+
+
 
 pub type FullyQualified<E> = fully_qualified::Error<E>;
 pub mod fully_qualified {
@@ -181,19 +206,11 @@ pub mod fully_qualified {
         display("{source} at \"{fully_qualified_name}\"")
     )]
 
-    pub struct Error<E> where E: snafu::Error + snafu::ErrorCompat {
+    pub struct Error<E> where E: 'static + snafu::Error + snafu::ErrorCompat {
         #[snafu(backtrace)]
         pub source: E,
         pub fully_qualified_name: FullyQualifiedName,
     }
-    impl<E> std::ops::Deref for Error<E>
-    where
-        E: snafu::Error + snafu::ErrorCompat,
-    {
-        type Target = E;
-        fn deref(&self) -> &Self::Target {
-            &self.source
-        }
-    }
+
 }
 

@@ -49,7 +49,7 @@ where
         let mut list = Vec::with_capacity(nodes.len());
         let mut by_name = HashMap::with_capacity(nodes.len());
         let mut by_fqn = HashMap::with_capacity(nodes.len());
-        for (idx, node) in nodes.into_iter().enumerate() {
+        for (idx, node) in nodes.iter().enumerate() {
             list.push(node.key);
             by_name.insert(node.name.clone(), idx);
             by_fqn.insert(node.fqn.clone(), idx);

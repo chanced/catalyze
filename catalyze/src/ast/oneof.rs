@@ -24,6 +24,8 @@ pub(super) struct Hydrate {
 }
 
 pub(super) type Ident = node::Ident<Key>;
+pub(super) type Table = super::table::Table<Key, Inner>;
+
 pub struct Oneof<'ast>(Resolver<'ast, Key, Inner>);
 
 #[derive(Debug, Default, Clone, PartialEq)]

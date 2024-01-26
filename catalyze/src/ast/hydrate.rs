@@ -8,9 +8,13 @@ use protobuf::{
     },
     MessageField,
 };
+use snafu::{Backtrace, ResultExt};
 use std::{path::PathBuf, str::FromStr};
 
-use crate::{as_i32, error::HydrateError, HashMap};
+use crate::{
+    error::{self, Error, HydrateError},
+    HashMap,
+};
 
 use super::{
     container, enum_, enum_value, extension, extension_decl, field,
@@ -20,10 +24,7 @@ use super::{
     oneof, package, service, Ast, FullyQualifiedName, Name,
 };
 
-pub(super) fn run(
-    descriptors: Vec<FileDescriptorProto>,
-    targets: &[String],
-) -> Result<Ast, HydrateError> {
+pub(super) fn run(descriptors: Vec<FileDescriptorProto>, targets: &[String]) -> Result<Ast, Error> {
     Hydrator::run(descriptors, targets)
 }
 
@@ -32,15 +33,13 @@ struct Hydrator {
 }
 
 impl Hydrator {
-    fn run(descriptors: Vec<FileDescriptorProto>, targets: &[String]) -> Result<Ast, HydrateError> {
+    fn run(descriptors: Vec<FileDescriptorProto>, targets: &[String]) -> Result<Ast, Error> {
         let mut hydrator = Hydrator {
             ast: Ast::new(descriptors.len()),
         };
-
         for descriptor in descriptors {
             hydrator.file(descriptor, targets)?;
         }
-
         Ok(hydrator.ast)
     }
 
@@ -178,81 +177,110 @@ impl Hydrator {
         &mut self,
         descriptor: FileDescriptorProto,
         targets: &[String],
-    ) -> Result<file::Ident, HydrateError> {
+    ) -> Result<file::Ident, Error> {
         let (package, package_fqn) = self.package(descriptor.package);
         let name: Name = descriptor.name.unwrap().into();
+
         let fqn = FullyQualifiedName::new(&name, package_fqn);
         let key = self.ast.files.get_or_insert_key(fqn.clone());
-        let location = self.file_location(&name, descriptor.source_code_info)?;
+        let location = self
+            .file_location(&name, descriptor.source_code_info)
+            .with_context(|_| error::file_pathed::Snafu {
+                file_path: name.as_str(),
+            })?;
         let mut nodes = HashMap::with_capacity(location.node_count);
         self.ast.reserve(location.node_count);
 
-        let messages = self.messages(
-            descriptor.message_type,
-            location.messages,
-            key.into(),
-            fqn.clone(),
-            key,
-            package,
-            &mut nodes,
-        )?;
+        let messages = self
+            .messages(
+                descriptor.message_type,
+                location.messages,
+                key.into(),
+                fqn.clone(),
+                key,
+                package,
+                &mut nodes,
+            )
+            .context(error::file_pathed::Snafu {
+                file_path: name.as_str(),
+            })?;
 
-        let enums = self.enums(
-            descriptor.enum_type,
-            location.enums,
-            key.into(),
-            fqn.clone(),
-            key,
-            package,
-            &mut nodes,
-        )?;
+        let enums = self
+            .enums(
+                descriptor.enum_type,
+                location.enums,
+                key.into(),
+                fqn.clone(),
+                key,
+                package,
+                &mut nodes,
+            )
+            .context(error::file_pathed::Snafu {
+                file_path: name.as_str(),
+            })?;
 
-        let services = self.services(
-            descriptor.service,
-            location.services,
-            fqn.clone(),
-            key,
-            package,
-            &mut nodes,
-        )?;
+        let services = self
+            .services(
+                descriptor.service,
+                location.services,
+                fqn.clone(),
+                key,
+                package,
+                &mut nodes,
+            )
+            .context(error::file_pathed::Snafu {
+                file_path: name.as_str(),
+            })?;
 
-        let (extension_decls, extensions) = self.extensions(
-            descriptor.extension,
-            location.extensions,
-            key.into(),
-            fqn.clone(),
-            key,
-            package,
-            &mut nodes,
-        )?;
+        let (extension_decls, extensions) = self
+            .extensions(
+                descriptor.extension,
+                location.extensions,
+                key.into(),
+                fqn.clone(),
+                key,
+                package,
+                &mut nodes,
+            )
+            .context(error::file_pathed::Snafu {
+                file_path: name.as_str(),
+            })?;
 
-        let dependencies = self.dependencies(
-            key,
-            descriptor.dependency,
-            descriptor.public_dependency,
-            descriptor.weak_dependency,
-        );
+        let dependencies = self
+            .dependencies(
+                key,
+                descriptor.dependency,
+                descriptor.public_dependency,
+                descriptor.weak_dependency,
+            )
+            .context(error::file_pathed::Snafu {
+                file_path: name.as_str(),
+            })?;
 
         let is_build_target = targets
             .iter()
             .any(|target| target.as_str() == name.as_str());
 
-        let file = self.ast.files[key].hydrate(file::Hydrate {
-            name: name.clone(),
-            package,
-            messages,
-            enums,
-            services,
-            extensions,
-            extension_decls,
-            dependencies,
-            is_build_target,
-            syntax: descriptor.syntax,
-            options: descriptor.options,
-            nodes,
-            package_comments: location.package,
-            comments: location.syntax,
-        })?;
+        let file = self.ast.files[key]
+            .hydrate(file::Hydrate {
+                name: name.clone(),
+                package,
+                messages,
+                enums,
+                services,
+                extensions,
+                extension_decls,
+                dependencies,
+                is_build_target,
+                syntax: descriptor.syntax,
+                options: descriptor.options,
+                nodes,
+                package_comments: location.package,
+                comments: location.syntax,
+            })
+            .context(error::file_pathed::Snafu {
+                file_path: name.as_str(),
+            })?;
         self.ast
             .files_by_path
             .insert(PathBuf::from(name.as_str()), key);
@@ -293,22 +321,51 @@ impl Hydrator {
             .collect_vec();
 
         let mut public = Vec::with_capacity(public_dependencies.len());
-        for idx in public_dependencies {
-            let i: usize = idx.try_into().map_err(|_| {
-                HydrateError::invalid_weak_dependency(
-                    idx,
-                    FullyQualifiedName::from(self.ast.files[dependent].path.as_path()),
-                )
+        for index in public_dependencies {
+            let i: usize = index
+                .try_into()
+                .map_err(|_| error::index::Error {
+                    index,
+                    backtrace: Backtrace::capture(),
+                    collection: "public_dependencies",
+                })
+                .with_context(|_| error::fully_qualified::Snafu {
+                    fully_qualified_name: self.ast.files[dependent].fqn().clone(),
+                })?;
+            let dep = &mut direct.get_mut(i).ok_or_else(|| error::IndexError {
+                fully_qualified_name: self.ast.files[dependent].fqn().clone(),
+                source: error::index::Error {
+                    index,
+                    backtrace: Backtrace::capture(),
+                    collection: "public_dependencies",
+                },
             })?;
-            let dep = &mut direct.get_mut(i).ok_or_else(|| {
-                HydrateError::invalid_weak_dependency(
-                    idx,
-                    FullyQualifiedName::from(self.ast.files[dependent].path.as_path()),
-                )
-            })?;
-
             dep.is_public = true;
             public.push(dep.clone());
+        }
+
+        let mut weak = Vec::with_capacity(weak_dependencies.len());
+        for index in weak_dependencies {
+            let i: usize = index
+                .try_into()
+                .map_err(|_| error::index::Error {
+                    index,
+                    backtrace: Backtrace::capture(),
+                    collection: "weak_dependencies",
+                })
+                .with_context(|_| error::fully_qualified::Snafu {
+                    fully_qualified_name: self.ast.files[dependent].fqn().clone(),
+                })?;
+            let dep = &mut direct.get_mut(i).ok_or_else(|| error::IndexError {
+                fully_qualified_name: self.ast.files[dependent].fqn().clone(),
+                source: error::index::Error {
+                    index,
+                    backtrace: Backtrace::capture(),
+                    collection: "public_dependencies",
+                },
+            })?;
+            dep.is_weak = true;
+            weak.push(dep.clone());
         }
         Ok(file::DependenciesInner {
             transitive: Vec::default(),
@@ -683,7 +740,7 @@ impl Hydrator {
 
     fn enum_value(
         &mut self,
-        r#enum: EnumValue,
+        enum_value: EnumValue,
         nodes: &mut NodeMap,
     ) -> Result<enum_value::Ident, HydrateError> {
         let EnumValue {
@@ -693,15 +750,15 @@ impl Hydrator {
             enum_,
             file,
             package,
-        } = r#enum;
+        } = enum_value;
         let EnumValueDescriptorProto {
             name,
             number,
             options,
             special_fields,
         } = descriptor;
-        let key = self.ast.enum_values.get_or_insert_key(r#enum.fqn.clone());
-        let name: Name = r#enum.descriptor.name.unwrap_or_default().into();
+        let key = self.ast.enum_values.get_or_insert_key(fqn.clone());
+        let name: Name = name.unwrap_or_default().into();
         let number = number.unwrap();
         let enum_value = self.ast.enum_values[key].hydrate(enum_value::Hydrate {
             name,
@@ -721,7 +778,7 @@ impl Hydrator {
     }
 
     fn oneof(
-        &self,
+        &mut self,
         oneof: Oneof,
         nodes: &mut NodeMap,
     ) -> Result<super::node::Ident<oneof::Key>, HydrateError> {
@@ -834,13 +891,13 @@ fn assert_locations<T, L>(
     kind: &'static str,
     locations: &[L],
     descriptors: &[T],
-) -> Result<(), HydrateError> {
+) -> Result<(), error::locations::Error> {
     if locations.len() != descriptors.len() {
-        Err(HydrateError::invalid_locations(
+        Err(error::locations::Error {
             kind,
-            descriptors.len(),
-            locations.len(),
-        ))
+            expected: descriptors.len(),
+            found: locations.len(),
+        })
     } else {
         Ok(())
     }

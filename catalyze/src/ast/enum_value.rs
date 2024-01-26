@@ -1,14 +1,14 @@
 use protobuf::{descriptor::EnumValueOptions, SpecialFields};
 
-use crate::{
-    ast::{
-        impl_traits_and_methods, resolve::Resolver, uninterpreted::UninterpretedOption,
-        FullyQualifiedName,
-    },
-    error::HydrateError,
+use crate::error::HydrateError;
+
+use super::{
+    access::NodeKeys, file, impl_traits_and_methods, location, node, package, resolve::Resolver,
+    uninterpreted::UninterpretedOption, FullyQualifiedName, Name,
 };
 
-use super::{access::NodeKeys, file, location, node, package, Name};
+pub(super) type Ident = node::Ident<Key>;
+pub(super) type Table = super::table::Table<Key, Inner>;
 
 pub struct EnumValue<'ast>(Resolver<'ast, Key, Inner>);
 
@@ -16,8 +16,6 @@ slotmap::new_key_type! {
     pub(super) struct Key;
 }
 impl_traits_and_methods!(EnumValue, Key, Inner);
-
-pub(super) type Ident = node::Ident<Key>;
 
 pub(super) struct Hydrate {
     pub(super) name: Name,
@@ -70,9 +68,7 @@ impl Inner {
         } = hydrate;
         self.name = name;
         self.number = number;
-        self.comments = location.comments;
         self.file = file;
-        self.span = location.span;
         self.package = package;
         self.special_fields = special_fields;
         self.enum_ = enum_;

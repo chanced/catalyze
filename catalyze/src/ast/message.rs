@@ -27,6 +27,7 @@ slotmap::new_key_type! {
     pub(super) struct Key;
 }
 pub(super) type Ident = node::Ident<Key>;
+pub(super) type Table = super::table::Table<Key, Inner>;
 
 pub(super) struct Hydrate {
     pub(super) name: Name,

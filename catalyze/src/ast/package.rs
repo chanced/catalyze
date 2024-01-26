@@ -12,6 +12,8 @@ slotmap::new_key_type! {
     pub(super) struct Key;
 }
 
+pub(super) type Table = super::table::Table<Key, Inner>;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CommentsInner {
     comments: location::Comments,

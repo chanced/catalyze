@@ -4,6 +4,8 @@ slotmap::new_key_type! {
     pub(super) struct Key;
 }
 
+pub(super) type Table = super::table::Table<Key, Inner>;
+
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {
     key: Key,

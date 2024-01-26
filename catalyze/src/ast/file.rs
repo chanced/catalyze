@@ -4,6 +4,7 @@ use protobuf::{
     descriptor::{file_options::OptimizeMode as ProtoOptimizeMode, FileOptions},
     SpecialFields,
 };
+use snafu::{Backtrace, ResultExt};
 use std::{
     borrow::Borrow,
     fmt,
@@ -23,7 +24,7 @@ slotmap::new_key_type! {
     #[doc(hidden)]
     pub struct Key;
 }
-
+pub(super) type Table = super::table::Table<Key, Inner>;
 pub type Ident = node::Ident<Key>;
 
 pub(super) struct Hydrate {
@@ -223,11 +224,14 @@ impl Syntax {
             Self::Proto3 => Self::PROTO3,
         }
     }
-    pub fn parse(s: &str) -> Result<Self, ()> {
+    pub fn parse(s: &str) -> Result<Self, crate::error::syntax::Error> {
         match s {
             Self::PROTO2 => Ok(Self::Proto2),
             Self::PROTO3 => Ok(Self::Proto3),
-            _ => Err(()),
+            _ => Err(crate::error::syntax::Error {
+                backtrace: Backtrace::capture(),
+                value: s.to_string(),
+            }),
         }
     }
 }
@@ -597,14 +601,13 @@ impl Inner {
         self.is_build_target = is_build_target;
     }
 
-    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<node::Ident<Key>, HydrateError> {
+    pub(super) fn hydrate(
+        &mut self,
+        hydrate: Hydrate,
+    ) -> Result<node::Ident<Key>, crate::error::HydrateError> {
         self.set_name_and_path(hydrate.name);
-        self.syntax = Syntax::parse(&hydrate.syntax.unwrap_or_default()).map_err(|_| {
-            HydrateError::UnsupportedSyntax {
-                value: hydrate.syntax.unwrap_or_default(),
-                path: self.path.clone(),
-            }
-        })?;
+        self.syntax = Syntax::parse(&hydrate.syntax.unwrap_or_default())?;
+
         self.package = hydrate.package;
         self.messages = hydrate.messages.into();
         self.enums = hydrate.enums.into();

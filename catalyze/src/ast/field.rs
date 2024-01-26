@@ -1,12 +1,13 @@
 use crate::{
     ast::{impl_traits_and_methods, uninterpreted::UninterpretedOption, Ast, FullyQualifiedName},
-    error::HydrateError,
+    error::{self, field_type, FieldTypeError, GroupError, HydrateError},
 };
 use ::std::vec::Vec;
 use protobuf::{
     descriptor::{field_descriptor_proto, field_options::CType as ProtobufCType, FieldOptions},
     EnumOrUnknown, SpecialFields,
 };
+use snafu::{Backtrace, ResultExt};
 use std::fmt;
 
 use super::{
@@ -20,7 +21,11 @@ use super::{
     Name,
 };
 
+pub struct Field<'ast>(Resolver<'ast, Key, Inner>);
+impl_traits_and_methods!(Field, Key, Inner);
+
 pub(super) type Ident = node::Ident<Key>;
+pub(super) type Table = super::table::Table<Key, Inner>;
 
 pub(super) struct Hydrate {
     pub(super) name: Name,
@@ -209,9 +214,12 @@ impl Inner {
         self.proto_type = type_
             .unwrap()
             .enum_value()
-            .map_err(|type_| HydrateError::FieldType {
+            .map_err(|type_| field_type::Error {
+                backtrace: Backtrace::capture(),
+                value: type_,
+            })
+            .context(error::fully_qualified::Snafu {
                 fully_qualified_name: self.fqn.clone(),
-                type_,
             })?;
         self.hydrate_location(location);
         self.hydrate_options(options.unwrap_or_default())?;
@@ -624,7 +632,7 @@ impl ValueInner {
         typ: field_descriptor_proto::Type,
         enum_: Option<enum_::Key>,
         msg: Option<message::Key>,
-    ) -> Result<Self, HydrateError> {
+    ) -> Result<Self, crate::error::group::Error> {
         use field_descriptor_proto::Type::*;
         match typ {
             TYPE_DOUBLE => Ok(Self::Scalar(Scalar::Double)),
@@ -644,7 +652,9 @@ impl ValueInner {
             TYPE_SINT64 => Ok(Self::Scalar(Scalar::Sint64)),
             TYPE_ENUM => Ok(Self::Enum(enum_.unwrap())),
             TYPE_MESSAGE => Ok(Self::Message(msg.unwrap())),
-            TYPE_GROUP => Err(HydrateError::GroupNotSupported),
+            TYPE_GROUP => Err(crate::error::group::Error {
+                backtrace: Backtrace::capture(),
+            }),
         }
     }
 }
@@ -697,7 +707,3 @@ impl super::access::ReferencesMut for Inner {
         self.reference.iter_mut()
     }
 }
-
-pub struct Field<'ast>(Resolver<'ast, Key, Inner>);
-
-impl_traits_and_methods!(Field, Key, Inner);

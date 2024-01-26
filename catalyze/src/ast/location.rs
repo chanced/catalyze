@@ -4,8 +4,9 @@ use std::{
 };
 
 use protobuf::descriptor::{source_code_info::Location as ProtoLoc, SourceCodeInfo};
+use snafu::ResultExt;
 
-use crate::error::HydrateError;
+use crate::error::{self, HydrateError};
 
 use super::path;
 
@@ -18,7 +19,7 @@ pub struct Span {
     pub end_column: i32,
 }
 impl Span {
-    fn new(span: &[i32]) -> Result<Self, ()> {
+    fn new(span: &[i32]) -> Result<Self, crate::error::span::Error> {
         match span.len() {
             3 => Ok(Self {
                 start_line: span[0],
@@ -32,7 +33,10 @@ impl Span {
                 end_line: span[2],
                 end_column: span[3],
             }),
-            _ => Err(()),
+            _ => Err(crate::error::span::Error {
+                span: span.to_vec(),
+                backtrace: snafu::Backtrace::capture(),
+            }),
         }
     }
     pub fn start_line(&self) -> i32 {
@@ -122,7 +126,9 @@ pub(super) struct Detail {
 }
 impl Detail {
     pub(super) fn new(loc: ProtoLoc) -> Result<Self, HydrateError> {
-        let span = Span::new(&loc.span).map_err(|()| HydrateError::invalid_span(&loc))?;
+        let span = Span::new(&loc.span).context(error::node_pathed::Snafu {
+            node_path: loc.path.clone(),
+        })?;
         let comments = Comments::new_maybe(
             loc.leading_comments,
             loc.trailing_comments,

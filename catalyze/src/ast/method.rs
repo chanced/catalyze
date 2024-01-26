@@ -25,6 +25,7 @@ slotmap::new_key_type! {
 }
 
 pub(super) type Ident = node::Ident<Key>;
+pub(super) type Table = super::table::Table<Key, Inner>;
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {
@@ -42,6 +43,7 @@ pub(super) struct Inner {
     uninterpreted_options: Vec<UninterpretedOption>,
     input: message::Key,
     input_proto_type: String,
+    deprecated: bool,
     output: message::Key,
     output_proto_type: String,
     references: [ReferenceInner; 2],
@@ -90,6 +92,7 @@ impl Inner {
         self.name = name;
         self.file = file;
         self.service = service;
+        self.package = package;
         self.input_proto_type = input_type.unwrap_or_default();
         self.output_proto_type = output_type.unwrap_or_default();
         self.client_streaming = client_streaming.unwrap_or_default();
@@ -105,7 +108,7 @@ impl Inner {
             uninterpreted_option,
             special_fields,
         } = opts;
-        self.special_fields = special_fields;
+        self.deprecated = deprecated.unwrap_or(false);
         self.option_special_fields = special_fields;
         self.uninterpreted_options = into_uninterpreted_options(uninterpreted_option);
         self.idempotency_level = idempotency_level.unwrap_or_default().into();
