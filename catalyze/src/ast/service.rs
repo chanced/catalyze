@@ -1,6 +1,6 @@
 use protobuf::{descriptor::ServiceOptions, SpecialFields};
 
-use crate::error::HydrateError;
+use crate::error::HydrationError;
 
 use super::{
     access::NodeKeys,
@@ -51,7 +51,7 @@ pub(super) struct Inner {
 
 impl Inner {
     #[allow(clippy::unnecessary_wraps)]
-    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrateError> {
+    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationError> {
         let Hydrate {
             name,
             location,
@@ -70,7 +70,7 @@ impl Inner {
         self.hydrate_options(options.unwrap_or_default())?;
         Ok(self.into())
     }
-    fn hydrate_options(&mut self, opts: ServiceOptions) -> Result<(), HydrateError> {
+    fn hydrate_options(&mut self, opts: ServiceOptions) -> Result<(), HydrationError> {
         self.deprecated = opts.deprecated.unwrap_or(false);
         self.uninterpreted_options = opts
             .uninterpreted_option

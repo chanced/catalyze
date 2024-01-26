@@ -15,7 +15,7 @@ use crate::{
         uninterpreted::UninterpretedOption,
         FullyQualifiedName,
     },
-    error::HydrateError,
+    error::HydrationError,
 };
 
 use std::{fmt, str::FromStr};
@@ -66,7 +66,7 @@ pub(super) struct Inner {
 }
 
 impl Inner {
-    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrateError> {
+    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationError> {
         let Hydrate {
             name,
             package,

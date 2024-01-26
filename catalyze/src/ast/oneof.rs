@@ -1,6 +1,6 @@
 use protobuf::{descriptor::OneofOptions, SpecialFields};
 
-use crate::error::HydrateError;
+use crate::error::HydrationError;
 
 use super::{
     access::NodeKeys,
@@ -45,7 +45,7 @@ pub(super) struct Inner {
     fields: Vec<field::Key>,
 }
 impl Inner {
-    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrateError> {
+    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationError> {
         let Hydrate {
             name,
             message,
@@ -66,7 +66,7 @@ impl Inner {
 
         Ok(self.into())
     }
-    fn hydrate_options(&mut self, opts: OneofOptions) -> Result<(), HydrateError> {
+    fn hydrate_options(&mut self, opts: OneofOptions) -> Result<(), HydrationError> {
         let OneofOptions {
             special_fields,
             uninterpreted_option,

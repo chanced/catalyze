@@ -1,6 +1,6 @@
 use crate::{
     ast::{impl_traits_and_methods, uninterpreted::UninterpretedOption, Ast, FullyQualifiedName},
-    error::{self, field_type, FieldTypeError, GroupError, HydrateError},
+    error::{self, field_type, FieldTypeError, GroupError, HydrationError},
 };
 use ::std::vec::Vec;
 use protobuf::{
@@ -183,7 +183,7 @@ impl Inner {
         self.reference.iter_mut()
     }
 
-    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrateError> {
+    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationError> {
         let Hydrate {
             location,
             file,
@@ -225,7 +225,7 @@ impl Inner {
         self.hydrate_options(options.unwrap_or_default())?;
         Ok(self.into())
     }
-    fn hydrate_options(&mut self, opts: FieldOptions) -> Result<(), HydrateError> {
+    fn hydrate_options(&mut self, opts: FieldOptions) -> Result<(), HydrationError> {
         let FieldOptions {
             ctype,
             packed,

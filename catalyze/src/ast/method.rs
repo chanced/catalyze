@@ -5,7 +5,7 @@ use protobuf::{
     EnumOrUnknown, SpecialFields,
 };
 
-use crate::error::HydrateError;
+use crate::error::HydrationError;
 
 use super::{
     access::NodeKeys,
@@ -76,7 +76,7 @@ impl Inner {
         self.references.iter_mut()
     }
 
-    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrateError> {
+    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationError> {
         let Hydrate {
             name,
             location,
@@ -101,7 +101,7 @@ impl Inner {
         self.hydrate_location(location);
         Ok(self.into())
     }
-    fn hydrate_options(&mut self, opts: MethodOptions) -> Result<(), HydrateError> {
+    fn hydrate_options(&mut self, opts: MethodOptions) -> Result<(), HydrationError> {
         let MethodOptions {
             deprecated,
             idempotency_level,

@@ -12,7 +12,7 @@ use snafu::{Backtrace, ResultExt};
 use std::{path::PathBuf, str::FromStr};
 
 use crate::{
-    error::{self, Error, HydrateError},
+    error::{self, Error, HydrationError},
     HashMap,
 };
 
@@ -52,7 +52,7 @@ impl Hydrator {
         file: file::Key,
         package: Option<package::Key>,
         nodes: &mut NodeMap,
-    ) -> Result<Vec<message::Ident>, HydrateError> {
+    ) -> Result<Vec<message::Ident>, HydrationError> {
         assert_locations("message", &locations, &descriptors);
         descriptors
             .into_iter()
@@ -77,7 +77,7 @@ impl Hydrator {
         &mut self,
         message: Message,
         nodes: &mut NodeMap,
-    ) -> Result<message::Ident, HydrateError> {
+    ) -> Result<message::Ident, HydrationError> {
         let Message {
             descriptor,
             fqn,
@@ -167,60 +167,44 @@ impl Hydrator {
         &mut self,
         descriptor: FileDescriptorProto,
         targets: &[String],
-    ) -> Result<file::Ident, Error> {
+    ) -> Result<file::Ident, HydrationError> {
         let (package, package_fqn) = self.package(descriptor.package);
         let name: Name = descriptor.name.unwrap().into();
 
         let fqn = FullyQualifiedName::new(&name, package_fqn);
         let key = self.ast.files.get_or_insert_key(fqn.clone());
-        let location = file_location(&name, descriptor.source_code_info).with_context(|_| {
-            error::file_pathed::Snafu {
-                file_path: name.as_str(),
-            }
-        })?;
+        let location = file_location(&name, descriptor.source_code_info)?;
         let mut nodes = HashMap::with_capacity(location.node_count);
         self.ast.reserve(location.node_count);
 
-        let messages = self
-            .messages(
-                descriptor.message_type,
-                location.messages,
-                key.into(),
-                fqn.clone(),
-                key,
-                package,
-                &mut nodes,
-            )
-            .context(error::file_pathed::Snafu {
-                file_path: name.as_str(),
-            })?;
+        let messages = self.messages(
+            descriptor.message_type,
+            location.messages,
+            key.into(),
+            fqn.clone(),
+            key,
+            package,
+            &mut nodes,
+        )?;
 
-        let enums = self
-            .enums(
-                descriptor.enum_type,
-                location.enums,
-                key.into(),
-                fqn.clone(),
-                key,
-                package,
-                &mut nodes,
-            )
-            .context(error::file_pathed::Snafu {
-                file_path: name.as_str(),
-            })?;
+        let enums = self.enums(
+            descriptor.enum_type,
+            location.enums,
+            key.into(),
+            fqn.clone(),
+            key,
+            package,
+            &mut nodes,
+        )?;
 
-        let services = self
-            .services(
-                descriptor.service,
-                location.services,
-                fqn.clone(),
-                key,
-                package,
-                &mut nodes,
-            )
-            .context(error::file_pathed::Snafu {
-                file_path: name.as_str(),
-            })?;
+        let services = self.services(
+            descriptor.service,
+            location.services,
+            fqn.clone(),
+            key,
+            package,
+            &mut nodes,
+        )?;
 
         let (extension_decls, extensions) = self
             .extensions(
@@ -296,7 +280,7 @@ impl Hydrator {
         dependencies: Vec<String>,
         public_dependencies: Vec<i32>,
         weak_dependencies: Vec<i32>,
-    ) -> Result<file::DependenciesInner, HydrateError> {
+    ) -> Result<file::DependenciesInner, HydrationError> {
         let mut direct = dependencies
             .into_iter()
             .map(|dependency| {
@@ -374,7 +358,7 @@ impl Hydrator {
         file: file::Key,
         package: Option<package::Key>,
         nodes: &mut NodeMap,
-    ) -> Result<Vec<enum_::Ident>, HydrateError> {
+    ) -> Result<Vec<enum_::Ident>, HydrationError> {
         assert_locations("enum", &locations, &descriptors)?;
         descriptors
             .into_iter()
@@ -398,7 +382,7 @@ impl Hydrator {
             .collect()
     }
 
-    fn enum_(&mut self, enum_: Enum, nodes: &mut NodeMap) -> Result<enum_::Ident, HydrateError> {
+    fn enum_(&mut self, enum_: Enum, nodes: &mut NodeMap) -> Result<enum_::Ident, HydrationError> {
         let Enum {
             descriptor,
             fqn,
@@ -451,7 +435,7 @@ impl Hydrator {
         file: file::Key,
         package: Option<package::Key>,
         nodes: &mut NodeMap,
-    ) -> Result<Vec<field::Ident>, HydrateError> {
+    ) -> Result<Vec<field::Ident>, HydrationError> {
         assert_locations("field", &locations, &descriptors);
         descriptors
             .into_iter()
@@ -482,7 +466,7 @@ impl Hydrator {
         file: file::Key,
         package: Option<package::Key>,
         nodes: &mut NodeMap,
-    ) -> Result<Vec<oneof::Ident>, HydrateError> {
+    ) -> Result<Vec<oneof::Ident>, HydrationError> {
         assert_locations("oneof", &locations, &descriptors);
         descriptors
             .into_iter()
@@ -513,7 +497,7 @@ impl Hydrator {
         file: file::Key,
         package: Option<package::Key>,
         nodes: &mut NodeMap,
-    ) -> Result<(Vec<extension_decl::Key>, Vec<extension::Ident>), HydrateError> {
+    ) -> Result<(Vec<extension_decl::Key>, Vec<extension::Ident>), HydrationError> {
         todo!()
     }
 
@@ -530,7 +514,7 @@ impl Hydrator {
         file: file::Key,
         package: Option<package::Key>,
         nodes: &mut NodeMap,
-    ) -> Result<Vec<service::Ident>, HydrateError> {
+    ) -> Result<Vec<service::Ident>, HydrationError> {
         assert_locations("service", &locations, &descriptors);
         descriptors
             .into_iter()
@@ -555,7 +539,7 @@ impl Hydrator {
         &mut self,
         service: Service,
         nodes: &mut NodeMap,
-    ) -> Result<service::Ident, HydrateError> {
+    ) -> Result<service::Ident, HydrationError> {
         let Service {
             descriptor,
             fqn,
@@ -597,7 +581,7 @@ impl Hydrator {
         file: file::Key,
         package: Option<package::Key>,
         nodes: &mut NodeMap,
-    ) -> Result<Vec<method::Ident>, HydrateError> {
+    ) -> Result<Vec<method::Ident>, HydrationError> {
         assert_locations("method", &locations, &descriptors);
         descriptors
             .into_iter()
@@ -617,7 +601,7 @@ impl Hydrator {
             })
             .collect()
     }
-    fn field(&mut self, field: Field, nodes: &mut NodeMap) -> Result<field::Ident, HydrateError> {
+    fn field(&mut self, field: Field, nodes: &mut NodeMap) -> Result<field::Ident, HydrationError> {
         let Field {
             descriptor,
             fqn,
@@ -670,7 +654,7 @@ impl Hydrator {
         &mut self,
         method: Method,
         nodes: &mut NodeMap,
-    ) -> Result<method::Ident, HydrateError> {
+    ) -> Result<method::Ident, HydrationError> {
         let Method {
             fqn,
             descriptor,
@@ -707,7 +691,7 @@ impl Hydrator {
         file: file::Key,
         package: Option<package::Key>,
         nodes: &mut NodeMap,
-    ) -> Result<Vec<enum_value::Ident>, HydrateError> {
+    ) -> Result<Vec<enum_value::Ident>, HydrationError> {
         assert_locations("enum values", &locations, &descriptors);
         descriptors
             .into_iter()
@@ -732,7 +716,7 @@ impl Hydrator {
         &mut self,
         enum_value: EnumValue,
         nodes: &mut NodeMap,
-    ) -> Result<enum_value::Ident, HydrateError> {
+    ) -> Result<enum_value::Ident, HydrationError> {
         let EnumValue {
             descriptor,
             fqn,
@@ -771,7 +755,7 @@ impl Hydrator {
         &mut self,
         oneof: Oneof,
         nodes: &mut NodeMap,
-    ) -> Result<super::node::Ident<oneof::Key>, HydrateError> {
+    ) -> Result<super::node::Ident<oneof::Key>, HydrationError> {
         let Oneof {
             descriptor,
             fqn,
@@ -896,9 +880,9 @@ fn assert_locations<T, L>(
 fn file_location(
     fqn: &Name,
     info: MessageField<SourceCodeInfo>,
-) -> Result<location::File, HydrateError> {
+) -> Result<location::File, HydrationError> {
     let info = info
         .0
-        .ok_or_else(|| error::HydrateError::MissingSourceCodeInfo)?;
+        .ok_or_else(|| error::HydrationError::MissingSourceCodeInfo)?;
     location::File::new(info)
 }

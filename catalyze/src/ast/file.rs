@@ -1,4 +1,4 @@
-use crate::error::HydrateError;
+use crate::error::HydrationError;
 use ahash::{HashMap, HashSet};
 use protobuf::{
     descriptor::{file_options::OptimizeMode as ProtoOptimizeMode, FileOptions},
@@ -604,7 +604,7 @@ impl Inner {
     pub(super) fn hydrate(
         &mut self,
         hydrate: Hydrate,
-    ) -> Result<node::Ident<Key>, crate::error::HydrateError> {
+    ) -> Result<node::Ident<Key>, crate::error::HydrationError> {
         self.set_name_and_path(hydrate.name);
         self.syntax = Syntax::parse(&hydrate.syntax.unwrap_or_default())?;
 
@@ -625,7 +625,7 @@ impl Inner {
     /// Hydrates the data within the descriptor.
     ///
     /// Note: References and nested nodes are not hydrated.
-    fn hydrate_options(&mut self, opts: FileOptions) -> Result<(), HydrateError> {
+    fn hydrate_options(&mut self, opts: FileOptions) -> Result<(), HydrationError> {
         self.java_package = opts.java_package;
         self.java_outer_classname = opts.java_outer_classname;
         self.java_multiple_files = opts.java_multiple_files.unwrap_or(false);

@@ -1,6 +1,6 @@
 use std::iter;
 
-use crate::error::HydrateError;
+use crate::error::HydrationError;
 
 use super::{
     access::{self, NodeKeys},
@@ -111,7 +111,7 @@ impl NodeKeys for Inner {
 }
 
 impl Inner {
-    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrateError> {
+    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationError> {
         let Hydrate {
             name,
             container,
@@ -146,7 +146,7 @@ impl Inner {
         self.set_reserved(reserved_names, reserved_ranges);
         Ok(self.into())
     }
-    fn hydrate_options(&mut self, opts: MessageOptions) -> Result<(), HydrateError> {
+    fn hydrate_options(&mut self, opts: MessageOptions) -> Result<(), HydrationError> {
         let MessageOptions {
             message_set_wire_format,
             no_standard_descriptor_accessor,

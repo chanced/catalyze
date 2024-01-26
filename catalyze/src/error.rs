@@ -22,19 +22,17 @@ pub enum Error {
     /// compiler.
     #[snafu(transparent)]
     Hydration{
-        source: FilePathed<HydrateError>
+        source: FilePathed<HydrationError>
     }
 }
 
 
-pub type HydrateError = hydrate::Error;
-
+pub type HydrationError = hydration::Error;
 /// Hydration errors occur due to incompatibility or malformed data. 
 /// 
 /// These errors should be incredibly rare.
 /// compiler.
-pub mod hydrate {
-
+pub mod hydration {
    #[derive(Debug,snafu::Snafu)] 
    #[snafu(visibility(pub(crate)))]
     pub enum Error {
@@ -52,21 +50,14 @@ pub mod hydrate {
         MissingSourceCodeInfo,
 
         #[snafu(transparent)]
-        FieldType {
-            source: super::FieldTypeError
-        },
+        FieldType { source: super::FieldTypeError },
         
         #[snafu(transparent)]
-        InvalidIndex {
-            source: super::IndexError,
-            
-        },
+        InvalidIndex { source: super::IndexError },
+
         /// The number of locations for a given file is invalid. 
         #[snafu(transparent)]
-        Locations {
-            source: super::LocationsError,
-        },
-
+        Locations { source: super::LocationsError },
     }
 }
 
