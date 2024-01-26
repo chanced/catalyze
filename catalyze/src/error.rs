@@ -4,7 +4,7 @@ macro_rules! deref {
     ($err: ident, $E: ident) => {
         impl<$E> std::ops::Deref for $err<$E>
         where
-            E: snafu::Error + snafu::ErrorCompat,
+            E: 'static + snafu::Error + snafu::ErrorCompat,
         {
             type Target = $E;
             fn deref(&self) -> &Self::Target {

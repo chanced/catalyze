@@ -38,7 +38,16 @@ impl Hydrator {
             ast: Ast::new(descriptors.len()),
         };
         for descriptor in descriptors {
-            hydrator.file(descriptor, targets)?;
+            let file_path = PathBuf::from(descriptor.name());
+            let file =
+                hydrator
+                    .file(descriptor, targets)
+                    .with_context(|_| error::file_pathed::Snafu {
+                        file_path: file_path.clone(),
+                    })?;
+
+            hydrator.ast.files_by_path.insert(file_path, file.key);
+            hydrator.ast.files_by_name.insert(file.name, file.key);
         }
         Ok(hydrator.ast)
     }
@@ -206,59 +215,43 @@ impl Hydrator {
             &mut nodes,
         )?;
 
-        let (extension_decls, extensions) = self
-            .extensions(
-                descriptor.extension,
-                location.extensions,
-                key.into(),
-                fqn.clone(),
-                key,
-                package,
-                &mut nodes,
-            )
-            .context(error::file_pathed::Snafu {
-                file_path: name.as_str(),
-            })?;
+        let (extension_decls, extensions) = self.extensions(
+            descriptor.extension,
+            location.extensions,
+            key.into(),
+            fqn.clone(),
+            key,
+            package,
+            &mut nodes,
+        )?;
 
-        let dependencies = self
-            .dependencies(
-                key,
-                descriptor.dependency,
-                descriptor.public_dependency,
-                descriptor.weak_dependency,
-            )
-            .context(error::file_pathed::Snafu {
-                file_path: name.as_str(),
-            })?;
+        let dependencies = self.dependencies(
+            key,
+            descriptor.dependency,
+            descriptor.public_dependency,
+            descriptor.weak_dependency,
+        )?;
 
         let is_build_target = targets
             .iter()
             .any(|target| target.as_str() == name.as_str());
 
-        let file = self.ast.files[key]
-            .hydrate(file::Hydrate {
-                name: name.clone(),
-                package,
-                messages,
-                enums,
-                services,
-                extensions,
-                extension_decls,
-                dependencies,
-                is_build_target,
-                syntax: descriptor.syntax,
-                options: descriptor.options,
-                nodes,
-                package_comments: location.package,
-                comments: location.syntax,
-            })
-            .context(error::file_pathed::Snafu {
-                file_path: name.as_str(),
-            })?;
-        self.ast
-            .files_by_path
-            .insert(PathBuf::from(name.as_str()), key);
-        self.ast.files_by_name.insert(name, key);
+        let file = self.ast.files[key].hydrate(file::Hydrate {
+            name: name.clone(),
+            package,
+            messages,
+            enums,
+            services,
+            extensions,
+            extension_decls,
+            dependencies,
+            is_build_target,
+            syntax: descriptor.syntax,
+            options: descriptor.options,
+            nodes,
+            package_comments: location.package,
+            comments: location.syntax,
+        })?;
         Ok(file)
     }
 
@@ -884,5 +877,5 @@ fn file_location(
     let info = info
         .0
         .ok_or_else(|| error::HydrationError::MissingSourceCodeInfo)?;
-    location::File::new(info)
+    location::File::new(*info)
 }

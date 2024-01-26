@@ -156,7 +156,7 @@ pub(super) struct File {
 }
 
 impl File {
-    pub(super) fn new(info: Box<SourceCodeInfo>) -> Result<Self, HydrationError> {
+    pub(super) fn new(info: SourceCodeInfo) -> Result<Self, HydrationError> {
         let mut locations = info.location.into_iter().peekable();
         let mut package = None;
         let mut syntax = None;
@@ -582,6 +582,6 @@ mod tests {
 
         let bytes = include_bytes!("../../../fixtures/cgr/commented/code_generator_request.bin");
         let mut cgr = CodeGeneratorRequest::parse_from_bytes(bytes).unwrap();
-        cgr.proto_file[0].source_code_info.take().unwrap()
+        *cgr.proto_file[0].source_code_info.0.unwrap()
     }
 }
