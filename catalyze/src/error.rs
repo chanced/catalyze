@@ -1,5 +1,3 @@
-
-
 macro_rules! deref {
     ($err: ident, $E: ident) => {
         impl<$E> std::ops::Deref for $err<$E>
@@ -106,11 +104,11 @@ pub mod field_type {
     #[derive(Debug, snafu::Snafu)]
     #[snafu(
         visibility(pub(crate)),
-        display("Unknown field type: {value}")
+        display("Unknown field type: {type_}")
     )]
     pub struct Error {
         pub backtrace: snafu::Backtrace,
-        pub value: i32,
+        pub type_: i32,
     }
 }
 

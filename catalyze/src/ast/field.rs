@@ -216,7 +216,7 @@ impl Inner {
             .enum_value()
             .map_err(|type_| field_type::Error {
                 backtrace: Backtrace::capture(),
-                value: type_,
+                type_,
             })
             .context(error::fully_qualified::Snafu {
                 fully_qualified_name: self.fqn.clone(),
