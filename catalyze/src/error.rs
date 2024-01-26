@@ -22,36 +22,36 @@ pub type HydrateError = hydrate::Error;
 pub mod hydrate {
 
    #[derive(Debug,snafu::Snafu)] 
-pub enum Error {
-    #[snafu(transparent)]
-    UnsupportedSyntax { source: super::SyntaxError },
+    pub enum Error {
+        #[snafu(transparent)]
+        UnsupportedSyntax { source: super::SyntaxError },
 
-    /// Group is not supported, please use an embedded message instead.
-    #[snafu(transparent)]
-    Group{ source: super::GroupError },
+        /// Group is not supported, please use an embedded message instead.
+        #[snafu(transparent)]
+        Group{ source: super::GroupError },
 
-    #[snafu(transparent)]
-    InvalidSpan { source: super::SpanError },
+        #[snafu(transparent)]
+        InvalidSpan { source: super::SpanError },
 
-    #[snafu(display("Missing source code info"))]
-    MissingSourceCodeInfo,
+        #[snafu(display("Missing source code info"))]
+        MissingSourceCodeInfo,
 
-    #[snafu(transparent)]
-    FieldType {
-        source: super::FieldTypeError
-    },
-    
-    #[snafu(transparent)]
-    InvalidIndex {
-        source: super::IndexError,
+        #[snafu(transparent)]
+        FieldType {
+            source: super::FieldTypeError
+        },
         
-    },
-    /// The number of locations for a given file is invalid. 
-    #[snafu(transparent)]
-    Locations {
-        source: super::LocationsError,
-    },
-}
+        #[snafu(transparent)]
+        InvalidIndex {
+            source: super::IndexError,
+            
+        },
+        /// The number of locations for a given file is invalid. 
+        #[snafu(transparent)]
+        Locations {
+            source: super::LocationsError,
+        },
+    }
 }
 
 
