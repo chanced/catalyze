@@ -60,7 +60,7 @@ impl Hydrator {
         package: Option<package::Key>,
         nodes: &mut NodeMap,
     ) -> Result<Vec<message::Ident>, HydrationFailed> {
-        assert_locations("message", &locations, &descriptors);
+        assert_locations("message", &locations, &descriptors)?;
         descriptors
             .into_iter()
             .zip(locations)
@@ -401,7 +401,7 @@ impl Hydrator {
         nodes: &mut NodeMap,
         oneofs: &[oneof::Ident],
     ) -> Result<Vec<field::Ident>, HydrationFailed> {
-        assert_locations("field", &locations, &descriptors);
+        assert_locations("field", &locations, &descriptors)?;
         let mut fields = Vec::with_capacity(descriptors.len());
         for (descriptor, location) in descriptors.into_iter().zip(locations) {
             let fqn = FullyQualifiedName::new(descriptor.name(), Some(message_fqn.clone()));
@@ -438,7 +438,7 @@ impl Hydrator {
         package: Option<package::Key>,
         nodes: &mut NodeMap,
     ) -> Result<Vec<oneof::Ident>, HydrationFailed> {
-        assert_locations("oneof", &locations, &descriptors);
+        assert_locations("oneof", &locations, &descriptors)?;
         descriptors
             .into_iter()
             .zip(locations)
@@ -553,7 +553,7 @@ impl Hydrator {
         package: Option<package::Key>,
         nodes: &mut NodeMap,
     ) -> Result<Vec<method::Ident>, HydrationFailed> {
-        assert_locations("method", &locations, &descriptors);
+        assert_locations("method", &locations, &descriptors)?;
         descriptors
             .into_iter()
             .zip(locations)
@@ -670,7 +670,7 @@ impl Hydrator {
         package: Option<package::Key>,
         nodes: &mut NodeMap,
     ) -> Result<Vec<enum_value::Ident>, HydrationFailed> {
-        assert_locations("enum values", &locations, &descriptors);
+        assert_locations("enum values", &locations, &descriptors)?;
         descriptors
             .into_iter()
             .zip(locations)
