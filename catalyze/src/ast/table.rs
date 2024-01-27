@@ -63,25 +63,36 @@ where
     pub(super) fn get_mut_by_fqn(&mut self, fqn: &FullyQualifiedName) -> Option<&mut V> {
         self.index.get(fqn).map(|key| &mut self.map[*key])
     }
+
+    pub(crate) fn get_fqn(&self, key: K) -> &FullyQualifiedName {
+        self.get(key).unwrap().fqn()
+    }
 }
 
 impl<K, V, N> Table<K, V, N>
 where
     K: slotmap::Key,
 {
-    fn get(&self, key: K) -> Option<&V> {
+    pub(crate) fn get(&self, key: K) -> Option<&V> {
         self.map.get(key)
     }
-    fn get_mut(&mut self, key: K) -> Option<&mut V> {
+    pub(crate) fn get_mut(&mut self, key: K) -> Option<&mut V> {
         self.map.get_mut(key)
     }
-    fn iter(&self) -> impl Iterator<Item = (K, &V)> {
+    pub(crate) fn get_by_index(&self, index: usize) -> Option<&V> {
+        self.order.get(index).map(|key| &self.map[*key])
+    }
+    pub(crate) fn get_mut_by_index(&mut self, index: usize) -> Option<&mut V> {
+        self.order.get(index).map(|key| &mut self.map[*key])
+    }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (K, &V)> {
         self.order.iter().map(move |key| (*key, &self.map[*key]))
     }
-    fn iter_mut(&mut self) -> impl Iterator<Item = (K, &mut V)> {
+    pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = (K, &mut V)> {
         self.map.iter_mut()
     }
-    fn keys(&self) -> impl '_ + Iterator<Item = K> {
+    pub(crate) fn keys(&self) -> impl '_ + Iterator<Item = K> {
         self.order.iter().copied()
     }
 }

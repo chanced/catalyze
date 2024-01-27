@@ -10,15 +10,12 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-ahash       = "0.8"
-crossbeam   = "0.8"
-either      = "1.9"
-itertools   = "0.12"
-num_cpus    = "1.0"
-parking_lot = "0.12"
-protobuf    = "3.3"
-slotmap     = "1.0"
-snafu       = "0.8"
+ahash     = "0.8"
+either    = "1.9"
+itertools = "0.12"
+protobuf  = "3.3"
+slotmap   = "1.0"
+snafu     = "0.8"
 
 [features]
 default = []

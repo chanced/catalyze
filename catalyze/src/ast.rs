@@ -95,8 +95,7 @@ pub struct FullyQualifiedName(Box<str>);
 
 impl From<&std::path::Path> for FullyQualifiedName {
     fn from(path: &std::path::Path) -> Self {
-        // safety: we know the path is valid utf8
-        Self(path.to_str().unwrap().into())
+        Self(path.to_string_lossy().into())
     }
 }
 impl Borrow<str> for FullyQualifiedName {

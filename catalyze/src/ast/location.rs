@@ -6,7 +6,7 @@ use std::{
 use protobuf::descriptor::{source_code_info::Location as ProtoLoc, SourceCodeInfo};
 use snafu::ResultExt;
 
-use crate::error::{self, HydrationError};
+use crate::error::{self, HydrationFailed};
 
 use super::path;
 
@@ -19,7 +19,7 @@ pub struct Span {
     pub end_column: i32,
 }
 impl Span {
-    fn new(span: &[i32]) -> Result<Self, crate::error::span::Error> {
+    fn new(span: &[i32]) -> Result<Self, error::InvalidSpan> {
         match span.len() {
             3 => Ok(Self {
                 start_line: span[0],
@@ -33,7 +33,7 @@ impl Span {
                 end_line: span[2],
                 end_column: span[3],
             }),
-            _ => Err(crate::error::span::Error {
+            _ => Err(error::InvalidSpan {
                 span: span.to_vec(),
                 backtrace: snafu::Backtrace::capture(),
             }),
@@ -125,10 +125,8 @@ pub(super) struct Detail {
     pub(super) comments: Option<Comments>,
 }
 impl Detail {
-    pub(super) fn new(loc: ProtoLoc) -> Result<Self, HydrationError> {
-        let span = Span::new(&loc.span).context(error::node_pathed::Snafu {
-            node_path: loc.path.clone(),
-        })?;
+    pub(super) fn new(loc: ProtoLoc) -> Result<Self, HydrationFailed> {
+        let span = Span::new(&loc.span)?;
         let comments = Comments::new_maybe(
             loc.leading_comments,
             loc.trailing_comments,
@@ -156,7 +154,7 @@ pub(super) struct File {
 }
 
 impl File {
-    pub(super) fn new(info: SourceCodeInfo) -> Result<Self, HydrationError> {
+    pub(super) fn new(info: SourceCodeInfo) -> Result<Self, HydrationFailed> {
         let mut locations = info.location.into_iter().peekable();
         let mut package = None;
         let mut syntax = None;
@@ -227,7 +225,7 @@ pub(super) struct Message {
 }
 
 impl Message {
-    fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, HydrationError> {
+    fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, HydrationFailed> {
         let detail = Detail::new(node)?;
         let mut node_count = 0;
         let mut messages = Vec::new();
@@ -284,7 +282,7 @@ impl ExtensionDecl {
     fn new(
         node: ProtoLoc,
         locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
-    ) -> Result<Self, HydrationError> {
+    ) -> Result<Self, HydrationFailed> {
         let mut extensions = Vec::new();
         let detail = Detail::new(node)?;
         while let Some((next, _)) = iterate_next::<i32>(&detail.path, locations) {
@@ -311,7 +309,7 @@ impl Hash for Field {
 }
 
 impl Field {
-    fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, HydrationError> {
+    fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, HydrationFailed> {
         let detail = Detail::new(node)?;
         while iterate_next::<i32>(&detail.path, locations).is_some() {}
         Ok(Self { detail })
@@ -323,7 +321,7 @@ pub(super) struct Oneof {
     pub(super) detail: Detail,
 }
 impl Oneof {
-    fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, HydrationError> {
+    fn new(node: ProtoLoc, locations: &mut Iter) -> Result<Self, HydrationFailed> {
         let detail = Detail::new(node)?;
         while iterate_next::<i32>(&detail.path, locations).is_some() {}
         Ok(Self { detail })
@@ -339,7 +337,7 @@ impl Enum {
     fn new(
         node: ProtoLoc,
         locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
-    ) -> Result<Self, HydrationError> {
+    ) -> Result<Self, HydrationFailed> {
         let detail = Detail::new(node)?;
         let mut values = Vec::new();
         while let Some((next, next_path)) = iterate_next(&detail.path, locations) {
@@ -361,7 +359,7 @@ impl EnumValue {
     fn new(
         node: ProtoLoc,
         locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
-    ) -> Result<Self, HydrationError> {
+    ) -> Result<Self, HydrationFailed> {
         let detail = Detail::new(node)?;
         while iterate_next::<i32>(&detail.path, locations).is_some() {}
         Ok(Self { detail })
@@ -376,7 +374,7 @@ impl Service {
     fn new(
         node: ProtoLoc,
         locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
-    ) -> Result<Self, HydrationError> {
+    ) -> Result<Self, HydrationFailed> {
         let detail = Detail::new(node)?;
         let mut methods = Vec::new();
         while let Some((next, next_path)) = iterate_next(&detail.path, locations) {
@@ -399,7 +397,7 @@ impl Method {
     fn new(
         node: ProtoLoc,
         locations: &mut Peekable<std::vec::IntoIter<ProtoLoc>>,
-    ) -> Result<Self, HydrationError> {
+    ) -> Result<Self, HydrationFailed> {
         let detail = Detail::new(node)?;
         while iterate_next::<i32>(&detail.path, locations).is_some() {}
         Ok(Self { detail })
@@ -582,6 +580,6 @@ mod tests {
 
         let bytes = include_bytes!("../../../fixtures/cgr/commented/code_generator_request.bin");
         let mut cgr = CodeGeneratorRequest::parse_from_bytes(bytes).unwrap();
-        *cgr.proto_file[0].source_code_info.0.unwrap()
+        *(cgr.proto_file.pop().unwrap().source_code_info.0.unwrap())
     }
 }

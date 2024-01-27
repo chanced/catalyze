@@ -62,7 +62,7 @@ impl Inner {
             return;
         }
         self.is_well_known = name == WELL_KNOWN;
-        self.name = name.into();
+        self.name = name;
     }
     pub(super) fn add_file(&mut self, file: file::Key) {
         self.files.push(file);

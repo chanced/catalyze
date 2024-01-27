@@ -1,4 +1,4 @@
-use crate::error::HydrationError;
+use crate::error::{self, HydrationFailed};
 use ahash::{HashMap, HashSet};
 use protobuf::{
     descriptor::{file_options::OptimizeMode as ProtoOptimizeMode, FileOptions},
@@ -224,11 +224,11 @@ impl Syntax {
             Self::Proto3 => Self::PROTO3,
         }
     }
-    pub fn parse(s: &str) -> Result<Self, crate::error::syntax::Error> {
+    pub fn parse(s: &str) -> Result<Self, error::UnsupportedSyntax> {
         match s {
             Self::PROTO2 => Ok(Self::Proto2),
             Self::PROTO3 => Ok(Self::Proto3),
-            _ => Err(crate::error::syntax::Error {
+            _ => Err(crate::error::UnsupportedSyntax {
                 backtrace: Backtrace::capture(),
                 value: s.to_string(),
             }),
@@ -456,8 +456,15 @@ pub(super) struct DependencyInner {
 }
 
 impl DependencyInner {
-    pub(super) fn set_is_used(&mut self, is_used: bool) {
-        self.is_used = is_used;
+    pub(super) fn mark_used(&mut self) {
+        self.is_used = true;
+    }
+    pub(super) fn mark_public(&mut self) {
+        self.is_public = true;
+    }
+
+    pub(crate) fn mark_weak(&mut self) {
+        self.is_weak = true;
     }
 }
 
@@ -604,7 +611,7 @@ impl Inner {
     pub(super) fn hydrate(
         &mut self,
         hydrate: Hydrate,
-    ) -> Result<node::Ident<Key>, crate::error::HydrationError> {
+    ) -> Result<node::Ident<Key>, crate::error::HydrationFailed> {
         self.set_name_and_path(hydrate.name);
         self.syntax = Syntax::parse(&hydrate.syntax.unwrap_or_default())?;
 
@@ -625,7 +632,7 @@ impl Inner {
     /// Hydrates the data within the descriptor.
     ///
     /// Note: References and nested nodes are not hydrated.
-    fn hydrate_options(&mut self, opts: FileOptions) -> Result<(), HydrationError> {
+    fn hydrate_options(&mut self, opts: FileOptions) -> Result<(), HydrationFailed> {
         self.java_package = opts.java_package;
         self.java_outer_classname = opts.java_outer_classname;
         self.java_multiple_files = opts.java_multiple_files.unwrap_or(false);

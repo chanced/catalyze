@@ -1,6 +1,6 @@
 use protobuf::{descriptor::EnumValueOptions, SpecialFields};
 
-use crate::error::HydrationError;
+use crate::error::HydrationFailed;
 
 use super::{
     access::NodeKeys, file, impl_traits_and_methods, location, node, package, resolve::Resolver,
@@ -55,7 +55,7 @@ pub(super) struct Inner {
     options_special_fields: SpecialFields,
 }
 impl Inner {
-    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationError> {
+    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationFailed> {
         let Hydrate {
             name,
             number,
@@ -77,7 +77,7 @@ impl Inner {
         Ok(self.into())
     }
 
-    fn hydrate_options(&mut self, options: EnumValueOptions) -> Result<(), HydrationError> {
+    fn hydrate_options(&mut self, options: EnumValueOptions) -> Result<(), HydrationFailed> {
         self.options_special_fields = options.special_fields;
         self.deprecated = options.deprecated.unwrap_or(false);
         self.set_uninterpreted_options(options.uninterpreted_option);

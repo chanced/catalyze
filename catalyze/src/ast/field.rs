@@ -1,6 +1,6 @@
 use crate::{
     ast::{impl_traits_and_methods, uninterpreted::UninterpretedOption, Ast, FullyQualifiedName},
-    error::{self, field_type, FieldTypeError, GroupError, HydrationError},
+    error::{self, HydrationFailed},
 };
 use ::std::vec::Vec;
 use protobuf::{
@@ -183,7 +183,7 @@ impl Inner {
         self.reference.iter_mut()
     }
 
-    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationError> {
+    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationFailed> {
         let Hydrate {
             location,
             file,
@@ -214,18 +214,18 @@ impl Inner {
         self.proto_type = type_
             .unwrap()
             .enum_value()
-            .map_err(|type_| field_type::Error {
+            .map_err(|type_| error::UnknownFieldType {
                 backtrace: Backtrace::capture(),
                 type_,
             })
-            .context(error::fully_qualified::Snafu {
+            .with_context(|_| error::UnknownFieldTypeCtx {
                 fully_qualified_name: self.fqn.clone(),
             })?;
         self.hydrate_location(location);
         self.hydrate_options(options.unwrap_or_default())?;
         Ok(self.into())
     }
-    fn hydrate_options(&mut self, opts: FieldOptions) -> Result<(), HydrationError> {
+    fn hydrate_options(&mut self, opts: FieldOptions) -> Result<(), HydrationFailed> {
         let FieldOptions {
             ctype,
             packed,
@@ -632,7 +632,7 @@ impl ValueInner {
         typ: field_descriptor_proto::Type,
         enum_: Option<enum_::Key>,
         msg: Option<message::Key>,
-    ) -> Result<Self, crate::error::group::Error> {
+    ) -> Result<Self, error::GroupNotSupported> {
         use field_descriptor_proto::Type::*;
         match typ {
             TYPE_DOUBLE => Ok(Self::Scalar(Scalar::Double)),
@@ -652,7 +652,7 @@ impl ValueInner {
             TYPE_SINT64 => Ok(Self::Scalar(Scalar::Sint64)),
             TYPE_ENUM => Ok(Self::Enum(enum_.unwrap())),
             TYPE_MESSAGE => Ok(Self::Message(msg.unwrap())),
-            TYPE_GROUP => Err(crate::error::group::Error {
+            TYPE_GROUP => Err(error::GroupNotSupported {
                 backtrace: Backtrace::capture(),
             }),
         }
