@@ -67,8 +67,23 @@ impl Hydrator {
         descriptor: FileDescriptorProto,
         targets: &[String],
     ) -> Result<file::Ident, HydrationFailed> {
-        let (package, package_fqn) = self.hydrate_package(descriptor.package);
-        let name: Name = descriptor.name.unwrap().into();
+        let FileDescriptorProto {
+            name,
+            package,
+            dependency,
+            public_dependency,
+            weak_dependency,
+            message_type,
+            enum_type,
+            service,
+            extension,
+            options,
+            source_code_info,
+            syntax,
+            special_fields,
+        } = descriptor;
+        let (package, package_fqn) = self.hydrate_package(package);
+        let name: Name = name.unwrap().into();
 
         let fqn = FullyQualifiedName::new(&name, package_fqn);
         let key = self.ast.files.get_or_insert_key(fqn.clone());
@@ -76,12 +91,8 @@ impl Hydrator {
         let mut nodes = HashMap::with_capacity(location.node_count);
         self.ast.reserve(location.node_count);
 
-        let dependencies = self.hydrate_dependencies(
-            key,
-            descriptor.dependency,
-            descriptor.public_dependency,
-            descriptor.weak_dependency,
-        )?;
+        let dependencies =
+            self.hydrate_dependencies(key, dependency, public_dependency, weak_dependency)?;
 
         let mut references = Vec::new();
 
@@ -98,7 +109,7 @@ impl Hydrator {
         )?;
 
         let enums = self.hydrate_enums(
-            descriptor.enum_type,
+            enum_type,
             location.enums,
             key.into(),
             fqn.clone(),
@@ -108,7 +119,7 @@ impl Hydrator {
         )?;
 
         let services = self.hydrate_services(
-            descriptor.service,
+            service,
             location.services,
             fqn.clone(),
             key,
@@ -117,7 +128,7 @@ impl Hydrator {
         )?;
 
         let (extension_decls, extensions) = self.hydrate_extensions(
-            descriptor.extension,
+            extension,
             location.extensions,
             key.into(),
             fqn,
@@ -146,6 +157,8 @@ impl Hydrator {
             nodes,
             package_comments: location.package,
             comments: location.syntax,
+            public_dependencies: public_dependency,
+            weak_dependencies: weak_dependency,
         })?;
         Ok(file)
     }
