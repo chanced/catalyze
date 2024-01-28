@@ -1,4 +1,4 @@
-use ahash::{HashMapExt, HashSet};
+use ahash::HashMapExt;
 use itertools::Itertools;
 use protobuf::{
     descriptor::{
@@ -12,15 +12,14 @@ use snafu::{Backtrace, ResultExt};
 use std::{path::PathBuf, str::FromStr};
 
 use crate::{
-    error::{self, Error, GroupNotSupported, HydrationCtx, HydrationFailed, TypeNotFound},
+    error::{self, Error, GroupNotSupported, HydrationCtx, HydrationFailed},
     HashMap,
 };
 
 use super::{
     container, dependency, enum_, enum_value, extension, extension_decl,
     field::{self, ValueInner},
-    file, location, message,
-    method::{self, IoInner},
+    file, location, message, method,
     node::{self, NodeMap},
     oneof, package, reference, service, Ast, FullyQualifiedName, Name,
 };
@@ -35,7 +34,7 @@ struct Hydrator {
 
 impl Hydrator {
     fn run(descriptors: Vec<FileDescriptorProto>, targets: &[String]) -> Result<Ast, Error> {
-        let mut hydrator = Hydrator {
+        let mut hydrator = Self {
             ast: Ast::new(descriptors.len()),
         };
         for descriptor in descriptors {
@@ -357,19 +356,33 @@ impl Hydrator {
             field_refs: references,
         })
     }
-    fn hydrate_field_enum_value(
+    fn hydrate_value_enum(
         &mut self,
         type_name: String,
-        field_fqn: &FullyQualifiedName,
     ) -> Result<field::ValueInner, error::EmptyTypeName> {
-        todo!()
+        if type_name.is_empty() {
+            return Err(error::EmptyTypeName {
+                backtrace: Backtrace::capture(),
+                type_not_found: error::TypeNotFound::Enum,
+            });
+        }
+        let fqn = FullyQualifiedName(type_name.into());
+        let key = self.ast.enums.get_or_insert_key(fqn);
+        Ok(field::ValueInner::Enum(key))
     }
-    fn hydrate_field_message_value(
+    fn hydrate_value_message(
         &mut self,
         type_name: String,
-        field_fqn: &FullyQualifiedName,
     ) -> Result<field::ValueInner, error::EmptyTypeName> {
-        todo!()
+        if type_name.is_empty() {
+            return Err(error::EmptyTypeName {
+                backtrace: Backtrace::capture(),
+                type_not_found: error::TypeNotFound::Message,
+            });
+        }
+        let fqn = FullyQualifiedName(type_name.into());
+        let key = self.ast.messages.get_or_insert_key(fqn);
+        Ok(field::ValueInner::Message(key))
     }
     fn hydrate_field_value(
         &mut self,
@@ -379,18 +392,20 @@ impl Hydrator {
     ) -> Result<field::ValueInner, HydrationFailed> {
         use field_descriptor_proto::Type as ProtoType;
         match proto_type {
-            ProtoType::TYPE_ENUM => self
-                .hydrate_field_enum_value(type_name, field_fqn)
-                .with_context(|_| error::EmptyTypeNameCtx {
-                    field_fqn: field_fqn.clone(),
-                    type_not_found: error::TypeNotFound::Enum,
-                }),
-            ProtoType::TYPE_MESSAGE => self
-                .hydrate_field_message_value(type_name, field_fqn)
-                .with_context(|_| error::EmptyTypeNameCtx {
-                    field_fqn: field_fqn.clone(),
-                    type_not_found: error::TypeNotFound::Message,
-                }),
+            ProtoType::TYPE_ENUM => {
+                self.hydrate_value_enum(type_name)
+                    .with_context(|_| error::EmptyTypeNameCtx {
+                        field_fqn: field_fqn.clone(),
+                        type_not_found: error::TypeNotFound::Enum,
+                    })
+            }
+            ProtoType::TYPE_MESSAGE => {
+                self.hydrate_value_message(type_name)
+                    .with_context(|_| error::EmptyTypeNameCtx {
+                        field_fqn: field_fqn.clone(),
+                        type_not_found: error::TypeNotFound::Message,
+                    })
+            }
             ProtoType::TYPE_GROUP => Err(GroupNotSupported {
                 backtrace: Backtrace::capture(),
             })
@@ -505,7 +520,7 @@ impl Hydrator {
             .into_iter()
             .map(|dependency| {
                 let fqn = FullyQualifiedName(dependency.into());
-                let dependency_file = self.ast.files.get_or_insert_key(fqn.clone());
+                let dependency_file = self.ast.files.get_or_insert_key(fqn);
                 dependency::Inner {
                     dependent,
                     dependency: dependency_file,
@@ -647,7 +662,7 @@ impl Hydrator {
             special_fields,
         } = descriptor;
 
-        let key = self.ast.oneofs.get_or_insert_key(fqn.clone());
+        let key = self.ast.oneofs.get_or_insert_key(fqn);
         let name: Name = name.unwrap_or_default().into();
         let oneof = self.ast.oneofs[key].hydrate(oneof::Hydrate {
             fields: Vec::default(),

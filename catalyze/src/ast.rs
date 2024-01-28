@@ -26,6 +26,23 @@ mod map_try_into_usize;
 mod resolve;
 mod table;
 
+pub use container::Container;
+pub use dependency::Dependency;
+pub use dependent::Dependent;
+pub use enum_::Enum;
+pub use enum_value::EnumValue;
+pub use extension::Extension;
+pub use field::Field;
+pub use file::File;
+pub use location::{Comments, Span};
+pub use message::Message;
+pub use method::Method;
+pub use node::Node;
+pub use oneof::Oneof;
+pub use package::Package;
+pub use reference::{Reference, Referent};
+pub use service::Service;
+
 use crate::{error::Error, HashMap};
 
 use protobuf::descriptor::FileDescriptorProto;
