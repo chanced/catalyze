@@ -42,3 +42,8 @@ where
         .try_into()
         .unwrap_or_else(|err| panic!("value cannot be converted to i32: {err}"))
 }
+
+pub fn delete_me() {
+    let ast = ast::Ast::build(Vec::default(), &[]);
+    _ = ast;
+}

@@ -55,13 +55,13 @@ pub struct Ast {
 }
 
 impl Ast {
-    fn build(
+    pub(crate) fn build(
         file_descriptors: Vec<FileDescriptorProto>,
         targets: &[String],
     ) -> Result<Self, Error> {
         hydrate::run(file_descriptors, targets)
     }
-    fn new(file_count: usize) -> Self {
+    pub(crate) fn new(file_count: usize) -> Self {
         let (well_known, packages) = Self::create_package_table();
         let files = file::Table::with_capacity(file_count);
         Self {

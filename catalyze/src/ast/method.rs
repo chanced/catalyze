@@ -64,6 +64,12 @@ impl<'ast> Deref for Payload<'ast> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ReferencesInner {
+    pub(super) input: reference::Inner,
+    pub(super) output: reference::Inner,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Io<'ast> {
     pub input: Message<'ast>,
@@ -83,9 +89,9 @@ impl<'ast> Io<'ast> {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct IoInner {
-    pub input: message::Key,
-    pub output: message::Key,
+pub(super) struct IoInner {
+    pub(super) input: message::Key,
+    pub(super) output: message::Key,
 }
 
 pub(super) type Ident = node::Ident<Key>;

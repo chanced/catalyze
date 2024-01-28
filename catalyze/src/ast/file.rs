@@ -47,10 +47,12 @@ pub(super) struct Hydrate {
     pub(super) dependencies: Vec<dependency::Inner>,
     pub(super) public_dependencies: Vec<i32>,
     pub(super) weak_dependencies: Vec<i32>,
-    pub(super) references: Vec<reference::Inner>,
+    pub(super) ext_references: Vec<reference::Inner>,
+    pub(super) all_references: Vec<reference::Inner>,
     pub(super) package_comments: Option<location::Detail>,
     pub(super) comments: Option<location::Detail>,
     pub(super) is_build_target: bool,
+    pub(super) special_fields: SpecialFields,
     pub(super) nodes: HashMap<FullyQualifiedName, node::Key>,
 }
 
@@ -368,7 +370,8 @@ pub(super) struct Inner {
     package_comments: Option<location::Comments>,
     comments: Option<location::Comments>,
 
-    references: Vec<reference::Inner>,
+    all_rferences: Vec<reference::Inner>,
+    ext_references: Vec<reference::Inner>,
 
     dependents: dependent::DependentsInner,
 
@@ -443,13 +446,15 @@ impl Inner {
             extensions,
             extension_decls,
             dependencies,
-            references,
+            all_references,
+            ext_references,
             package_comments,
             comments,
             is_build_target,
             nodes,
             public_dependencies,
             weak_dependencies,
+            special_fields,
         } = hydrate;
         self.set_name_and_path(name);
         self.syntax = Syntax::parse(&syntax.unwrap_or_default())?;
@@ -460,15 +465,17 @@ impl Inner {
         self.services = services.into();
         self.defined_extensions = extensions.into();
         self.extension_decls = extension_decls;
-
+        self.is_build_target = is_build_target;
+        self.special_fields = special_fields;
         self.dependencies =
             DependenciesInner::new(dependencies, public_dependencies, weak_dependencies)?;
-        self.references = references;
-        self.package_comments = hydrate.package_comments.and_then(|c| c.comments);
-        self.comments = hydrate.comments.and_then(|c| c.comments);
+        self.all_rferences = all_references;
+        self.ext_references = ext_references;
+        self.package_comments = package_comments.and_then(|c| c.comments);
+        self.comments = comments.and_then(|c| c.comments);
         self.is_build_target = hydrate.is_build_target;
-        self.nodes = hydrate.nodes;
-        self.hydrate_options(hydrate.options.unwrap_or_default())?;
+        self.nodes = nodes;
+        self.hydrate_options(options.unwrap_or_default())?;
         Ok(self.into())
     }
     /// Hydrates the data within the descriptor.

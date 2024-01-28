@@ -45,6 +45,7 @@ pub(super) struct Hydrate {
     pub(super) label: Option<protobuf::EnumOrUnknown<field_descriptor_proto::Label>>,
     pub(super) options: protobuf::MessageField<FieldOptions>,
     pub(super) proto_type: field_descriptor_proto::Type,
+    pub(super) reference: Option<reference::Inner>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -199,6 +200,7 @@ impl Inner {
             oneof_index,
             special_fields,
             proto_type,
+            reference,
         } = hydrate;
 
         self.name = name;
@@ -448,6 +450,53 @@ impl Default for TypeInner {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(i32)]
+pub enum JsType {
+    /// Use the default type.
+    Normal = 0,
+    /// Use JavaScript strings.
+    String = 1,
+    /// Use JavaScript numbers.
+    Number = 2,
+    Unknown(i32),
+}
+impl From<EnumOrUnknown<protobuf::descriptor::field_options::JSType>> for JsType {
+    fn from(value: EnumOrUnknown<protobuf::descriptor::field_options::JSType>) -> Self {
+        match value.enum_value() {
+            Ok(v) => v.into(),
+            Err(v) => Self::Unknown(v),
+        }
+    }
+}
+impl From<protobuf::descriptor::field_options::JSType> for JsType {
+    fn from(value: protobuf::descriptor::field_options::JSType) -> Self {
+        use protobuf::descriptor::field_options::JSType::*;
+        match value {
+            JS_NORMAL => Self::Normal,
+            JS_STRING => Self::String,
+            JS_NUMBER => Self::Number,
+        }
+    }
+}
+
+impl<'ast> Field<'ast> {
+    pub fn references(&'ast self) -> References<'ast> {
+        super::access::References::references(self)
+    }
+}
+
+impl<'ast> super::access::References<'ast> for Field<'ast> {
+    fn references(&'ast self) -> super::reference::References<'ast> {
+        References::from_option(self.0.reference, self.ast())
+    }
+}
+impl super::access::ReferencesMut for Inner {
+    fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut super::reference::Inner> {
+        self.reference.iter_mut()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ValueInner {
     Scalar(Scalar),
@@ -649,52 +698,5 @@ impl ValueInner {
             ProtoType::TYPE_SINT64 => Self::Scalar(Scalar::Sint64),
             ProtoType::TYPE_GROUP => unreachable!(),
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(i32)]
-pub enum JsType {
-    /// Use the default type.
-    Normal = 0,
-    /// Use JavaScript strings.
-    String = 1,
-    /// Use JavaScript numbers.
-    Number = 2,
-    Unknown(i32),
-}
-impl From<EnumOrUnknown<protobuf::descriptor::field_options::JSType>> for JsType {
-    fn from(value: EnumOrUnknown<protobuf::descriptor::field_options::JSType>) -> Self {
-        match value.enum_value() {
-            Ok(v) => v.into(),
-            Err(v) => Self::Unknown(v),
-        }
-    }
-}
-impl From<protobuf::descriptor::field_options::JSType> for JsType {
-    fn from(value: protobuf::descriptor::field_options::JSType) -> Self {
-        use protobuf::descriptor::field_options::JSType::*;
-        match value {
-            JS_NORMAL => Self::Normal,
-            JS_STRING => Self::String,
-            JS_NUMBER => Self::Number,
-        }
-    }
-}
-
-impl<'ast> Field<'ast> {
-    pub fn references(&'ast self) -> References<'ast> {
-        super::access::References::references(self)
-    }
-}
-
-impl<'ast> super::access::References<'ast> for Field<'ast> {
-    fn references(&'ast self) -> super::reference::References<'ast> {
-        References::from_option(self.0.reference, self.ast())
-    }
-}
-impl super::access::ReferencesMut for Inner {
-    fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut super::reference::Inner> {
-        self.reference.iter_mut()
     }
 }
