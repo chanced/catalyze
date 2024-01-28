@@ -40,7 +40,7 @@ impl<'ast> Reference<'ast> {
     }
 }
 
-#[derive(Clone, Default, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Default, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct Inner {
     /// referring field, extension, or method
     pub(super) referrer: ReferrerKey,
@@ -50,7 +50,7 @@ pub struct Inner {
 
 /// The [`Message`] or [`Enum`] which is referenced by the [`Field`],
 /// [`Extension`], or [`Method`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub(super) enum ReferentKey {
     Message(message::Key),
     Enum(enum_::Key),
@@ -149,7 +149,6 @@ impl<'ast> Referrer<'ast> {
         }
     }
 
-    #[must_use]
     pub fn try_into_field(self) -> Result<Field<'ast>, Self> {
         if let Self::Field(v) = self {
             Ok(v)
@@ -175,7 +174,6 @@ impl<'ast> Referrer<'ast> {
         }
     }
 
-    #[must_use]
     pub fn try_into_extension(self) -> Result<Extension<'ast>, Self> {
         if let Self::Extension(v) = self {
             Ok(v)
@@ -201,7 +199,6 @@ impl<'ast> Referrer<'ast> {
         }
     }
 
-    #[must_use]
     pub fn try_into_method(self) -> Result<Method<'ast>, Self> {
         if let Self::Method(v) = self {
             Ok(v)
@@ -211,7 +208,7 @@ impl<'ast> Referrer<'ast> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub(super) enum ReferrerKey {
     Field(field::Key),
     Extension(extension::Key),

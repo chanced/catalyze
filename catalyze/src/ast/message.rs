@@ -3,7 +3,7 @@ use std::iter;
 use crate::error::HydrationFailed;
 
 use super::{
-    access::{self, NodeKeys},
+    access::{self},
     collection::Collection,
     container, enum_, extension, extension_decl,
     field::{self},
@@ -18,6 +18,7 @@ use super::{
     uninterpreted::{into_uninterpreted_options, UninterpretedOption},
     FullyQualifiedName, Name,
 };
+use ahash::HashSet;
 use protobuf::{
     descriptor::{descriptor_proto, MessageOptions},
     SpecialFields,

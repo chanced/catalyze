@@ -1,4 +1,4 @@
-use ahash::HashMapExt;
+use ahash::{HashMapExt, HashSet};
 use itertools::Itertools;
 use protobuf::{
     descriptor::{
@@ -125,7 +125,11 @@ impl Hydrator {
             &mut all_references,
         )?;
 
-        let (extension_decls, extensions, ext_references) = self.hydrate_extensions(
+        let HydratedExtensions {
+            extension_decls,
+            extensions,
+            ext_refs: ext_references,
+        } = self.hydrate_extensions(
             extension,
             location.extensions,
             key.into(),
@@ -248,7 +252,7 @@ impl Hydrator {
             package,
             nodes,
         )?;
-        let (fields, field_refs) = self.hydrate_fields(
+        let HydratedFields { fields, field_refs } = self.hydrate_fields(
             descriptor.field,
             location.fields,
             key,
@@ -259,7 +263,11 @@ impl Hydrator {
             &oneofs,
         )?;
 
-        let (extension_decls, extensions, mut ext_refs) = self.hydrate_extensions(
+        let HydratedExtensions {
+            extension_decls,
+            extensions,
+            mut ext_refs,
+        } = self.hydrate_extensions(
             descriptor.extension,
             location.extensions,
             key.into(),
@@ -277,6 +285,7 @@ impl Hydrator {
         parent_refs.extend(all_refs.iter().copied());
 
         let mut references = field_refs;
+
         references.append(&mut ext_refs);
 
         let msg = self.ast.messages[key].hydrate(message::Hydrate {
@@ -314,7 +323,7 @@ impl Hydrator {
         package: Option<package::Key>,
         nodes: &mut NodeMap,
         oneofs: &[oneof::Ident],
-    ) -> Result<(Vec<field::Ident>, Vec<reference::Inner>), HydrationFailed> {
+    ) -> Result<HydratedFields, HydrationFailed> {
         assert_locations("field", &locations, &descriptors)?;
         let mut fields = Vec::with_capacity(descriptors.len());
         let mut references = Vec::new();
@@ -343,7 +352,10 @@ impl Hydrator {
                 references.push(reference);
             }
         }
-        Ok((fields, references))
+        Ok(HydratedFields {
+            fields,
+            field_refs: references,
+        })
     }
     fn hydrate_field_enum_value(
         &mut self,
@@ -388,11 +400,9 @@ impl Hydrator {
             _ => Ok(field::ValueInner::new(proto_type, None, None)),
         }
     }
-    fn hydrate_reference(
-        &mut self,
-        field: field::Key,
-        value: ValueInner,
-    ) -> Option<reference::Inner> {
+
+    #[allow(clippy::unused_self)]
+    fn hydrate_reference(&self, field: field::Key, value: ValueInner) -> Option<reference::Inner> {
         match value {
             ValueInner::Enum(key) => Some(reference::Inner {
                 referent: reference::ReferentKey::Enum(key),
@@ -452,7 +462,12 @@ impl Hydrator {
 
         let value =
             self.hydrate_field_value(proto_type, type_name.clone().unwrap_or_default(), &fqn)?;
-        let reference = self.hydrate_reference(key, value.clone());
+        let reference = self.hydrate_reference(key, value);
+
+        if let Some(reference) = reference {
+            references.push(reference);
+        }
+
         let field = self.ast.fields[key].hydrate(field::Hydrate {
             name,
             location: location.detail,
@@ -658,14 +673,7 @@ impl Hydrator {
         file: file::Key,
         package: Option<package::Key>,
         nodes: &mut NodeMap,
-    ) -> Result<
-        (
-            Vec<extension_decl::Key>,
-            Vec<extension::Ident>,
-            Vec<reference::Inner>,
-        ),
-        HydrationFailed,
-    > {
+    ) -> Result<HydratedExtensions, HydrationFailed> {
         todo!()
     }
 
@@ -725,18 +733,30 @@ impl Hydrator {
             special_fields,
         } = descriptor;
         let mut references = Vec::with_capacity(method.len() * 2);
-        let name = descriptor.name.unwrap_or_default().into();
+        let name = name.unwrap_or_default().into();
         let key = self.ast.services.get_or_insert_key(fqn.clone());
-        let methods =
-            self.hydrate_methods(method, location.methods, key, fqn, file, package, nodes)?;
+        let methods = self.hydrate_methods(
+            method,
+            location.methods,
+            key,
+            fqn,
+            file,
+            package,
+            nodes,
+            &mut references,
+        )?;
+
+        all_references.extend(references.iter().copied());
+
         let service = self.ast.services[key].hydrate(service::Hydrate {
             name,
             location: location.detail,
             methods,
-            special_fields: descriptor.special_fields,
+            special_fields,
             file,
             package,
-            options: descriptor.options,
+            options,
+            references,
         })?;
         nodes.insert(service.fqn(), service.node_key());
         self.ast.nodes.insert(service.fqn(), service.node_key());
@@ -752,7 +772,8 @@ impl Hydrator {
         file: file::Key,
         package: Option<package::Key>,
         nodes: &mut NodeMap,
-    ) -> Result<Vec<(method::Ident, method::ReferencesInner)>, HydrationFailed> {
+        references: &mut Vec<reference::Inner>,
+    ) -> Result<Vec<method::Ident>, HydrationFailed> {
         assert_locations("method", &locations, &descriptors)?;
         descriptors
             .into_iter()
@@ -768,6 +789,7 @@ impl Hydrator {
                         service,
                     },
                     nodes,
+                    references,
                 )
             })
             .collect()
@@ -777,7 +799,8 @@ impl Hydrator {
         &mut self,
         method: Method,
         nodes: &mut NodeMap,
-    ) -> Result<(method::Ident, method::ReferencesInner), HydrationFailed> {
+        references: &mut Vec<reference::Inner>,
+    ) -> Result<method::Ident, HydrationFailed> {
         let Method {
             fqn,
             descriptor,
@@ -786,20 +809,60 @@ impl Hydrator {
             file,
             package,
         } = method;
-        let name = descriptor.name.unwrap_or_default().into();
+        let MethodDescriptorProto {
+            input_type,
+            output_type,
+            options,
+            name,
+            client_streaming,
+            server_streaming,
+            special_fields,
+        } = descriptor;
+        let name: Name = name.unwrap_or_default().into();
+        let key = self.ast.methods.get_or_insert_key(fqn.clone());
+        let input = input_type.ok_or_else(|| error::HydrationFailed::MethodMissingMessage {
+            method_fqn: fqn.clone(),
+            direction: method::Direction::Input,
+        })?;
+        let input = self
+            .ast
+            .messages
+            .get_or_insert_key(FullyQualifiedName(input.into()));
+        let output = output_type.ok_or_else(|| error::HydrationFailed::MethodMissingMessage {
+            method_fqn: fqn.clone(),
+            direction: method::Direction::Output,
+        })?;
 
-        let key = self.ast.methods.get_or_insert_key(fqn);
+        let output = self
+            .ast
+            .messages
+            .get_or_insert_key(FullyQualifiedName(output.into()));
+
+        references.push(reference::Inner {
+            referent: input.into(),
+            referrer: key.into(),
+        });
+        references.push(reference::Inner {
+            referent: output.into(),
+            referrer: key.into(),
+        });
+
+        let io = method::IoInner::new(
+            input,
+            client_streaming.unwrap_or_default(),
+            output,
+            server_streaming.unwrap_or_default(),
+        );
+
         let method = self.ast.methods[key].hydrate(method::Hydrate {
             name,
             service,
             file,
             package,
             location: location.detail,
-            input_type: descriptor.input_type,
-            output_type: descriptor.output_type,
-            client_streaming: descriptor.client_streaming,
-            server_streaming: descriptor.server_streaming,
-            options: descriptor.options,
+            io,
+            options,
+            special_fields,
         })?;
 
         self.insert_node(nodes, method)
@@ -855,7 +918,7 @@ impl Hydrator {
             special_fields,
         } = descriptor;
 
-        let key = self.ast.enum_values.get_or_insert_key(fqn.clone());
+        let key = self.ast.enum_values.get_or_insert_key(fqn);
         let name: Name = name.unwrap_or_default().into();
         let number = number.unwrap();
         let enum_value = self.ast.enum_values[key].hydrate(enum_value::Hydrate {
@@ -961,6 +1024,16 @@ struct Extension {
 struct ExtensionDecl {
     location: location::ExtensionDecl,
     extensions: Vec<Extension>,
+}
+
+struct HydratedExtensions {
+    extension_decls: Vec<extension_decl::Key>,
+    extensions: Vec<extension::Ident>,
+    ext_refs: Vec<reference::Inner>,
+}
+struct HydratedFields {
+    fields: Vec<field::Ident>,
+    field_refs: Vec<reference::Inner>,
 }
 
 fn assert_locations<T, L>(

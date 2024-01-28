@@ -1,13 +1,13 @@
 use protobuf::{descriptor::ServiceOptions, SpecialFields};
 
-use crate::error::HydrationFailed;
+use crate::{error::HydrationFailed, HashSet};
 
 use super::{
     access::NodeKeys,
     collection::Collection,
     file, impl_traits_and_methods, location, method,
     node::{self},
-    package, resolve,
+    package, reference, resolve,
     uninterpreted::UninterpretedOption,
     FullyQualifiedName, Name,
 };
@@ -26,6 +26,7 @@ pub(super) struct Hydrate {
     pub(super) special_fields: SpecialFields,
     pub(super) file: file::Key,
     pub(super) package: Option<package::Key>,
+    pub(super) references: Vec<reference::Inner>,
     pub(super) options: protobuf::MessageField<ServiceOptions>,
 }
 
@@ -41,6 +42,7 @@ pub(super) struct Inner {
     comments: Option<location::Comments>,
 
     methods: Collection<super::method::Key>,
+    references: Vec<reference::Inner>,
 
     deprecated: bool,
 
@@ -56,6 +58,7 @@ impl Inner {
             name,
             location,
             methods,
+            references,
             special_fields,
             file,
             package,
@@ -65,6 +68,7 @@ impl Inner {
         self.methods = methods.into();
         self.file = file;
         self.package = package;
+        self.references = references;
         self.special_fields = special_fields;
         self.hydrate_location(location);
         self.hydrate_options(options.unwrap_or_default())?;

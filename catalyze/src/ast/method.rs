@@ -1,5 +1,5 @@
 use core::fmt;
-use std::ops::Deref;
+use std::{default, ops::Deref};
 
 use protobuf::{
     descriptor::{method_options, MethodOptions},
@@ -31,18 +31,35 @@ pub(super) enum PayloadInner {
     Streaming(message::Key),
 }
 
+impl PayloadInner {
+    fn new(message: message::Key, streaming: bool) -> Self {
+        if streaming {
+            Self::Streaming(message)
+        } else {
+            Self::Unary(message)
+        }
+    }
+    fn resolve<'ast>(&self, ast: &'ast Ast) -> Payload<'ast> {
+        match self {
+            Self::Unary(v) => Payload::Unary(Message::new(*v, ast)),
+            Self::Streaming(v) => Payload::Streaming(Message::new(*v, ast)),
+        }
+    }
+}
+
+impl Default for PayloadInner {
+    fn default() -> Self {
+        Self::Unary(message::Key::default())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Payload<'ast> {
     Unary(Message<'ast>),
     Streaming(Message<'ast>),
 }
+
 impl<'ast> Payload<'ast> {
-    pub fn new(inner: PayloadInner, ast: &'ast Ast) -> Self {
-        match inner {
-            PayloadInner::Unary(v) => Self::Unary(Message::new(v, ast)),
-            PayloadInner::Streaming(v) => Self::Streaming(Message::new(v, ast)),
-        }
-    }
     pub fn message(self) -> Message<'ast> {
         match self {
             Self::Unary(v) | Self::Streaming(v) => v,
@@ -64,34 +81,46 @@ impl<'ast> Deref for Payload<'ast> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(super) struct ReferencesInner {
-    pub(super) input: reference::Inner,
-    pub(super) output: reference::Inner,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Io<'ast> {
-    pub input: Message<'ast>,
-    pub output: Message<'ast>,
+    pub input: Payload<'ast>,
+    pub output: Payload<'ast>,
 }
 
 impl<'ast> Io<'ast> {
     pub(super) fn new(inner: IoInner, ast: &'ast Ast) -> Self {
-        Self {
-            input: Message::new(inner.input, ast),
-            output: Message::new(inner.output, ast),
-        }
+        inner.resolve(ast)
     }
-    pub fn input(self) -> Message<'ast> {
+    pub fn input(self) -> Payload<'ast> {
         self.input
     }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct IoInner {
-    pub(super) input: message::Key,
-    pub(super) output: message::Key,
+    pub(super) input: PayloadInner,
+    pub(super) output: PayloadInner,
+}
+
+impl IoInner {
+    fn resolve<'ast>(&self, ast: &'ast Ast) -> Io<'ast> {
+        Io {
+            input: self.input.resolve(ast),
+            output: self.output.resolve(ast),
+        }
+    }
+
+    pub(super) fn new(
+        input: message::Key,
+        client_streaming: bool,
+        output: message::Key,
+        server_streaming: bool,
+    ) -> Self {
+        Self {
+            input: PayloadInner::new(input, client_streaming),
+            output: PayloadInner::new(output, server_streaming),
+        }
+    }
 }
 
 pub(super) type Ident = node::Ident<Key>;
@@ -128,14 +157,12 @@ impl NodeKeys for Inner {
 
 pub(super) struct Hydrate {
     pub(super) name: Name,
+    pub(super) io: IoInner,
     pub(super) service: service::Key,
     pub(super) file: file::Key,
     pub(super) package: Option<package::Key>,
     pub(super) location: location::Detail,
-    pub(super) input_type: Option<String>,
-    pub(super) output_type: Option<String>,
-    pub(super) client_streaming: Option<bool>,
-    pub(super) server_streaming: Option<bool>,
+    pub(super) special_fields: SpecialFields,
     pub(super) options: protobuf::MessageField<MethodOptions>,
 }
 
@@ -143,24 +170,20 @@ impl Inner {
     pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationFailed> {
         let Hydrate {
             name,
+            io,
             location,
-            input_type,
-            output_type,
-            client_streaming,
-            server_streaming,
             options,
             service,
             file,
             package,
+            special_fields,
         } = hydrate;
         self.name = name;
         self.file = file;
         self.service = service;
         self.package = package;
-        self.input_proto_type = input_type.unwrap_or_default();
-        self.output_proto_type = output_type.unwrap_or_default();
-        self.client_streaming = client_streaming.unwrap_or_default();
-        self.server_streaming = server_streaming.unwrap_or_default();
+        self.io = io;
+        self.special_fields = special_fields;
         self.hydrate_options(options.unwrap_or_default())?;
         self.hydrate_location(location);
         Ok(self.into())
@@ -184,10 +207,7 @@ pub struct Method<'ast>(Resolver<'ast, Key, Inner>);
 
 impl<'ast> Method<'ast> {
     pub fn io(self) -> Io<'ast> {
-        Io {
-            input: Message::new(self.0.io.input, self.ast()),
-            output: Message::new(self.0.io.output, self.ast()),
-        }
+        self.0.io.resolve(self.0.ast)
     }
 }
 impl<'ast> Method<'ast> {
@@ -279,5 +299,16 @@ impl From<method_options::IdempotencyLevel> for IdempotencyLevel {
             ProtoIdempotencyLevel::NO_SIDE_EFFECTS => Self::NoSideEffects,
             ProtoIdempotencyLevel::IDEMPOTENT => Self::Idempotent,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Direction {
+    Input,
+    Output,
+}
+impl fmt::Display for Direction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self, f)
     }
 }

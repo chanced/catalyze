@@ -1,7 +1,7 @@
 use std::{fmt, path::PathBuf};
 use snafu::Snafu;
 
-use crate::ast::FullyQualifiedName;
+use crate::ast::{method, FullyQualifiedName};
 
 #[derive(snafu::Snafu, Debug)]
 #[snafu(
@@ -24,10 +24,7 @@ pub enum Error {
 /// These errors should be incredibly rare.
 /// compiler.
 #[derive(Debug, snafu::Snafu)] 
-#[snafu(
-    visibility(pub(crate)),
-    context(suffix(Ctx)),
-)]
+#[snafu(visibility(pub(crate)), context(suffix(Ctx)))]
 pub enum HydrationFailed {
     #[snafu(transparent)]
     UnsupportedSyntax { 
@@ -35,48 +32,32 @@ pub enum HydrationFailed {
     },
 
     /// Group is not supported, please use an embedded message instead.
-    #[snafu(
-        display("{} for node with fully qualified name \"{field_fqn}\"", source)
-    )]
+    #[snafu(display("{} for node with fully qualified name \"{field_fqn}\"", source))]
     GroupNotSupported{ 
         source: GroupNotSupported, 
-        field_fqn: FullyQualifiedName, 
+        field_fqn: FullyQualifiedName 
     },
 
     #[snafu(transparent, context(false))]
-    InvalidSpan { 
-        source: InvalidSpan, 
-    },
+    InvalidSpan { source: InvalidSpan },
 
     #[snafu(display("Missing source code info"))]
     MissingSourceCodeInfo,
 
     #[snafu(display("{source} for node with fully qualified name \"{field_fqn}\""))]
-    UnknownFieldType { 
-        source: UnknownFieldType, 
-        field_fqn: FullyQualifiedName,
-    },
+    UnknownFieldType { source: UnknownFieldType, field_fqn: FullyQualifiedName },
     
     /// The number of locations for a given file is invalid. 
     #[snafu(transparent)]
     LocationMisaligned { source: LocationsMisaligned },
 
-    #[snafu(
-        display(
-            "Invalid Oneof index {} for field with fully qualified name \"{field_fqn}\"", 
-            source.index
-        )
-    )]
+    #[snafu(display("Invalid Oneof index {} for field with fully qualified name \"{field_fqn}\"", source.index))]
     OneofIndex { 
         source: InvalidIndex, 
         /// The fully qualified name of the field with the invalid oneof index.
         field_fqn: FullyQualifiedName,
     },
-    #[snafu(
-        display(
-            "{source} for field with fully qualified name \"{field_fqn}\"", 
-        )
-    )]
+    #[snafu(display("{source} for field with fully qualified name \"{field_fqn}\""))]
     EmptyTypeName {
         source: EmptyTypeName,
         type_not_found: TypeNotFound,
@@ -85,6 +66,13 @@ pub enum HydrationFailed {
 
     #[snafu(display("for {dependency_kind:?}"))]
     DependencyIndex { source: InvalidIndex, dependency_kind: DependencyKind },
+
+
+    #[snafu(display("Method {method_fqn} is missing {direction} message fully qualified name "))]
+    MethodMissingMessage {
+        method_fqn: FullyQualifiedName,
+        direction: method::Direction,
+    },
 }
 
 #[derive(Debug, snafu::Snafu)]

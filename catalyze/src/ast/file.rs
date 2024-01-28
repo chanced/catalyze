@@ -1,5 +1,7 @@
-use crate::error::{self, HydrationFailed};
-use ahash::{HashMap, HashSet};
+use crate::{
+    error::{self, HydrationFailed},
+    HashMap, HashSet,
+};
 use protobuf::{
     descriptor::{file_options::OptimizeMode as ProtoOptimizeMode, FileOptions},
     SpecialFields,
