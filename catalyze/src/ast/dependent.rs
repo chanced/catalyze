@@ -1,10 +1,11 @@
 use std::{borrow::Borrow, ops::Deref};
 
 use super::{
+    dependency::{self, Dependency},
     file,
-    import::{self, Import},
 };
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(super) struct DependentsInner {
     pub(super) direct: Vec<Inner>,
     pub(super) transitive: Vec<Inner>,
@@ -13,20 +14,20 @@ pub(super) struct DependentsInner {
     pub(super) unusued: Vec<Inner>,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Inner {
     pub(super) dependent: file::Key,
     pub(super) dependency: file::Key,
 }
-impl From<import::Inner> for Inner {
-    fn from(dep: import::Inner) -> Self {
+impl From<dependency::Inner> for Inner {
+    fn from(dep: dependency::Inner) -> Self {
         Self {
             dependent: dep.dependent,
             dependency: dep.dependency,
         }
     }
 }
-impl From<Inner> for import::Inner {
+impl From<Inner> for dependency::Inner {
     fn from(dep: Inner) -> Self {
         Self {
             dependent: dep.dependent,
@@ -45,8 +46,8 @@ pub struct Dependent<'ast> {
 }
 
 impl<'ast> Dependent<'ast> {
-    pub fn as_dependency(self) -> Import<'ast> {
-        Import {
+    pub fn as_dependency(self) -> Dependency<'ast> {
+        Dependency {
             dependency: self.dependency,
             dependent: self.dependent,
         }

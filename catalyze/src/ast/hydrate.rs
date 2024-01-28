@@ -17,9 +17,9 @@ use crate::{
 };
 
 use super::{
-    container, enum_, enum_value, extension, extension_decl, field, file,
-    import::{self, DependenciesInner, Inner},
-    location, message, method,
+    container,
+    dependency::{self, DependenciesInner, Inner},
+    enum_, enum_value, extension, extension_decl, field, file, location, message, method,
     node::{self, NodeMap},
     oneof, package, reference, service, Ast, FullyQualifiedName, Name,
 };
@@ -300,7 +300,7 @@ impl Hydrator {
             let oneof =
                 oneof_for_field(&descriptor, oneofs).with_context(|_| error::InvalidIndexCtx {
                     fully_qualified_name: fqn.clone(),
-                    index_kind: error::IndexKind::Oneof,
+                    index_kind: error::DependencyKind::Oneof,
                 })?;
 
             let (field, reference) = self.hydrate_field(

@@ -63,15 +63,19 @@ pub enum HydrationFailed {
 
     #[snafu(
         display(
-            "Invalid {index_kind} index {} for field with fully qualified name \"{fully_qualified_name}\"", 
+            "Invalid Oneof index {} for field with fully qualified name \"{field_fqn}\"", 
             source.index
         )
     )]
-    InvalidIndex { 
-        source: InvalidIndex, 
-        fully_qualified_name: FullyQualifiedName,
-        index_kind: IndexKind
+    OneofIndex { 
+        source: InvalidIndex<i32>, 
+        field_fqn: FullyQualifiedName,
+    },
+    DependencyIndex {
+        source: InvalidIndex<i32>,
+        dependeency_kind: DependencyKind
     }
+    
 }
 
 #[derive(Debug, snafu::Snafu)]
@@ -146,18 +150,20 @@ pub struct InvalidSpan {
     display("Invalid index: {index}"),
     module
 )]
-pub struct InvalidIndex {
-    pub index: i32,
+pub struct InvalidIndex<I = i32> where I: TryInto<usize> + fmt::Debug + fmt::Display {
+    pub index: I,
     pub backtrace: snafu::Backtrace,
 }
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum IndexKind {
+pub enum DependencyKind {
     Oneof,
-    WeakDependency,
-    PublicDependency,
+    Weak,
+    Public,
 }
 
-impl fmt::Display for IndexKind {
+
+impl fmt::Display for DependencyKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self, f)
     }

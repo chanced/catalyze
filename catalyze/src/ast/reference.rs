@@ -3,7 +3,6 @@ use std::{iter::Copied, option, slice};
 use either::Either;
 
 use super::{
-    import::Inner,
     enum_::{self, Enum},
     extension::{self, Extension},
     field::{self, Field},
@@ -20,12 +19,6 @@ pub struct Reference<'ast> {
     /// The [`Message`] or [`Enum`] which is referenced by the [`Field`],
     /// [`Extension`], or [`Method`].
     pub referent: Referent<'ast>,
-    /// Indicates whether the referenced [`Message`] or [`Enum`] is in a public
-    /// [`Dependency`].
-    pub is_public: bool,
-    /// Indicates whether the referenced [`Message`] or [`Enum`] is in a public
-    /// [`Dependency`].
-    pub is_weak: bool,
 }
 
 impl<'ast> Reference<'ast> {
@@ -43,15 +36,7 @@ impl<'ast> Reference<'ast> {
     fn from_inner(inner: ReferenceInner, ast: &'ast Ast) -> Self {
         let referrer = Referrer::new(inner.referrer, ast);
         let referent = Referent::new(inner.referent, ast);
-        referrer.re
-        let is_weak = false;
-        let is_public = false;
-        Self {
-            referrer,
-            referent,
-            is_public,
-            is_weak,
-        }
+        Self { referrer, referent }
     }
 }
 
@@ -120,8 +105,6 @@ impl<'ast> From<(message::Key, &'ast Ast)> for Referent<'ast> {
     }
 }
 
-
-
 /// The [`Field`], [`Extension`], or [`Method`] which references a [`Message`]
 /// or [`Enum`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,13 +123,14 @@ impl<'ast> Referrer<'ast> {
         }
     }
 
-    pub fn referent_or_referents(self) -> Referent<'ast> {
-        match self {
-            Self::Field(f) => f.referent(),
-            Self::Extension(e) => e.referent(),
-            Self::Method(m) => todo!(),
-        }
-    }
+    // TODO: (change name, finish updates to method mod)
+    // pub fn referent_or_referents(self) -> Referent<'ast> {
+    //     match self {
+    //         Self::Field(f) => f.referent(),
+    //         Self::Extension(e) => e.referent(),
+    //         Self::Method(m) => todo!(),
+    //     }
+    // }
 
     /// Returns `true` if the referrer is [`Field`].
     ///

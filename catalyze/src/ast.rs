@@ -1,5 +1,6 @@
 pub mod access;
 pub mod container;
+pub mod dependency;
 pub mod dependent;
 pub mod enum_;
 pub mod enum_value;
@@ -7,7 +8,6 @@ pub mod extension;
 pub mod extension_decl;
 pub mod field;
 pub mod file;
-pub mod import;
 pub mod location;
 pub mod message;
 pub mod method;
@@ -22,7 +22,7 @@ pub mod uninterpreted;
 
 mod collection;
 mod hydrate;
-mod index;
+mod map_try_into_usize;
 mod resolve;
 mod table;
 

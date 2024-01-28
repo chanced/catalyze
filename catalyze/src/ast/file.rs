@@ -17,7 +17,8 @@ use std::{
 use super::{
     access::NodeKeys,
     collection::Collection,
-    dependency::{DependenciesInner, DependentInner},
+    dependency::{self, DependenciesInner},
+    dependent::{self},
     enum_, extension, extension_decl, impl_traits_and_methods, location, message, node, package,
     reference,
     resolve::Resolver,
@@ -43,7 +44,9 @@ pub(super) struct Hydrate {
     pub(super) services: Vec<service::Ident>,
     pub(super) extensions: Vec<extension::Ident>,
     pub(super) extension_decls: Vec<extension_decl::Key>,
-    pub(super) dependencies: DependenciesInner,
+    pub(super) dependencies: Vec<dependency::Inner>,
+    pub(super) public_dependencies: Vec<i32>,
+    pub(super) weak_dependencies: Vec<i32>,
     pub(super) references: Vec<reference::ReferenceInner>,
     pub(super) package_comments: Option<location::Detail>,
     pub(super) comments: Option<location::Detail>,
@@ -366,8 +369,7 @@ pub(super) struct Inner {
     comments: Option<location::Comments>,
     references: Vec<reference::ReferenceInner>,
 
-    dependents: Vec<DependentInner>,
-    transitive_dependents: Vec<DependentInner>,
+    dependents: dependent::DependentsInner,
 
     is_build_target: bool,
     syntax: Syntax,
@@ -411,14 +413,6 @@ impl NodeKeys for Inner {
 }
 
 impl Inner {
-    pub(super) fn add_dependent(&mut self, dependent: DependentInner) {
-        self.dependents.push(dependent);
-    }
-
-    pub(super) fn add_transitive_dependent(&mut self, dependent: DependentInner) {
-        self.transitive_dependents.push(dependent);
-    }
-
     pub(super) fn set_name_and_path(&mut self, name: Name) {
         self.path = PathBuf::from(name.as_ref());
         self.name = name;
@@ -437,16 +431,34 @@ impl Inner {
         &mut self,
         hydrate: Hydrate,
     ) -> Result<node::Ident<Key>, crate::error::HydrationFailed> {
-        self.set_name_and_path(hydrate.name);
-        self.syntax = Syntax::parse(&hydrate.syntax.unwrap_or_default())?;
+        let Hydrate {
+            name,
+            syntax,
+            options,
+            package,
+            messages,
+            enums,
+            services,
+            extensions,
+            extension_decls,
+            dependencies,
+            references,
+            package_comments,
+            comments,
+            is_build_target,
+            nodes,
+        } = hydrate;
+        self.set_name_and_path(name);
+        self.syntax = Syntax::parse(&syntax.unwrap_or_default())?;
 
-        self.package = hydrate.package;
-        self.messages = hydrate.messages.into();
-        self.enums = hydrate.enums.into();
-        self.services = hydrate.services.into();
-        self.defined_extensions = hydrate.extensions.into();
-        self.extension_decls = hydrate.extension_decls;
-        self.dependencies = hydrate.dependencies;
+        self.package = package;
+        self.messages = messages.into();
+        self.enums = enums.into();
+        self.services = services.into();
+        self.defined_extensions = extensions.into();
+        self.extension_decls = extension_decls;
+
+        self.dependencies = DependenciesInner::new(dependencies, self.key, publi)?;
         self.package_comments = hydrate.package_comments.and_then(|c| c.comments);
         self.comments = hydrate.comments.and_then(|c| c.comments);
         self.is_build_target = hydrate.is_build_target;
