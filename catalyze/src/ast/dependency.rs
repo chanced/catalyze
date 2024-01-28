@@ -70,8 +70,7 @@ impl DependenciesInner {
         dependent: file::Key,
         public: Vec<i32>,
         weak: Vec<i32>,
-        container_fqn: &FullyQualifiedName,
-    ) -> Result<Self, error::HydrationFailed> {
+    ) -> Result<Self, error::InvalidIndex<i32>> {
         let len = direct.len();
         let check_len = |i: Result<usize, InvalidIndex<i32>>| {
             let i = i?;

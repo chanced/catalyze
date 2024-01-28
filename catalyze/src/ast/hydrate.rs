@@ -2,9 +2,9 @@ use ahash::HashMapExt;
 use itertools::Itertools;
 use protobuf::{
     descriptor::{
-        DescriptorProto, EnumDescriptorProto, EnumValueDescriptorProto, FieldDescriptorProto,
-        FileDescriptorProto, MethodDescriptorProto, OneofDescriptorProto, ServiceDescriptorProto,
-        SourceCodeInfo,
+        field_descriptor_proto, DescriptorProto, EnumDescriptorProto, EnumValueDescriptorProto,
+        FieldDescriptorProto, FileDescriptorProto, MethodDescriptorProto, OneofDescriptorProto,
+        ServiceDescriptorProto, SourceCodeInfo,
     },
     MessageField,
 };
@@ -12,14 +12,14 @@ use snafu::{Backtrace, ResultExt};
 use std::{path::PathBuf, str::FromStr};
 
 use crate::{
-    error::{self, Error, HydrationCtx, HydrationFailed, InvalidIndex, InvalidIndexCtx},
+    ast::field::Scalar,
+    error::{self, Error, GroupNotSupported, HydrationCtx, HydrationFailed, TypeNotFound},
     HashMap,
 };
 
 use super::{
-    container,
-    dependency::{self, DependenciesInner, Inner},
-    enum_, enum_value, extension, extension_decl, field, file, location, message, method,
+    container, dependency, enum_, enum_value, extension, extension_decl, field, file, location,
+    message, method,
     node::{self, NodeMap},
     oneof, package, reference, service, Ast, FullyQualifiedName, Name,
 };
@@ -104,7 +104,7 @@ impl Hydrator {
             key,
             package,
             &mut references,
-            &mut dependencies,
+            &dependencies,
             &mut nodes,
         )?;
 
@@ -171,8 +171,8 @@ impl Hydrator {
         container_fqn: FullyQualifiedName,
         file: file::Key,
         package: Option<package::Key>,
-        references: &mut Vec<reference::ReferenceInner>,
-        dependencies: &mut [Inner],
+        references: &mut Vec<reference::Inner>,
+        dependencies: &[dependency::Inner],
         nodes: &mut NodeMap,
     ) -> Result<Vec<message::Ident>, HydrationFailed> {
         assert_locations("message", &locations, &descriptors)?;
@@ -201,8 +201,8 @@ impl Hydrator {
     fn hydrate_message(
         &mut self,
         message: Message,
-        references: &mut Vec<reference::ReferenceInner>,
-        dependencies: &[Inner],
+        references: &mut Vec<reference::Inner>,
+        dependencies: &[dependency::Inner],
         nodes: &mut NodeMap,
     ) -> Result<message::Ident, HydrationFailed> {
         let Message {
@@ -232,6 +232,8 @@ impl Hydrator {
             fqn.clone(),
             file,
             package,
+            references,
+            dependencies,
             nodes,
         )?;
         let oneofs = self.hydrate_oneofs(
@@ -251,6 +253,7 @@ impl Hydrator {
             file,
             package,
             nodes,
+            references,
             &oneofs,
         )?;
 
@@ -262,6 +265,7 @@ impl Hydrator {
             file,
             package,
             nodes,
+            references,
         )?;
 
         let well_known = if self.is_well_known(package) {
@@ -301,19 +305,18 @@ impl Hydrator {
         message_fqn: FullyQualifiedName,
         file: file::Key,
         package: Option<package::Key>,
-        dependencies: &[Inner],
         nodes: &mut NodeMap,
+        references: &mut Vec<reference::Inner>,
         oneofs: &[oneof::Ident],
-    ) -> Result<(Vec<field::Ident>, Vec<reference::ReferenceInner>), HydrationFailed> {
+    ) -> Result<(Vec<field::Ident>, Vec<reference::Inner>), HydrationFailed> {
         assert_locations("field", &locations, &descriptors)?;
         let mut fields = Vec::with_capacity(descriptors.len());
         let mut references = Vec::new();
         for (descriptor, location) in descriptors.into_iter().zip(locations) {
             let fqn = FullyQualifiedName::new(descriptor.name(), Some(message_fqn.clone()));
             let oneof =
-                oneof_for_field(&descriptor, oneofs).with_context(|_| error::InvalidIndexCtx {
-                    fully_qualified_name: fqn.clone(),
-                    index_kind: error::DependencyKind::Oneof,
+                oneof_for_field(&descriptor, oneofs).with_context(|_| error::OneofIndexCtx {
+                    field_fqn: fqn.clone(),
                 })?;
 
             let (field, reference) = self.hydrate_field(
@@ -326,7 +329,7 @@ impl Hydrator {
                     package,
                     oneof,
                 },
-                dependencies,
+                &mut references,
                 nodes,
             )?;
             fields.push(field);
@@ -336,13 +339,54 @@ impl Hydrator {
         }
         Ok((fields, references))
     }
+    fn hydrate_field_enum_value(
+        &mut self,
+        type_name: String,
+        field_fqn: &FullyQualifiedName,
+    ) -> Result<field::ValueInner, TypeNotFound> {
+        todo!()
+    }
+    fn hydrate_field_message_value(
+        &mut self,
+        type_name: String,
+        field_fqn: &FullyQualifiedName,
+    ) -> Result<field::ValueInner, TypeNotFound> {
+        todo!()
+    }
+    fn hydrate_field_value(
+        &mut self,
+        proto_type: field_descriptor_proto::Type,
+        type_name: String,
+        field_fqn: &FullyQualifiedName,
+    ) -> Result<field::ValueInner, HydrationFailed> {
+        use field_descriptor_proto::Type as ProtoType;
+        match proto_type {
+            ProtoType::TYPE_ENUM => self
+                .hydrate_field_enum_value(type_name, field_fqn)
+                .with_context(|_| error::UnknownFieldTypeCtx {
+                    fully_qualified_name: field_fqn.clone(),
+                }),
+            ProtoType::TYPE_MESSAGE => self
+                .hydrate_field_message_value(type_name, field_fqn)
+                .with_context(|_| error::UnknownFieldTypeCtx {
+                    fully_qualified_name: field_fqn.clone(),
+                }),
+            ProtoType::TYPE_GROUP => Err(GroupNotSupported {
+                backtrace: Backtrace::capture(),
+            })
+            .with_context(|_| error::GroupNotSupportedCtx {
+                field_fqn: field_fqn.clone(),
+            }),
+            _ => Ok(field::ValueInner::new(proto_type, None, None)),
+        }
+    }
 
     fn hydrate_field(
         &mut self,
         field: Field,
-        dependencies: &[Inner],
+        references: &mut Vec<reference::Inner>,
         nodes: &mut NodeMap,
-    ) -> Result<(field::Ident, Option<reference::ReferenceInner>), HydrationFailed> {
+    ) -> Result<(field::Ident, Option<reference::Inner>), HydrationFailed> {
         let Field {
             descriptor,
             fqn,
@@ -371,6 +415,19 @@ impl Hydrator {
 
         let name: Name = name.unwrap_or_default().into();
 
+        let proto_type = type_
+            .unwrap()
+            .enum_value()
+            .map_err(|type_| error::UnknownFieldType {
+                backtrace: Backtrace::capture(),
+                type_,
+            })
+            .with_context(|_| error::UnknownFieldTypeCtx {
+                fully_qualified_name: self.fqn.clone(),
+            })?;
+
+        let mut value = field::ValueInner::new(type_, enum_, msg);
+
         let field = self.ast.fields[key].hydrate(field::Hydrate {
             name,
             location: location.detail,
@@ -388,10 +445,10 @@ impl Hydrator {
             file,
             package,
         })?;
-
         if let Some(oneof) = oneof {
             self.ast.oneofs[oneof].add_field(field.key);
         }
+
         let field = self.insert_node(nodes, field);
     }
 
@@ -401,16 +458,15 @@ impl Hydrator {
         dependencies: Vec<String>,
         public_dependencies: Vec<i32>,
         weak_dependencies: Vec<i32>,
-    ) -> Result<Vec<Inner>, HydrationFailed> {
+    ) -> Result<Vec<dependency::Inner>, HydrationFailed> {
         let direct_dependencies = dependencies
             .into_iter()
             .map(|dependency| {
                 let fqn = FullyQualifiedName(dependency.into());
                 let dependency_file = self.ast.files.get_or_insert_key(fqn.clone());
-                Inner {
+                dependency::Inner {
                     dependent,
                     dependency: dependency_file,
-                    ..Default::default()
                 }
             })
             .collect_vec();
@@ -575,6 +631,7 @@ impl Hydrator {
         file: file::Key,
         package: Option<package::Key>,
         nodes: &mut NodeMap,
+        references: &mut Vec<reference::Inner>,
     ) -> Result<(Vec<extension_decl::Key>, Vec<extension::Ident>), HydrationFailed> {
         todo!()
     }
@@ -897,7 +954,7 @@ fn file_location(info: MessageField<SourceCodeInfo>) -> Result<location::File, H
 fn oneof_for_field(
     descriptor: &FieldDescriptorProto,
     oneofs: &[oneof::Ident],
-) -> Result<Option<oneof::Key>, error::InvalidIndex> {
+) -> Result<Option<oneof::Key>, error::InvalidIndex<i32>> {
     let Some(index) = descriptor.oneof_index else {
         return Ok(None);
     };

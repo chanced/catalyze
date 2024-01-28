@@ -47,7 +47,7 @@ pub(super) struct Hydrate {
     pub(super) dependencies: Vec<dependency::Inner>,
     pub(super) public_dependencies: Vec<i32>,
     pub(super) weak_dependencies: Vec<i32>,
-    pub(super) references: Vec<reference::ReferenceInner>,
+    pub(super) references: Vec<reference::Inner>,
     pub(super) package_comments: Option<location::Detail>,
     pub(super) comments: Option<location::Detail>,
     pub(super) is_build_target: bool,
@@ -367,7 +367,7 @@ pub(super) struct Inner {
     dependencies: DependenciesInner,
     package_comments: Option<location::Comments>,
     comments: Option<location::Comments>,
-    references: Vec<reference::ReferenceInner>,
+    references: Vec<reference::Inner>,
 
     dependents: dependent::DependentsInner,
 

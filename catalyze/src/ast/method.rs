@@ -14,7 +14,7 @@ use super::{
     location::{self, Comments, Span},
     message::{self, Message},
     node, package,
-    reference::{ReferenceInner, References},
+    reference::{Inner, References},
     resolve::Resolver,
     service,
     uninterpreted::{into_uninterpreted_options, UninterpretedOption},
@@ -109,7 +109,7 @@ pub(super) struct Inner {
     deprecated: bool,
     input_proto_type: String,
     output_proto_type: String,
-    references: [ReferenceInner; 2],
+    references: [Inner; 2],
     idempotency_level: IdempotencyLevel,
     special_fields: SpecialFields,
     option_special_fields: SpecialFields,
@@ -135,7 +135,7 @@ pub(super) struct Hydrate {
 }
 
 impl Inner {
-    pub(super) fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut ReferenceInner> {
+    pub(super) fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut Inner> {
         self.references.iter_mut()
     }
 

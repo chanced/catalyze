@@ -12,7 +12,7 @@ use super::{
     message, node,
     oneof::{self},
     package,
-    reference::{ReferenceInner, References},
+    reference::{Inner, References},
     reserved::Reserved,
     resolve::Resolver,
     uninterpreted::{into_uninterpreted_options, UninterpretedOption},
@@ -73,8 +73,8 @@ pub(super) struct Inner {
     applied_extensions: Collection<extension::Key>,
     dependents: Collection<file::Key>,
 
-    referenced_by: Vec<ReferenceInner>,
-    references: Vec<ReferenceInner>,
+    referenced_by: Vec<Inner>,
+    references: Vec<Inner>,
 
     extension_ranges: Vec<ExtensionRange>,
     reserved: Reserved,
@@ -92,7 +92,7 @@ pub(super) struct Inner {
 }
 
 impl super::access::ReferencesMut for Inner {
-    fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut ReferenceInner> {
+    fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut Inner> {
         self.references
             .iter_mut()
             .chain(self.referenced_by.iter_mut())

@@ -40,7 +40,7 @@ pub enum HydrationFailed {
     )]
     GroupNotSupported{ 
         source: GroupNotSupported, 
-        fully_qualified_name: FullyQualifiedName, 
+        field_fqn: FullyQualifiedName, 
     },
 
     #[snafu(transparent, context(false))]
@@ -69,6 +69,7 @@ pub enum HydrationFailed {
     )]
     OneofIndex { 
         source: InvalidIndex<i32>, 
+        /// The fully qualified name of the field with the invalid oneof index.
         field_fqn: FullyQualifiedName,
     },
     DependencyIndex {
@@ -150,7 +151,7 @@ pub struct InvalidSpan {
     display("Invalid index: {index}"),
     module
 )]
-pub struct InvalidIndex<I = i32> where I: TryInto<usize> + fmt::Debug + fmt::Display {
+pub struct InvalidIndex<I> where I: TryInto<usize> + fmt::Debug + fmt::Display {
     pub index: I,
     pub backtrace: snafu::Backtrace,
 }
@@ -169,3 +170,26 @@ impl fmt::Display for DependencyKind {
     }
 }
 
+#[derive(Debug, Snafu)]
+#[snafu(
+    visibility(pub(crate)),
+    context(suffix(Ctx)),
+    display("Expected type name for {type_not_found}, found empty string"),
+    module
+)]
+pub struct EmptyTypeName {
+    pub backtrace: snafu::Backtrace,
+    pub type_not_found: TypeNotFound
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum TypeNotFound {
+    Message,
+    Enum
+}
+
+impl fmt::Display for TypeNotFound {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self, f)
+    }
+}

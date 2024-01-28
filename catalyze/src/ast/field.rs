@@ -16,7 +16,7 @@ use super::{
     file, location,
     message::{self, Message},
     node, package,
-    reference::{ReferenceInner, References},
+    reference::{self, References},
     resolve::Resolver,
     Name,
 };
@@ -43,6 +43,7 @@ pub(super) struct Hydrate {
     pub(super) special_fields: protobuf::SpecialFields,
     pub(super) label: Option<protobuf::EnumOrUnknown<field_descriptor_proto::Label>>,
     pub(super) options: protobuf::MessageField<FieldOptions>,
+    pub(super) proto_type: field_descriptor_proto::Type,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -58,7 +59,6 @@ pub(super) struct Inner {
     label: Option<Label>,
 
     proto_type: field_descriptor_proto::Type,
-
     ///  If type_name is set, this need not be set.  If both this and type_name
     ///  are set, this must be one of TYPE_ENUM, TYPE_MESSAGE or TYPE_GROUP.
     type_: TypeInner,
@@ -171,7 +171,7 @@ pub(super) struct Inner {
     /// indicate  optional with `LABEL_OPTIONAL`.
     proto3_optional: Option<bool>,
     package: Option<package::Key>,
-    reference: Option<ReferenceInner>,
+    reference: Option<reference::Inner>,
     file: file::Key,
 
     special_fields: SpecialFields,
@@ -179,7 +179,7 @@ pub(super) struct Inner {
 }
 
 impl Inner {
-    pub(super) fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut ReferenceInner> {
+    pub(super) fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut Inner> {
         self.reference.iter_mut()
     }
 
@@ -200,6 +200,7 @@ impl Inner {
             proto3_optional,
             oneof_index,
             special_fields,
+            proto_type,
         } = hydrate;
 
         self.name = name;
@@ -211,16 +212,7 @@ impl Inner {
         self.proto3_optional = proto3_optional;
         self.number = number.unwrap();
         self.label = label.map(Into::into);
-        self.proto_type = type_
-            .unwrap()
-            .enum_value()
-            .map_err(|type_| error::UnknownFieldType {
-                backtrace: Backtrace::capture(),
-                type_,
-            })
-            .with_context(|_| error::UnknownFieldTypeCtx {
-                fully_qualified_name: self.fqn.clone(),
-            })?;
+        self.proto_type = proto_type;
         self.hydrate_location(location);
         self.hydrate_options(options.unwrap_or_default())?;
         Ok(self.into())
@@ -632,29 +624,28 @@ impl ValueInner {
         typ: field_descriptor_proto::Type,
         enum_: Option<enum_::Key>,
         msg: Option<message::Key>,
-    ) -> Result<Self, error::GroupNotSupported> {
-        use field_descriptor_proto::Type::*;
+    ) -> Self {
+        use field_descriptor_proto::Type as ProtoType;
         match typ {
-            TYPE_DOUBLE => Ok(Self::Scalar(Scalar::Double)),
-            TYPE_FLOAT => Ok(Self::Scalar(Scalar::Float)),
-            TYPE_INT64 => Ok(Self::Scalar(Scalar::Int64)),
-            TYPE_UINT64 => Ok(Self::Scalar(Scalar::Uint64)),
-            TYPE_INT32 => Ok(Self::Scalar(Scalar::Int32)),
-            TYPE_FIXED64 => Ok(Self::Scalar(Scalar::Fixed64)),
-            TYPE_FIXED32 => Ok(Self::Scalar(Scalar::Fixed32)),
-            TYPE_BOOL => Ok(Self::Scalar(Scalar::Bool)),
-            TYPE_STRING => Ok(Self::Scalar(Scalar::String)),
-            TYPE_BYTES => Ok(Self::Scalar(Scalar::Bytes)),
-            TYPE_UINT32 => Ok(Self::Scalar(Scalar::Uint32)),
-            TYPE_SFIXED32 => Ok(Self::Scalar(Scalar::Sfixed32)),
-            TYPE_SFIXED64 => Ok(Self::Scalar(Scalar::Sfixed64)),
-            TYPE_SINT32 => Ok(Self::Scalar(Scalar::Sint32)),
-            TYPE_SINT64 => Ok(Self::Scalar(Scalar::Sint64)),
-            TYPE_ENUM => Ok(Self::Enum(enum_.unwrap())),
-            TYPE_MESSAGE => Ok(Self::Message(msg.unwrap())),
-            TYPE_GROUP => Err(error::GroupNotSupported {
-                backtrace: Backtrace::capture(),
-            }),
+            ProtoType::TYPE_ENUM => Self::Enum(enum_.unwrap()),
+            ProtoType::TYPE_MESSAGE => Self::Message(msg.unwrap()),
+
+            ProtoType::TYPE_DOUBLE => Self::Scalar(Scalar::Double),
+            ProtoType::TYPE_FLOAT => Self::Scalar(Scalar::Float),
+            ProtoType::TYPE_INT64 => Self::Scalar(Scalar::Int64),
+            ProtoType::TYPE_UINT64 => Self::Scalar(Scalar::Uint64),
+            ProtoType::TYPE_INT32 => Self::Scalar(Scalar::Int32),
+            ProtoType::TYPE_FIXED64 => Self::Scalar(Scalar::Fixed64),
+            ProtoType::TYPE_FIXED32 => Self::Scalar(Scalar::Fixed32),
+            ProtoType::TYPE_BOOL => Self::Scalar(Scalar::Bool),
+            ProtoType::TYPE_STRING => Self::Scalar(Scalar::String),
+            ProtoType::TYPE_BYTES => Self::Scalar(Scalar::Bytes),
+            ProtoType::TYPE_UINT32 => Self::Scalar(Scalar::Uint32),
+            ProtoType::TYPE_SFIXED32 => Self::Scalar(Scalar::Sfixed32),
+            ProtoType::TYPE_SFIXED64 => Self::Scalar(Scalar::Sfixed64),
+            ProtoType::TYPE_SINT32 => Self::Scalar(Scalar::Sint32),
+            ProtoType::TYPE_SINT64 => Self::Scalar(Scalar::Sint64),
+            ProtoType::TYPE_GROUP => unreachable!(),
         }
     }
 }
@@ -701,9 +692,7 @@ impl<'ast> super::access::References<'ast> for Field<'ast> {
     }
 }
 impl super::access::ReferencesMut for Inner {
-    fn references_mut(
-        &mut self,
-    ) -> impl '_ + Iterator<Item = &'_ mut super::reference::ReferenceInner> {
+    fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut super::reference::Inner> {
         self.reference.iter_mut()
     }
 }

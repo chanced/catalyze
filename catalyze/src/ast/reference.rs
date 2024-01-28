@@ -33,7 +33,7 @@ impl<'ast> Reference<'ast> {
         self.referent
     }
 
-    fn from_inner(inner: ReferenceInner, ast: &'ast Ast) -> Self {
+    fn from_inner(inner: Inner, ast: &'ast Ast) -> Self {
         let referrer = Referrer::new(inner.referrer, ast);
         let referent = Referent::new(inner.referent, ast);
         Self { referrer, referent }
@@ -41,7 +41,7 @@ impl<'ast> Reference<'ast> {
 }
 
 #[derive(Clone, Default, Copy, Debug, PartialEq, Eq)]
-pub struct ReferenceInner {
+pub struct Inner {
     /// referring field, extension, or method
     pub(super) referrer: ReferrerKey,
     /// referenced message or enum
@@ -245,16 +245,16 @@ impl From<method::Key> for ReferrerKey {
 
 pub struct References<'ast> {
     ast: &'ast Ast,
-    inner: Either<Copied<slice::Iter<'ast, ReferenceInner>>, option::IntoIter<ReferenceInner>>,
+    inner: Either<Copied<slice::Iter<'ast, Inner>>, option::IntoIter<Inner>>,
 }
 impl<'ast> References<'ast> {
-    pub(crate) fn from_option(opt: Option<ReferenceInner>, ast: &'ast Ast) -> Self {
+    pub(crate) fn from_option(opt: Option<Inner>, ast: &'ast Ast) -> Self {
         Self {
             ast,
             inner: Either::Right(opt.into_iter()),
         }
     }
-    pub(crate) fn from_slice(slice: &'ast [ReferenceInner], ast: &'ast Ast) -> Self {
+    pub(crate) fn from_slice(slice: &'ast [Inner], ast: &'ast Ast) -> Self {
         Self {
             ast,
             inner: Either::Left(slice.iter().copied()),

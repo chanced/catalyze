@@ -73,7 +73,7 @@ pub trait Span {
 }
 
 pub(crate) trait ReferencesMut {
-    fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut reference::ReferenceInner>;
+    fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut reference::Inner>;
 }
 
 pub(super) trait NodeKeys {
