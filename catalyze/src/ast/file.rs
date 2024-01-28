@@ -421,15 +421,6 @@ impl Inner {
         self.path = PathBuf::from(name.as_ref());
         self.name = name;
     }
-    pub(super) fn set_fqn(&mut self, fqn: FullyQualifiedName) {
-        self.fqn = fqn;
-    }
-    pub(super) fn set_package_comments(&mut self, package_comments: location::Comments) {
-        self.package_comments = Some(package_comments);
-    }
-    pub(super) fn set_is_build_target(&mut self, is_build_target: bool) {
-        self.is_build_target = is_build_target;
-    }
 
     pub(super) fn hydrate(
         &mut self,
@@ -509,14 +500,6 @@ impl Inner {
             .collect();
         self.options_special_fields = opts.special_fields;
         Ok(())
-    }
-
-    pub(crate) fn set_nodes_by_fqn(
-        &mut self,
-        mut nodes: HashMap<FullyQualifiedName, super::node::Key>,
-    ) {
-        nodes.shrink_to_fit();
-        self.nodes = nodes;
     }
 }
 
