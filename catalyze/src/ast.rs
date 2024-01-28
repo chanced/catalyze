@@ -1,11 +1,13 @@
 pub mod access;
 pub mod container;
+pub mod dependent;
 pub mod enum_;
 pub mod enum_value;
 pub mod extension;
 pub mod extension_decl;
 pub mod field;
 pub mod file;
+pub mod import;
 pub mod location;
 pub mod message;
 pub mod method;
@@ -20,6 +22,7 @@ pub mod uninterpreted;
 
 mod collection;
 mod hydrate;
+mod index;
 mod resolve;
 mod table;
 

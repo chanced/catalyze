@@ -1,4 +1,5 @@
 use core::fmt;
+use std::ops::Deref;
 
 use protobuf::{
     descriptor::{method_options, MethodOptions},
@@ -17,11 +18,74 @@ use super::{
     resolve::Resolver,
     service,
     uninterpreted::{into_uninterpreted_options, UninterpretedOption},
-    FullyQualifiedName, Name,
+    Ast, FullyQualifiedName, Name,
 };
 
 slotmap::new_key_type! {
     pub(super) struct Key;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PayloadInner {
+    Unary(message::Key),
+    Streaming(message::Key),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Payload<'ast> {
+    Unary(Message<'ast>),
+    Streaming(Message<'ast>),
+}
+impl<'ast> Payload<'ast> {
+    pub fn new(inner: PayloadInner, ast: &'ast Ast) -> Self {
+        match inner {
+            PayloadInner::Unary(v) => Self::Unary(Message::new(v, ast)),
+            PayloadInner::Streaming(v) => Self::Streaming(Message::new(v, ast)),
+        }
+    }
+    pub fn message(self) -> Message<'ast> {
+        match self {
+            Self::Unary(v) | Self::Streaming(v) => v,
+        }
+    }
+    pub fn is_streaming(self) -> bool {
+        matches!(self, Self::Streaming(..))
+    }
+    pub fn is_unary(self) -> bool {
+        matches!(self, Self::Unary(..))
+    }
+}
+impl<'ast> Deref for Payload<'ast> {
+    type Target = Message<'ast>;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Unary(v) | Self::Streaming(v) => v,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Io<'ast> {
+    pub input: Message<'ast>,
+    pub output: Message<'ast>,
+}
+
+impl<'ast> Io<'ast> {
+    pub(super) fn new(inner: IoInner, ast: &'ast Ast) -> Self {
+        Self {
+            input: Message::new(inner.input, ast),
+            output: Message::new(inner.output, ast),
+        }
+    }
+    pub fn input(self) -> Message<'ast> {
+        self.input
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct IoInner {
+    pub input: message::Key,
+    pub output: message::Key,
 }
 
 pub(super) type Ident = node::Ident<Key>;
@@ -41,10 +105,9 @@ pub(super) struct Inner {
     package: Option<package::Key>,
     file: file::Key,
     uninterpreted_options: Vec<UninterpretedOption>,
-    input: message::Key,
-    input_proto_type: String,
+    io: IoInner,
     deprecated: bool,
-    output: message::Key,
+    input_proto_type: String,
     output_proto_type: String,
     references: [ReferenceInner; 2],
     idempotency_level: IdempotencyLevel,
@@ -119,8 +182,11 @@ impl Inner {
 pub struct Method<'ast>(Resolver<'ast, Key, Inner>);
 
 impl<'ast> Method<'ast> {
-    pub fn input(self) -> Message<'ast> {
-        Message::new(self.0.input, self.0.ast)
+    pub fn io(self) -> Io<'ast> {
+        Io {
+            input: Message::new(self.0.io.input, self.ast()),
+            output: Message::new(self.0.io.output, self.ast()),
+        }
     }
 }
 impl<'ast> Method<'ast> {

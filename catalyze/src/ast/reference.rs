@@ -3,6 +3,7 @@ use std::{iter::Copied, option, slice};
 use either::Either;
 
 use super::{
+    import::Inner,
     enum_::{self, Enum},
     extension::{self, Extension},
     field::{self, Field},
@@ -19,9 +20,12 @@ pub struct Reference<'ast> {
     /// The [`Message`] or [`Enum`] which is referenced by the [`Field`],
     /// [`Extension`], or [`Method`].
     pub referent: Referent<'ast>,
-    /// Indicates wheter the reference is to a [`Message`] or [`Enum`] in an
-    /// external file
-    pub is_external: bool,
+    /// Indicates whether the referenced [`Message`] or [`Enum`] is in a public
+    /// [`Dependency`].
+    pub is_public: bool,
+    /// Indicates whether the referenced [`Message`] or [`Enum`] is in a public
+    /// [`Dependency`].
+    pub is_weak: bool,
 }
 
 impl<'ast> Reference<'ast> {
@@ -35,28 +39,32 @@ impl<'ast> Reference<'ast> {
     pub fn referent(self) -> Referent<'ast> {
         self.referent
     }
-    /// Indicates wheter the reference is to a [`Message`] or [`Enum`] in an
-    /// external file
-    pub fn is_external(self) -> bool {
-        self.is_external
-    }
 
     fn from_inner(inner: ReferenceInner, ast: &'ast Ast) -> Self {
+        let referrer = Referrer::new(inner.referrer, ast);
+        let referent = Referent::new(inner.referent, ast);
+        referrer.re
+        let is_weak = false;
+        let is_public = false;
         Self {
-            referrer: Referrer::new(inner.referrer, ast),
-            referent: Referent::new(inner.referent, ast),
-            is_external: inner.is_external,
+            referrer,
+            referent,
+            is_public,
+            is_weak,
         }
     }
 }
 
 #[derive(Clone, Default, Copy, Debug, PartialEq, Eq)]
 pub struct ReferenceInner {
-    referrer: ReferrerKey,
-    referent: ReferentKey,
-    is_external: bool,
+    /// referring field, extension, or method
+    pub(super) referrer: ReferrerKey,
+    /// referenced message or enum
+    pub(super) referent: ReferentKey,
 }
 
+/// The [`Message`] or [`Enum`] which is referenced by the [`Field`],
+/// [`Extension`], or [`Method`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ReferentKey {
     Message(message::Key),
@@ -75,10 +83,16 @@ impl From<message::Key> for ReferentKey {
     }
 }
 
+#[derive(Clone, Default, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ReferentInner {
+    referent: ReferentKey,
+    referrer: ReferrerKey,
+}
+
 /// The [`Message`] or [`Enum`] which is referenced by the [`Field`],
 /// [`Extension`], or [`Method`].
 ///
-/// [`Referent`] is returne from [`Field::referent`], [`Extension::referent`],
+/// [`Referent`] is returned from [`Field::referent`], [`Extension::referent`],
 /// [`Method::input_referent`], and [`Method::output_referent`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Referent<'ast> {
@@ -106,6 +120,8 @@ impl<'ast> From<(message::Key, &'ast Ast)> for Referent<'ast> {
     }
 }
 
+
+
 /// The [`Field`], [`Extension`], or [`Method`] which references a [`Message`]
 /// or [`Enum`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,6 +137,92 @@ impl<'ast> Referrer<'ast> {
             ReferrerKey::Field(key) => Self::Field(Field::new(key, ast)),
             ReferrerKey::Extension(key) => Self::Extension(Extension::new(key, ast)),
             ReferrerKey::Method(key) => Self::Method(Method::new(key, ast)),
+        }
+    }
+
+    pub fn referent_or_referents(self) -> Referent<'ast> {
+        match self {
+            Self::Field(f) => f.referent(),
+            Self::Extension(e) => e.referent(),
+            Self::Method(m) => todo!(),
+        }
+    }
+
+    /// Returns `true` if the referrer is [`Field`].
+    ///
+    /// [`Field`]: Referrer::Field
+    #[must_use]
+    pub fn is_field(&self) -> bool {
+        matches!(self, Self::Field(..))
+    }
+
+    #[must_use]
+    pub fn as_field(&self) -> Option<&Field<'ast>> {
+        if let Self::Field(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub fn try_into_field(self) -> Result<Field<'ast>, Self> {
+        if let Self::Field(v) = self {
+            Ok(v)
+        } else {
+            Err(self)
+        }
+    }
+
+    /// Returns `true` if the referrer is [`Extension`].
+    ///
+    /// [`Extension`]: Referrer::Extension
+    #[must_use]
+    pub fn is_extension(&self) -> bool {
+        matches!(self, Self::Extension(..))
+    }
+
+    #[must_use]
+    pub fn as_extension(&self) -> Option<&Extension<'ast>> {
+        if let Self::Extension(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub fn try_into_extension(self) -> Result<Extension<'ast>, Self> {
+        if let Self::Extension(v) = self {
+            Ok(v)
+        } else {
+            Err(self)
+        }
+    }
+
+    /// Returns `true` if the referrer is [`Method`].
+    ///
+    /// [`Method`]: Referrer::Method
+    #[must_use]
+    pub fn is_method(&self) -> bool {
+        matches!(self, Self::Method(..))
+    }
+
+    #[must_use]
+    pub fn as_method(&self) -> Option<&Method<'ast>> {
+        if let Self::Method(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub fn try_into_method(self) -> Result<Method<'ast>, Self> {
+        if let Self::Method(v) = self {
+            Ok(v)
+        } else {
+            Err(self)
         }
     }
 }
@@ -154,59 +256,6 @@ impl From<extension::Key> for ReferrerKey {
 impl From<method::Key> for ReferrerKey {
     fn from(key: method::Key) -> Self {
         Self::Method(key)
-    }
-}
-
-impl<'ast> Referrer<'ast> {
-    /// Returns `true` if the referrer is [`Field`].
-    ///
-    /// [`Field`]: Referrer::Field
-    #[must_use]
-    pub fn is_field(&self) -> bool {
-        matches!(self, Self::Field(..))
-    }
-
-    #[must_use]
-    pub fn as_field(&self) -> Option<&Field<'ast>> {
-        if let Self::Field(v) = self {
-            Some(v)
-        } else {
-            None
-        }
-    }
-
-    /// Returns `true` if the referrer is [`Extension`].
-    ///
-    /// [`Extension`]: Referrer::Extension
-    #[must_use]
-    pub fn is_extension(&self) -> bool {
-        matches!(self, Self::Extension(..))
-    }
-
-    #[must_use]
-    pub fn as_extension(&self) -> Option<&Extension<'ast>> {
-        if let Self::Extension(v) = self {
-            Some(v)
-        } else {
-            None
-        }
-    }
-
-    /// Returns `true` if the referrer is [`Method`].
-    ///
-    /// [`Method`]: Referrer::Method
-    #[must_use]
-    pub fn is_method(&self) -> bool {
-        matches!(self, Self::Method(..))
-    }
-
-    #[must_use]
-    pub fn as_method(&self) -> Option<&Method<'ast>> {
-        if let Self::Method(v) = self {
-            Some(v)
-        } else {
-            None
-        }
     }
 }
 
