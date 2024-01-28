@@ -1,11 +1,11 @@
-use std::{hash::Hash, ops::Deref};
+use std::{collections::HashSet, hash::Hash, ops::Deref};
 
 use itertools::Itertools;
 use snafu::ResultExt;
 
 use crate::error::{self, InvalidIndex};
 
-use super::{file, map_try_into_usize, FullyQualifiedName};
+use super::{file, map_try_into_usize, reference, FullyQualifiedName};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Inner {
@@ -67,12 +67,11 @@ pub(super) struct DependenciesInner {
 impl DependenciesInner {
     pub(crate) fn new(
         direct: Vec<Inner>,
-        dependent: file::Key,
         public: Vec<i32>,
         weak: Vec<i32>,
-    ) -> Result<Self, error::InvalidIndex<i32>> {
+    ) -> Result<Self, error::HydrationFailed> {
         let len = direct.len();
-        let check_len = |i: Result<usize, InvalidIndex<i32>>| {
+        let check_len = |i: Result<usize, InvalidIndex>| {
             let i = i?;
             if i >= len {
                 let index: i32 = i.try_into().unwrap();
@@ -88,7 +87,7 @@ impl DependenciesInner {
             .map(check_len)
             .collect::<Result<_, InvalidIndex>>()
             .with_context(|_| error::DependencyIndexCtx {
-                dependeency_kind: error::DependencyKind::Weak,
+                dependency_kind: error::DependencyKind::Weak,
             })?;
 
         let public = public.into_iter().unique();
@@ -96,7 +95,7 @@ impl DependenciesInner {
             .map(check_len)
             .collect::<Result<_, InvalidIndex>>()
             .with_context(|_| error::DependencyIndexCtx {
-                dependeency_kind: error::DependencyKind::Public,
+                dependency_kind: error::DependencyKind::Public,
             })?;
         let transitive = direct.clone();
         // we cannot determine unused yet - need to wait for all files to be hydrated

@@ -4,37 +4,35 @@ use snafu::Backtrace;
 
 use crate::error::InvalidIndex;
 
-pub(super) struct MapTryIntoUsize<I, T>
+pub(super) struct MapTryIntoUsize<I>
 where
-    I: Iterator<Item = T>,
+    I: Iterator<Item = i32>,
 {
     inner: I,
 }
 
-impl<I, T> MapTryIntoUsize<I, T>
+impl<I> MapTryIntoUsize<I>
 where
-    I: Iterator<Item = T>,
+    I: Iterator<Item = i32>,
 {
     pub(super) fn new(inner: I) -> Self {
         Self { inner }
     }
 }
 
-impl<I, T> ExactSizeIterator for MapTryIntoUsize<I, T>
+impl<I> ExactSizeIterator for MapTryIntoUsize<I>
 where
-    I: ExactSizeIterator<Item = T>,
-    T: TryInto<usize> + fmt::Debug + fmt::Display,
+    I: ExactSizeIterator<Item = i32>,
 {
     fn len(&self) -> usize {
         self.inner.len()
     }
 }
-impl<I, T> Iterator for MapTryIntoUsize<I, T>
+impl<I> Iterator for MapTryIntoUsize<I>
 where
-    I: Iterator<Item = T>,
-    T: TryInto<usize> + fmt::Debug + fmt::Display,
+    I: Iterator<Item = i32>,
 {
-    type Item = Result<usize, InvalidIndex<T>>;
+    type Item = Result<usize, InvalidIndex>;
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.inner.next()?;
         Some(index.try_into().map_err(|_| InvalidIndex {

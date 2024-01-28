@@ -30,6 +30,7 @@ pub(super) type Table = super::table::Table<Key, Inner>;
 pub(super) struct Hydrate {
     pub(super) name: Name,
     pub(super) file: file::Key,
+    pub(super) value: ValueInner,
     pub(super) package: Option<package::Key>,
     pub(super) message: message::Key,
     pub(super) location: location::Detail,
@@ -179,12 +180,9 @@ pub(super) struct Inner {
 }
 
 impl Inner {
-    pub(super) fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut Inner> {
-        self.reference.iter_mut()
-    }
-
     pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationFailed> {
         let Hydrate {
+            value,
             location,
             file,
             number,
@@ -205,6 +203,8 @@ impl Inner {
 
         self.name = name;
         self.file = file;
+        self.value = value;
+
         self.type_name = type_name;
         self.default_value = default_value;
         self.oneof_index = oneof_index;
@@ -213,6 +213,7 @@ impl Inner {
         self.number = number.unwrap();
         self.label = label.map(Into::into);
         self.proto_type = proto_type;
+
         self.hydrate_location(location);
         self.hydrate_options(options.unwrap_or_default())?;
         Ok(self.into())
@@ -228,6 +229,7 @@ impl Inner {
             uninterpreted_option,
             special_fields,
         } = opts;
+
         self.ctype = ctype.map(Into::into);
         self.packed = packed.unwrap_or(false);
         self.jstype = jstype.map(Into::into);

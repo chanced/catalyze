@@ -12,7 +12,7 @@ use super::{
     message, node,
     oneof::{self},
     package,
-    reference::{Inner, References},
+    reference::{self, References},
     reserved::Reserved,
     resolve::Resolver,
     uninterpreted::{into_uninterpreted_options, UninterpretedOption},
@@ -45,6 +45,11 @@ pub(super) struct Hydrate {
     pub(super) oneofs: Vec<node::Ident<oneof::Key>>,
     pub(super) extensions: Vec<node::Ident<extension::Key>>,
     pub(super) extension_decls: Vec<extension_decl::Key>,
+    /// references from fields and extensions of this message
+    pub(super) references: Vec<reference::Inner>,
+    /// all references for fields and extensions of this message and those of
+    /// nested messages
+    pub(super) all_refs: Vec<reference::Inner>,
     pub(super) options: protobuf::MessageField<MessageOptions>,
 }
 
@@ -73,10 +78,12 @@ pub(super) struct Inner {
     applied_extensions: Collection<extension::Key>,
     dependents: Collection<file::Key>,
 
-    referenced_by: Vec<Inner>,
-    references: Vec<Inner>,
+    referenced_by: Vec<reference::Inner>,
 
-    extension_ranges: Vec<ExtensionRange>,
+    references: Vec<reference::Inner>,
+    all_references: Vec<reference::Inner>,
+
+    pub extension_ranges: Vec<ExtensionRange>,
     reserved: Reserved,
     message_set_wire_format: bool,
     no_standard_descriptor_accessor: bool,
@@ -89,25 +96,6 @@ pub(super) struct Inner {
 
     special_fields: SpecialFields,
     options_special_fields: SpecialFields,
-}
-
-impl super::access::ReferencesMut for Inner {
-    fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut Inner> {
-        self.references
-            .iter_mut()
-            .chain(self.referenced_by.iter_mut())
-    }
-}
-
-impl NodeKeys for Inner {
-    fn keys(&self) -> impl Iterator<Item = node::Key> {
-        iter::empty()
-            .chain(self.fields.iter().copied().map(node::Key::Field))
-            .chain(self.enums.iter().copied().map(node::Key::Enum))
-            .chain(self.messages.iter().copied().map(node::Key::Message))
-            .chain(self.oneofs.iter().copied().map(node::Key::Oneof))
-            .chain(self.extensions.iter().copied().map(node::Key::Extension))
-    }
 }
 
 impl Inner {
@@ -126,6 +114,8 @@ impl Inner {
             messages,
             enums,
             fields,
+            references,
+            all_refs,
             oneofs,
             extensions,
             extension_decls,
@@ -133,6 +123,8 @@ impl Inner {
         self.name = name;
         self.package = package;
         self.container = container;
+        self.references = references;
+        self.all_references = all_refs;
         self.extension_ranges = extension_range.into_iter().map(Into::into).collect();
         self.special_fields = special_fields;
         self.messages = messages.into();

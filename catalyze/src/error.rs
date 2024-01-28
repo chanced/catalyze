@@ -36,7 +36,7 @@ pub enum HydrationFailed {
 
     /// Group is not supported, please use an embedded message instead.
     #[snafu(
-        display("{} for node with fully qualified name \"{fully_qualified_name}\"", source)
+        display("{} for node with fully qualified name \"{field_fqn}\"", source)
     )]
     GroupNotSupported{ 
         source: GroupNotSupported, 
@@ -51,10 +51,10 @@ pub enum HydrationFailed {
     #[snafu(display("Missing source code info"))]
     MissingSourceCodeInfo,
 
-    #[snafu(display("{source} for node with fully qualified name \"{fully_qualified_name}\""))]
+    #[snafu(display("{source} for node with fully qualified name \"{field_fqn}\""))]
     UnknownFieldType { 
         source: UnknownFieldType, 
-        fully_qualified_name: FullyQualifiedName,
+        field_fqn: FullyQualifiedName,
     },
     
     /// The number of locations for a given file is invalid. 
@@ -68,15 +68,23 @@ pub enum HydrationFailed {
         )
     )]
     OneofIndex { 
-        source: InvalidIndex<i32>, 
+        source: InvalidIndex, 
         /// The fully qualified name of the field with the invalid oneof index.
         field_fqn: FullyQualifiedName,
     },
-    DependencyIndex {
-        source: InvalidIndex<i32>,
-        dependeency_kind: DependencyKind
-    }
-    
+    #[snafu(
+        display(
+            "{source} for field with fully qualified name \"{field_fqn}\"", 
+        )
+    )]
+    EmptyTypeName {
+        source: EmptyTypeName,
+        type_not_found: TypeNotFound,
+        field_fqn: FullyQualifiedName,
+    },
+
+    #[snafu(display("for {dependency_kind:?}"))]
+    DependencyIndex { source: InvalidIndex, dependency_kind: DependencyKind },
 }
 
 #[derive(Debug, snafu::Snafu)]
@@ -151,14 +159,13 @@ pub struct InvalidSpan {
     display("Invalid index: {index}"),
     module
 )]
-pub struct InvalidIndex<I> where I: TryInto<usize> + fmt::Debug + fmt::Display {
-    pub index: I,
+pub struct InvalidIndex{
+    pub index: i32,
     pub backtrace: snafu::Backtrace,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum DependencyKind {
-    Oneof,
     Weak,
     Public,
 }

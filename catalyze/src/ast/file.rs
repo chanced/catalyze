@@ -367,6 +367,7 @@ pub(super) struct Inner {
     dependencies: DependenciesInner,
     package_comments: Option<location::Comments>,
     comments: Option<location::Comments>,
+
     references: Vec<reference::Inner>,
 
     dependents: dependent::DependentsInner,
@@ -447,6 +448,8 @@ impl Inner {
             comments,
             is_build_target,
             nodes,
+            public_dependencies,
+            weak_dependencies,
         } = hydrate;
         self.set_name_and_path(name);
         self.syntax = Syntax::parse(&syntax.unwrap_or_default())?;
@@ -458,7 +461,9 @@ impl Inner {
         self.defined_extensions = extensions.into();
         self.extension_decls = extension_decls;
 
-        self.dependencies = DependenciesInner::new(dependencies, self.key, publi)?;
+        self.dependencies =
+            DependenciesInner::new(dependencies, public_dependencies, weak_dependencies)?;
+        self.references = references;
         self.package_comments = hydrate.package_comments.and_then(|c| c.comments);
         self.comments = hydrate.comments.and_then(|c| c.comments);
         self.is_build_target = hydrate.is_build_target;

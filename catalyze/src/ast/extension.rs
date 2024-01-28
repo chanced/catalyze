@@ -5,7 +5,7 @@ use super::{
     extension_decl,
     field::{TypeInner, ValueInner},
     file, location, message, node, package,
-    reference::{Inner, References},
+    reference::{self, References},
     resolve,
     uninterpreted::UninterpretedOption,
     FullyQualifiedName,
@@ -147,7 +147,7 @@ pub(super) struct Inner {
     /// indicate  optional with `LABEL_OPTIONAL`.
     proto3_optional: Option<bool>,
     package: Option<package::Key>,
-    reference: Option<Inner>,
+    reference: Option<reference::Inner>,
     file: file::Key,
 }
 
@@ -157,11 +157,7 @@ impl NodeKeys for Inner {
     }
 }
 
-impl Inner {
-    pub(super) fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut Inner> {
-        self.reference.iter_mut()
-    }
-}
+impl Inner {}
 pub struct Extension<'ast>(resolve::Resolver<'ast, Key, Inner>);
 impl_traits_and_methods!(Extension, Key, Inner);
 impl<'ast> Extension<'ast> {
