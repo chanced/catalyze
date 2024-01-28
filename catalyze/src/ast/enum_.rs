@@ -3,7 +3,6 @@ use protobuf::{
     SpecialFields,
 };
 
-
 use crate::{
     ast::{
         access::NodeKeys,
@@ -15,7 +14,7 @@ use crate::{
         uninterpreted::UninterpretedOption,
         FullyQualifiedName,
     },
-    error::{HydrationFailed},
+    error::HydrationFailed,
 };
 
 use std::{fmt, str::FromStr};
@@ -144,7 +143,7 @@ impl WellKnownEnum {
     const FIELD_KIND: &'static str = "FieldKind";
     const NULL_VALUE: &'static str = "NullValue";
     const SYNTAX: &'static str = "Syntax";
-    pub const fn as_str(&self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::FieldCardinality => Self::FIELD_CARDINALITY,
             Self::FieldKind => Self::FIELD_KIND,

@@ -6,7 +6,7 @@ use protobuf::{
     descriptor::{file_options::OptimizeMode as ProtoOptimizeMode, FileOptions},
     SpecialFields,
 };
-use snafu::{Backtrace};
+use snafu::Backtrace;
 use std::{
     fmt,
     hash::Hash,
@@ -219,18 +219,18 @@ impl Syntax {
     const PROTO2: &'static str = "proto2";
     const PROTO3: &'static str = "proto3";
     #[must_use]
-    pub const fn supports_required_prefix(&self) -> bool {
+    pub const fn supports_required_prefix(self) -> bool {
         self.is_proto2()
     }
     #[must_use]
-    pub const fn is_proto2(&self) -> bool {
+    pub const fn is_proto2(self) -> bool {
         matches!(self, Self::Proto2)
     }
     #[must_use]
-    pub const fn is_proto3(&self) -> bool {
+    pub const fn is_proto3(self) -> bool {
         matches!(self, Self::Proto3)
     }
-    pub const fn as_str(&self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Proto2 => Self::PROTO2,
             Self::Proto3 => Self::PROTO3,
@@ -306,7 +306,7 @@ impl OptimizeMode {
     ///
     /// [`Speed`]: OptimizeMode::Speed
     #[must_use]
-    pub const fn is_speed(&self) -> bool {
+    pub const fn is_speed(self) -> bool {
         matches!(self, Self::Speed)
     }
 
@@ -314,7 +314,7 @@ impl OptimizeMode {
     ///
     /// [`CodeSize`]: OptimizeMode::CodeSize
     #[must_use]
-    pub const fn is_code_size(&self) -> bool {
+    pub const fn is_code_size(self) -> bool {
         matches!(self, Self::CodeSize)
     }
 
@@ -322,7 +322,7 @@ impl OptimizeMode {
     ///
     /// [`LiteRuntime`]: OptimizeMode::LiteRuntime
     #[must_use]
-    pub const fn is_lite_runtime(&self) -> bool {
+    pub const fn is_lite_runtime(self) -> bool {
         matches!(self, Self::LiteRuntime)
     }
 
@@ -330,7 +330,7 @@ impl OptimizeMode {
     ///
     /// [`Unknown`]: OptimizeMode::Unknown
     #[must_use]
-    pub const fn is_unknown(&self) -> bool {
+    pub const fn is_unknown(self) -> bool {
         matches!(self, Self::Unknown(..))
     }
 }

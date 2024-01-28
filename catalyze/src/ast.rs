@@ -561,7 +561,7 @@ macro_rules! node_method_new {
 macro_rules! node_method_key {
     ($node:ident, $key: ident) => {
         impl<'ast> $node<'ast> {
-            pub(crate) fn key(self) -> $key {
+            pub(super) fn key(self) -> $key {
                 self.0.key
             }
         }
