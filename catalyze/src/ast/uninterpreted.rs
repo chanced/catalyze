@@ -324,7 +324,7 @@ impl From<descriptor::UninterpretedOption> for UninterpretedOption {
         } = option;
 
         let name = name.into_iter().map(Into::into).collect::<Box<[_]>>();
-
+        #[allow(clippy::option_if_let_else)]
         let value = if let Some(value) = identifier_value {
             UninterpretedValue::Identifier(value)
         } else if let Some(value) = positive_int_value {

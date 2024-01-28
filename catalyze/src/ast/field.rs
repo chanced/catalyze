@@ -1,13 +1,13 @@
 use crate::{
     ast::{impl_traits_and_methods, uninterpreted::UninterpretedOption, Ast, FullyQualifiedName},
-    error::{self, HydrationFailed},
+    error::{HydrationFailed},
 };
 use ::std::vec::Vec;
 use protobuf::{
     descriptor::{field_descriptor_proto, field_options::CType as ProtobufCType, FieldOptions},
     EnumOrUnknown, SpecialFields,
 };
-use snafu::{Backtrace, ResultExt};
+
 use std::fmt;
 
 use super::{
@@ -190,17 +190,17 @@ impl Inner {
             label,
             options,
             name,
-            message,
-            package,
-            type_,
+            message: _,
+            package: _,
+            type_: _,
             type_name,
             default_value,
             json_name,
             proto3_optional,
             oneof_index,
-            special_fields,
+            special_fields: _,
             proto_type,
-            reference,
+            reference: _,
         } = hydrate;
 
         self.name = name;

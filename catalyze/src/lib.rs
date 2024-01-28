@@ -20,11 +20,11 @@
 	clippy::struct_excessive_bools,
     clippy::missing_const_for_fn,
     clippy::too_many_arguments,
-    unnecessary_wraps
+    clippy::unnecessary_wraps
 )]
 #![cfg_attr(test, allow(clippy::too_many_lines))]
 
-use std::{fmt::Display, ops::DerefMut};
+use std::fmt::Display;
 
 pub mod ast;
 pub mod error;

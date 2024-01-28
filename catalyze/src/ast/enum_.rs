@@ -2,7 +2,7 @@ use protobuf::{
     descriptor::{enum_descriptor_proto, EnumOptions},
     SpecialFields,
 };
-use snafu::location;
+
 
 use crate::{
     ast::{
@@ -15,7 +15,7 @@ use crate::{
         uninterpreted::UninterpretedOption,
         FullyQualifiedName,
     },
-    error::{self, HydrationFailed},
+    error::{HydrationFailed},
 };
 
 use std::{fmt, str::FromStr};

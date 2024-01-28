@@ -1,12 +1,12 @@
-use core::slice;
-use std::{collections::HashSet, hash::Hash, iter::Copied, ops::Deref};
+
+use std::{iter::Copied, ops::Deref};
 
 use itertools::Itertools;
 use snafu::ResultExt;
 
 use crate::error::{self, InvalidIndex};
 
-use super::{file, map_try_into_usize, reference, Ast, FullyQualifiedName, Reference};
+use super::{file, map_try_into_usize, Ast};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Inner {

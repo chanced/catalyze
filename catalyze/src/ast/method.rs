@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{default, ops::Deref};
+use std::{ops::Deref};
 
 use protobuf::{
     descriptor::{method_options, MethodOptions},
@@ -14,7 +14,7 @@ use super::{
     location::{self, Comments, Span},
     message::{self, Message},
     node, package,
-    reference::{self, References},
+    reference::{References},
     resolve::Resolver,
     service,
     uninterpreted::{into_uninterpreted_options, UninterpretedOption},

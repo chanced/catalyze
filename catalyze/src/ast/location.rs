@@ -4,7 +4,7 @@ use std::{
 };
 
 use protobuf::descriptor::{source_code_info::Location as ProtoLoc, SourceCodeInfo};
-use snafu::ResultExt;
+
 
 use crate::error::{self, HydrationFailed};
 
@@ -165,9 +165,9 @@ impl File {
         let mut extensions = Vec::new();
         let mut node_count = 0;
         let Detail {
-            path,
-            span,
-            comments,
+            path: _,
+            span: _,
+            comments: _,
         } = Detail::new(locations.next().unwrap())?;
 
         while let Some(loc) = locations.next() {

@@ -1,4 +1,4 @@
-use std::iter;
+
 
 use crate::error::HydrationFailed;
 
@@ -18,7 +18,7 @@ use super::{
     uninterpreted::{into_uninterpreted_options, UninterpretedOption},
     FullyQualifiedName, Name,
 };
-use ahash::HashSet;
+
 use protobuf::{
     descriptor::{descriptor_proto, MessageOptions},
     SpecialFields,
@@ -107,7 +107,7 @@ impl Inner {
             package,
             location,
             options,
-            well_known,
+            well_known: _,
             reserved_ranges,
             reserved_names,
             extension_range,

@@ -52,7 +52,7 @@ impl Inner {
             file,
             package,
             location,
-            fields,
+            fields: _,
             options,
             special_fields,
         } = hydrate;

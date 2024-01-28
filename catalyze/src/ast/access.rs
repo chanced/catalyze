@@ -72,7 +72,7 @@ pub trait Span {
     fn span(&self) -> super::location::Span;
 }
 
-pub(crate) trait ReferencesMut {
+pub trait ReferencesMut {
     fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut reference::Inner>;
 }
 

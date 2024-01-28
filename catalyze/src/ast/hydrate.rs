@@ -681,13 +681,13 @@ impl Hydrator {
 
     fn hydrate_extensions(
         &self,
-        descriptors: Vec<FieldDescriptorProto>,
-        locations: Vec<location::ExtensionDecl>,
-        container: container::Key,
-        container_fqn: FullyQualifiedName,
-        file: file::Key,
-        package: Option<package::Key>,
-        nodes: &mut NodeMap,
+        _descriptors: Vec<FieldDescriptorProto>,
+        _locations: Vec<location::ExtensionDecl>,
+        _container: container::Key,
+        _container_fqn: FullyQualifiedName,
+        _file: file::Key,
+        _package: Option<package::Key>,
+        _nodes: &mut NodeMap,
     ) -> Result<HydratedExtensions, HydrationFailed> {
         todo!()
     }

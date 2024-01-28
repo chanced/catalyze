@@ -1,17 +1,15 @@
 use crate::{
     error::{self, HydrationFailed},
-    HashMap, HashSet,
+    HashMap,
 };
 use protobuf::{
     descriptor::{file_options::OptimizeMode as ProtoOptimizeMode, FileOptions},
     SpecialFields,
 };
-use snafu::{Backtrace, ResultExt};
+use snafu::{Backtrace};
 use std::{
-    borrow::Borrow,
     fmt,
     hash::Hash,
-    ops::Deref,
     path::{Path, PathBuf},
     str::FromStr,
 };

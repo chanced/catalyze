@@ -1,6 +1,6 @@
 use protobuf::{descriptor::ServiceOptions, SpecialFields};
 
-use crate::{error::HydrationFailed, HashSet};
+use crate::{error::HydrationFailed};
 
 use super::{
     access::NodeKeys,

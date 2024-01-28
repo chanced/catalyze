@@ -1,18 +1,17 @@
-use std::{fmt, iter};
+use std::{fmt};
 
 use crate::HashMap;
 
 use super::{
-    access,
     enum_::{self, Enum},
     enum_value::{self, EnumValue},
     extension::{self, Extension},
     field::{self, Field},
-    file::{self, File},
+    file::{self},
     message::{self, Message},
     method::{self, Method},
     oneof::{self, Oneof},
-    package::{self, Package},
+    package::{self},
     service::{self, Service},
     FullyQualifiedName, Name,
 };
@@ -133,7 +132,7 @@ pub trait AsNode<'ast>: Into<Node<'ast>> + Copy {
 }
 
 /// A node's key, fully-qualified name, name, and node path.
-pub(crate) struct Ident<K> {
+pub struct Ident<K> {
     pub(super) key: K,
     pub(super) fqn: FullyQualifiedName,
     pub(super) name: Name,
