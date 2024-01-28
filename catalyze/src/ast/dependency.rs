@@ -1,11 +1,12 @@
-use std::{collections::HashSet, hash::Hash, ops::Deref};
+use core::slice;
+use std::{collections::HashSet, hash::Hash, iter::Copied, ops::Deref};
 
 use itertools::Itertools;
 use snafu::ResultExt;
 
 use crate::error::{self, InvalidIndex};
 
-use super::{file, map_try_into_usize, reference, FullyQualifiedName};
+use super::{file, map_try_into_usize, reference, Ast, FullyQualifiedName, Reference};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Inner {
@@ -52,6 +53,77 @@ impl<'ast> Dependency<'ast> {
     #[must_use]
     pub fn imported_by(self) -> file::File<'ast> {
         self.dependent
+    }
+}
+
+pub struct Dependencies<'ast> {
+    pub(super) inner: DependenciesInner,
+    ast: &'ast Ast,
+}
+
+impl<'ast> Dependencies<'ast> {
+    pub(super) fn new(
+        direct: Vec<Inner>,
+        public: Vec<i32>,
+        weak: Vec<i32>,
+        ast: &'ast Ast,
+    ) -> Result<Self, error::HydrationFailed> {
+        let inner = DependenciesInner::new(direct, public, weak)?;
+        Ok(Self { inner, ast })
+    }
+}
+
+pub struct Iter<'ast> {
+    ast: &'ast Ast,
+    direct: &'ast [Inner],
+    cursor: usize,
+    indexes: Option<Copied<std::slice::Iter<'ast, usize>>>,
+}
+impl<'ast> Iter<'ast> {
+    pub(super) fn new(
+        direct: &'ast [Inner],
+        indexes: Option<&'ast [usize]>,
+        ast: &'ast Ast,
+    ) -> Self {
+        let indexes = indexes.map(|i| i.iter().copied());
+        Self {
+            ast,
+            direct,
+            cursor: 0,
+            indexes,
+        }
+    }
+    fn next_cursor(&mut self) -> Option<usize> {
+        self.indexes.as_mut().map_or_else(
+            || {
+                let cursor = self.cursor;
+                if cursor >= self.direct.len() {
+                    return None;
+                }
+                self.cursor += 1;
+                Some(cursor)
+            },
+            Iterator::next,
+        )
+    }
+}
+impl<'ast> Iterator for Iter<'ast> {
+    type Item = Dependency<'ast>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let cursor = self.next_cursor()?;
+        let inner = &self.direct[cursor];
+        Some(Dependency {
+            dependency: file::File::new(inner.dependency, self.ast),
+            dependent: file::File::new(inner.dependent, self.ast),
+        })
+    }
+}
+impl<'ast> ExactSizeIterator for Iter<'ast> {
+    fn len(&self) -> usize {
+        self.indexes
+            .as_ref()
+            .map_or(self.direct.len() - self.cursor, ExactSizeIterator::len)
     }
 }
 

@@ -1,24 +1,24 @@
-pub mod access;
-pub mod container;
-pub mod dependency;
-pub mod dependent;
-pub mod enum_;
-pub mod enum_value;
-pub mod extension;
-pub mod extension_decl;
-pub mod field;
-pub mod file;
-pub mod location;
-pub mod message;
-pub mod method;
-pub mod node;
-pub mod oneof;
-pub mod package;
-pub mod path;
-pub mod reference;
-pub mod reserved;
-pub mod service;
-pub mod uninterpreted;
+pub(crate) mod access;
+pub(crate) mod container;
+pub(crate) mod dependency;
+pub(crate) mod dependent;
+pub(crate) mod enum_;
+pub(crate) mod enum_value;
+pub(crate) mod extension;
+pub(crate) mod extension_decl;
+pub(crate) mod field;
+pub(crate) mod file;
+pub(crate) mod location;
+pub(crate) mod message;
+pub(crate) mod method;
+pub(crate) mod node;
+pub(crate) mod oneof;
+pub(crate) mod package;
+pub(crate) mod path;
+pub(crate) mod reference;
+pub(crate) mod reserved;
+pub(crate) mod service;
+pub(crate) mod uninterpreted;
 
 mod collection;
 mod hydrate;
@@ -183,17 +183,7 @@ impl FullyQualifiedName {
     pub fn as_str(&self) -> &str {
         &self.0
     }
-    fn push(&mut self, value: &str) {
-        if value.is_empty() {
-            return;
-        }
-        let mut existing = self.0.to_string();
-        if !self.0.is_empty() {
-            existing.push('.');
-        }
-        existing.push_str(value);
-        self.0 = existing.into();
-    }
+
     fn for_package(package: String) -> Self {
         if package.is_empty() {
             return Self::default();
