@@ -1,0 +1,21 @@
+[package]
+authors = ["Chance Dinkins"]
+categories = [
+	"development-tools::testing",
+	"development-tools::debugging",
+	"development-tools",
+]
+description = """
+A protoc plugin which saves the CodeGeneratorRequest 
+for debugging and testing purposes
+"""
+edition = "2021"
+keywords = ["protoc", "protoc-plugin", "protoc-gen", "protoc-gen-debug"]
+license = "MIT OR Apache-2.0"
+name = "protoc-gen-debug"
+version = "0.1.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+protobuf = "3.3"

@@ -1,8 +1,21 @@
 [package]
-name = "catalyze"
-version = "0.0.0"
-edition = "2021"
-license = "MIT OR Apache-2.0"
-description = "wip"
+description = "a lib to assist with codegen based on protobuf"
+edition     = "2021"
+license     = "MIT OR Apache-2.0"
+name        = "catalyze"
+version     = "0.0.0"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+ahash     = "0.8"
+either    = "1.9"
+itertools = "0.12"
+protobuf  = "3.3"
+slotmap   = "1.0"
+snafu     = "0.8"
+
+[features]
+default = []
