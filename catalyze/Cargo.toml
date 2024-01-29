@@ -1,5 +1,5 @@
 [package]
-description = "protoc lib for codegen"
+description = "a lib to assist with codegen based on protobuf"
 edition     = "2021"
 license     = "MIT OR Apache-2.0"
 name        = "catalyze"

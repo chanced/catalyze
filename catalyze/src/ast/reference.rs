@@ -119,7 +119,7 @@ impl<'ast> Referrer<'ast> {
         match key.into() {
             ReferrerKey::Field(key) => Self::Field(Field::new(key, ast)),
             ReferrerKey::Extension(key) => Self::Extension(Extension::new(key, ast)),
-            ReferrerKey::Method(key) => Self::Method(Method::new(key, ast)),
+            ReferrerKey::Method { key, .. } => Self::Method(Method::new(key, ast)),
         }
     }
 
@@ -212,7 +212,10 @@ impl<'ast> Referrer<'ast> {
 pub(super) enum ReferrerKey {
     Field(field::Key),
     Extension(extension::Key),
-    Method(method::Key),
+    Method {
+        key: method::Key,
+        direction: method::Direction,
+    },
 }
 impl Default for ReferrerKey {
     fn default() -> Self {
@@ -234,9 +237,12 @@ impl From<extension::Key> for ReferrerKey {
         Self::Extension(key)
     }
 }
-impl From<method::Key> for ReferrerKey {
-    fn from(key: method::Key) -> Self {
-        Self::Method(key)
+impl From<(method::Key, method::Direction)> for ReferrerKey {
+    fn from((method, direction): (method::Key, method::Direction)) -> Self {
+        Self::Method {
+            key: method,
+            direction,
+        }
     }
 }
 
