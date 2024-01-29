@@ -2,14 +2,14 @@ use ahash::HashMapExt;
 use itertools::Itertools;
 use protobuf::{
     descriptor::{
-        field_descriptor_proto, DescriptorProto, EnumDescriptorProto, EnumValueDescriptorProto,
-        FieldDescriptorProto, FileDescriptorProto, MethodDescriptorProto, OneofDescriptorProto,
-        ServiceDescriptorProto, SourceCodeInfo,
+        self, field_descriptor_proto, DescriptorProto, EnumDescriptorProto,
+        EnumValueDescriptorProto, FieldDescriptorProto, FileDescriptorProto, MethodDescriptorProto,
+        OneofDescriptorProto, ServiceDescriptorProto, SourceCodeInfo,
     },
     MessageField,
 };
 use snafu::{Backtrace, ResultExt};
-use std::{path::PathBuf, str::FromStr};
+use std::{iter::Peekable, path::PathBuf, str::FromStr, vec::IntoIter};
 
 use crate::{
     error::{self, Error, GroupNotSupported, HydrationCtx, HydrationFailed},
@@ -17,11 +17,9 @@ use crate::{
 };
 
 use super::{
-    container, dependency, enum_, enum_value, extension, extension_decl,
-    field::{self, ValueInner},
-    file, location, message, method,
-    node::{self, NodeMap},
-    oneof, package, reference, service, Ast, FullyQualifiedName, Name,
+    container, dependency, enum_, enum_value, extension, extension_decl, field, file, location,
+    message, method, node, oneof, package, reference, service, value, Ast, FullyQualifiedName,
+    Name,
 };
 
 pub(super) fn run(descriptors: Vec<FileDescriptorProto>, targets: &[String]) -> Result<Ast, Error> {
@@ -199,7 +197,7 @@ impl Hydrator {
             .zip(locations)
             .map(|(descriptor, location)| {
                 let fqn = FullyQualifiedName::new(descriptor.name(), Some(container_fqn.clone()));
-                self.hydrate_message(Message {
+                self.hydrate_message(HydrateMessage {
                     descriptor,
                     fqn,
                     location,
@@ -213,8 +211,11 @@ impl Hydrator {
             .collect()
     }
 
-    fn hydrate_message(&mut self, message: Message) -> Result<message::Ident, HydrationFailed> {
-        let Message {
+    fn hydrate_message(
+        &mut self,
+        message: HydrateMessage,
+    ) -> Result<message::Ident, HydrationFailed> {
+        let HydrateMessage {
             descriptor,
             fqn,
             location,
@@ -363,7 +364,7 @@ impl Hydrator {
     fn hydrate_value_enum(
         &mut self,
         type_name: String,
-    ) -> Result<field::ValueInner, error::EmptyTypeName> {
+    ) -> Result<field::value::Inner, error::EmptyTypeName> {
         if type_name.is_empty() {
             return Err(error::EmptyTypeName {
                 backtrace: Backtrace::capture(),
@@ -372,12 +373,12 @@ impl Hydrator {
         }
         let fqn = FullyQualifiedName(type_name.into());
         let key = self.ast.enums.get_or_insert_key(fqn);
-        Ok(field::ValueInner::Enum(key))
+        Ok(field::value::Inner::Enum(key))
     }
     fn hydrate_value_message(
         &mut self,
         type_name: String,
-    ) -> Result<field::ValueInner, error::EmptyTypeName> {
+    ) -> Result<field::value::Inner, error::EmptyTypeName> {
         if type_name.is_empty() {
             return Err(error::EmptyTypeName {
                 backtrace: Backtrace::capture(),
@@ -386,14 +387,14 @@ impl Hydrator {
         }
         let fqn = FullyQualifiedName(type_name.into());
         let key = self.ast.messages.get_or_insert_key(fqn);
-        Ok(field::ValueInner::Message(key))
+        Ok(field::value::Inner::Message(key))
     }
     fn hydrate_field_value(
         &mut self,
         proto_type: field_descriptor_proto::Type,
         type_name: String,
         field_fqn: &FullyQualifiedName,
-    ) -> Result<field::ValueInner, HydrationFailed> {
+    ) -> Result<field::value::Inner, HydrationFailed> {
         use field_descriptor_proto::Type as ProtoType;
         match proto_type {
             ProtoType::TYPE_ENUM => {
@@ -416,18 +417,22 @@ impl Hydrator {
             .with_context(|_| error::GroupNotSupportedCtx {
                 field_fqn: field_fqn.clone(),
             }),
-            _ => Ok(field::ValueInner::new(proto_type, None, None)),
+            _ => Ok(value::Inner::new(proto_type, None, None)),
         }
     }
 
     #[allow(clippy::unused_self)]
-    fn hydrate_reference(&self, field: field::Key, value: ValueInner) -> Option<reference::Inner> {
+    fn hydrate_reference(
+        &self,
+        field: field::Key,
+        value: value::Inner,
+    ) -> Option<reference::Inner> {
         match value {
-            ValueInner::Enum(key) => Some(reference::Inner {
+            value::Inner::Enum(key) => Some(reference::Inner {
                 referent: reference::ReferentKey::Enum(key),
                 referrer: reference::ReferrerKey::Field(field),
             }),
-            ValueInner::Message(key) => Some(reference::Inner {
+            value::Inner::Message(key) => Some(reference::Inner {
                 referent: reference::ReferentKey::Message(key),
                 referrer: reference::ReferrerKey::Field(field),
             }),
@@ -633,17 +638,15 @@ impl Hydrator {
             .zip(locations)
             .map(|(descriptor, location)| {
                 let fqn = FullyQualifiedName::new(descriptor.name(), Some(message_fqn.clone()));
-                self.hydrate_oneof(
-                    HydrateOneof {
-                        descriptor,
-                        fqn,
-                        location,
-                        message,
-                        file,
-                        package,
-                    },
+                self.hydrate_oneof(HydrateOneof {
+                    descriptor,
+                    fqn,
+                    location,
+                    message,
+                    file,
+                    package,
                     nodes,
-                )
+                })
             })
             .collect()
     }
@@ -651,7 +654,6 @@ impl Hydrator {
     fn hydrate_oneof(
         &mut self,
         oneof: HydrateOneof,
-        nodes: &mut NodeMap,
     ) -> Result<super::node::Ident<oneof::Key>, HydrationFailed> {
         let HydrateOneof {
             descriptor,
@@ -660,6 +662,7 @@ impl Hydrator {
             message,
             file,
             package,
+            nodes,
         } = oneof;
 
         let OneofDescriptorProto {
@@ -680,9 +683,7 @@ impl Hydrator {
             file,
             package,
         })?;
-        nodes.insert(oneof.fqn(), oneof.node_key());
-        self.ast.nodes.insert(oneof.fqn(), oneof.node_key());
-        todo!()
+        self.insert_node(nodes, oneof)
     }
 
     fn hydrate_extensions(
@@ -698,34 +699,103 @@ impl Hydrator {
             package,
             nodes,
         } = extensions;
+        let mut hydrated = ExtensionsHydrated::new(&decl_locations, &ext_descriptors);
         let mut descriptors = ext_descriptors.into_iter().peekable();
+
         for decl_loc in decl_locations {
-            if descriptors.len() < decl_loc.extensions.len() {
-                return Err(error::LocationsMisaligned {
-                    expected: decl_loc.extensions.len(),
-                    actual: descriptors.len(),
-                    kind: location::Kind::Extension,
-                    backtrace: Backtrace::capture(),
-                })
-                .with_context(|_| error::LocationsMisalignedCtx {
+            validate_extension_locations(&descriptors, &decl_loc.extensions).with_context(
+                |_| error::LocationsMisalignedCtx {
                     container_fqn: container_fqn.clone(),
-                });
-            }
+                },
+            )?;
+            let descriptors = descriptors.take(decl_loc.extensions.len());
+            let ext_decl = self.hydrate_extension_decl(HydrateExtensionDecl {
+                descriptors,
+                location: decl_loc,
+                container,
+                container_fqn: container_fqn.clone(),
+                file,
+                package,
+                nodes,
+            })?;
+            hydrated.push(ext_decl)
         }
-        todo!()
+        Ok(hydrated)
     }
-    fn hydrate_extension_decl(
+
+    fn hydrate_extension_decl<D>(
         &mut self,
-        descriptors: impl Iterator<Item = FieldDescriptorProto>,
-        location: location::ExtensionDecl,
-        container: container::Key,
-        container_fqn: FullyQualifiedName,
-        file: file::Key,
-        package: Option<package::Key>,
-        nodes: &mut NodeMap,
-    ) -> Result<(extension_decl::Key, Vec<extension::Ident>), HydrationFailed> {
-        todo!()
+        ext_decl: HydrateExtensionDecl<D>,
+    ) -> Result<ExtensionDeclHydrated, HydrationFailed>
+    where
+        D: ExactSizeIterator<Item = FieldDescriptorProto>,
+    {
+        let HydrateExtensionDecl {
+            descriptors,
+            location,
+            container,
+            container_fqn,
+            file,
+            package,
+            nodes,
+        } = ext_decl;
+        let inner = extension_decl::Inner::new(location.detail, file, package, descriptors.len());
+        let key = inner.key();
+        let mut hydrated = ExtensionDeclHydrated::new(key, descriptors.len());
+        self.ast.extension_decls.push(inner);
+        for (descriptor, location) in descriptors.zip(location.extensions) {
+            let fqn = FullyQualifiedName::new(descriptor.name(), Some(container_fqn.clone()));
+            let ExtensionHydrated {
+                extension,
+                reference,
+                ext_decl,
+            } = self.hydrate_extension(HydrateExtension {
+                container: container.into(),
+                decl: key,
+                descriptor,
+                file,
+                package,
+                location,
+                nodes,
+                fqn,
+            })?;
+            hydrated.ext_refs.push(reference);
+            hydrated.extensions.push(extension);
+            self.insert_node(nodes, extension)?;
+        }
+        Ok(hydrated)
     }
+
+    fn hydrate_extension(
+        &mut self,
+        extension: HydrateExtension,
+    ) -> Result<ExtensionHydrated, HydrationFailed> {
+        let HydrateExtension {
+            descriptor,
+            fqn,
+            location,
+            container,
+            file,
+            package,
+            nodes,
+            decl,
+        } = extension;
+        let FieldDescriptorProto {
+            name,
+            number,
+            label,
+            type_,
+            type_name,
+            extendee,
+            default_value,
+            json_name,
+            options,
+            proto3_optional,
+            special_fields,
+            oneof_index,
+        } = descriptor;
+    }
+
     fn is_well_known(&self, package: Option<package::Key>) -> bool {
         let Some(package) = package else { return false };
         self.ast.well_known == package
@@ -854,7 +924,7 @@ impl Hydrator {
     fn hydrate_method(
         &mut self,
         method: HydrateMethod,
-        nodes: &mut NodeMap,
+        nodes: &mut node::Map,
         references: &mut Vec<reference::Inner>,
     ) -> Result<method::Ident, HydrationFailed> {
         let HydrateMethod {
@@ -999,7 +1069,7 @@ impl Hydrator {
 
     fn insert_node<K>(
         &mut self,
-        nodes: &mut NodeMap,
+        nodes: &mut node::Map,
         node: node::Ident<K>,
     ) -> Result<node::Ident<K>, HydrationFailed>
     where
@@ -1012,14 +1082,14 @@ impl Hydrator {
     }
 }
 
-struct Message<'h> {
+struct HydrateMessage<'h> {
     descriptor: DescriptorProto,
     fqn: FullyQualifiedName,
     location: location::Message,
     container: container::Key,
     file: file::Key,
     package: Option<package::Key>,
-    nodes: &'h mut NodeMap,
+    nodes: &'h mut node::Map,
     ancestor_refs: &'h mut Vec<reference::Inner>,
 }
 struct HydrateMessages<'h> {
@@ -1029,7 +1099,7 @@ struct HydrateMessages<'h> {
     container_fqn: FullyQualifiedName,
     file: file::Key,
     package: Option<package::Key>,
-    nodes: &'h mut NodeMap,
+    nodes: &'h mut node::Map,
     ancestor_refs: &'h mut Vec<reference::Inner>,
 }
 
@@ -1040,7 +1110,7 @@ struct HydrateMethods<'h> {
     service_fqn: FullyQualifiedName,
     file: file::Key,
     package: Option<package::Key>,
-    nodes: &'h mut NodeMap,
+    nodes: &'h mut node::Map,
     service_refs: &'h mut Vec<reference::Inner>,
 }
 
@@ -1051,7 +1121,7 @@ struct HydrateEnum<'h> {
     container: container::Key,
     file: file::Key,
     package: Option<package::Key>,
-    nodes: &'h mut NodeMap,
+    nodes: &'h mut node::Map,
 }
 struct HydrateEnums<'h> {
     descriptors: Vec<EnumDescriptorProto>,
@@ -1060,7 +1130,7 @@ struct HydrateEnums<'h> {
     container_fqn: FullyQualifiedName,
     file: file::Key,
     package: Option<package::Key>,
-    nodes: &'h mut NodeMap,
+    nodes: &'h mut node::Map,
 }
 
 struct HydrateEnumValue<'h> {
@@ -1070,7 +1140,7 @@ struct HydrateEnumValue<'h> {
     enum_: enum_::Key,
     file: file::Key,
     package: Option<package::Key>,
-    nodes: &'h mut NodeMap,
+    nodes: &'h mut node::Map,
 }
 struct HydrateEnumValues<'h> {
     descriptors: Vec<EnumValueDescriptorProto>,
@@ -1079,7 +1149,7 @@ struct HydrateEnumValues<'h> {
     enum_fqn: FullyQualifiedName,
     file: file::Key,
     package: Option<package::Key>,
-    nodes: &'h mut NodeMap,
+    nodes: &'h mut node::Map,
 }
 
 struct HydrateService<'h> {
@@ -1088,7 +1158,7 @@ struct HydrateService<'h> {
     location: location::Service,
     file: file::Key,
     package: Option<package::Key>,
-    nodes: &'h mut NodeMap,
+    nodes: &'h mut node::Map,
     ancestor_refs: &'h mut Vec<reference::Inner>,
 }
 struct HydrateServices<'h> {
@@ -1097,7 +1167,7 @@ struct HydrateServices<'h> {
     file_fqn: FullyQualifiedName,
     file: file::Key,
     package: Option<package::Key>,
-    nodes: &'h mut NodeMap,
+    nodes: &'h mut node::Map,
     file_refs: &'h mut Vec<reference::Inner>,
 }
 
@@ -1119,7 +1189,7 @@ struct HydrateField<'h> {
     package: Option<package::Key>,
     oneof: Option<oneof::Key>,
     references: &'h mut Vec<reference::Inner>,
-    nodes: &'h mut NodeMap,
+    nodes: &'h mut node::Map,
 }
 struct HydrateFields<'h> {
     descriptors: Vec<FieldDescriptorProto>,
@@ -1128,17 +1198,18 @@ struct HydrateFields<'h> {
     message_fqn: FullyQualifiedName,
     file: file::Key,
     package: Option<package::Key>,
-    nodes: &'h mut NodeMap,
+    nodes: &'h mut node::Map,
     oneofs: &'h [oneof::Ident],
 }
 
-struct HydrateOneof {
+struct HydrateOneof<'h> {
     descriptor: OneofDescriptorProto,
     fqn: FullyQualifiedName,
     location: location::Oneof,
     message: message::Key,
     file: file::Key,
     package: Option<package::Key>,
+    nodes: &'h mut node::Map,
 }
 struct HydrateOneofs<'h> {
     descriptors: Vec<OneofDescriptorProto>,
@@ -1147,15 +1218,18 @@ struct HydrateOneofs<'h> {
     message_fqn: FullyQualifiedName,
     file: file::Key,
     package: Option<package::Key>,
-    nodes: &'h mut NodeMap,
+    nodes: &'h mut node::Map,
 }
 
-struct HydrateExtension {
+struct HydrateExtension<'h> {
     descriptor: FieldDescriptorProto,
+    location: location::Extension,
+    decl: extension_decl::Key,
     fqn: FullyQualifiedName,
     container: container::Key,
     file: file::Key,
     package: Option<package::Key>,
+    nodes: &'h mut node::Map,
 }
 
 struct HydrateExtensions<'h> {
@@ -1165,12 +1239,17 @@ struct HydrateExtensions<'h> {
     container_fqn: FullyQualifiedName,
     file: file::Key,
     package: Option<package::Key>,
-    nodes: &'h mut NodeMap,
+    nodes: &'h mut node::Map,
 }
 
-struct HydrateExtensionDecl {
+struct HydrateExtensionDecl<'h, D> {
+    descriptors: D,
     location: location::ExtensionDecl,
-    extensions: Vec<HydrateExtension>,
+    container: container::Key,
+    container_fqn: FullyQualifiedName,
+    file: file::Key,
+    package: Option<package::Key>,
+    nodes: &'h mut node::Map,
 }
 
 struct ExtensionsHydrated {
@@ -1178,9 +1257,45 @@ struct ExtensionsHydrated {
     extensions: Vec<extension::Ident>,
     ext_refs: Vec<reference::Inner>,
 }
+impl ExtensionsHydrated {
+    fn new(decls: &[location::ExtensionDecl], exts: &[FieldDescriptorProto]) -> Self {
+        Self {
+            extension_decls: Vec::with_capacity(decls.len()),
+            extensions: Vec::with_capacity(exts.len()),
+            ext_refs: Vec::with_capacity(exts.len()),
+        }
+    }
+    fn push(&mut self, decl: ExtensionDeclHydrated) {
+        self.extension_decls.push(decl.key);
+        self.extensions.extend(decl.extensions);
+        self.ext_refs.extend(decl.ext_refs);
+    }
+}
+
+struct ExtensionHydrated {
+    extension: extension::Ident,
+    reference: reference::Inner,
+    ext_decl: extension_decl::Key,
+}
+
 struct FieldsHydrated {
     fields: Vec<field::Ident>,
     field_refs: Vec<reference::Inner>,
+}
+
+struct ExtensionDeclHydrated {
+    key: extension_decl::Key,
+    extensions: Vec<extension::Ident>,
+    ext_refs: Vec<reference::Inner>,
+}
+impl ExtensionDeclHydrated {
+    fn new(key: extension_decl::Key, len: usize) -> Self {
+        Self {
+            key,
+            extensions: Vec::with_capacity(len),
+            ext_refs: Vec::with_capacity(len),
+        }
+    }
 }
 
 fn validate_locations<T, L>(
@@ -1232,4 +1347,19 @@ fn oneof_for_field(
         .key;
 
     Ok(Some(oneof_key))
+}
+
+fn validate_extension_locations(
+    descriptors: &Peekable<IntoIter<FieldDescriptorProto>>,
+    locations: &[location::Field],
+) -> Result<(), error::LocationsMisaligned> {
+    if descriptors.len() < locations.len() {
+        return Err(error::LocationsMisaligned {
+            expected: locations.len(),
+            actual: descriptors.len(),
+            kind: location::Kind::Extension,
+            backtrace: Backtrace::capture(),
+        });
+    }
+    Ok(())
 }

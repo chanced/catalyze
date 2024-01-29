@@ -108,5 +108,5 @@ impl_resolve!(
     methods -> method,
     fields -> field,
     extensions -> extension,
-    extension_blocks -> extension_decl,
+    extension_decls -> extension_decl,
 );

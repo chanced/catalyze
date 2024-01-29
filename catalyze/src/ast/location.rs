@@ -316,6 +316,7 @@ impl Hash for ExtensionDecl {
         self.detail.path.hash(state);
     }
 }
+pub(super) type Extension = Field;
 
 #[derive(Debug)]
 pub(super) struct Field {

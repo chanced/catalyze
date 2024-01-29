@@ -1,24 +1,25 @@
-pub(crate) mod access;
-pub(crate) mod container;
-pub(crate) mod dependency;
-pub(crate) mod dependent;
-pub(crate) mod enum_;
-pub(crate) mod enum_value;
-pub(crate) mod extension;
-pub(crate) mod extension_decl;
-pub(crate) mod field;
-pub(crate) mod file;
-pub(crate) mod location;
-pub(crate) mod message;
-pub(crate) mod method;
-pub(crate) mod node;
-pub(crate) mod oneof;
-pub(crate) mod package;
-pub(crate) mod path;
-pub(crate) mod reference;
-pub(crate) mod reserved;
-pub(crate) mod service;
-pub(crate) mod uninterpreted;
+pub mod access;
+pub mod container;
+pub mod dependency;
+pub mod dependent;
+pub mod enum_;
+pub mod enum_value;
+pub mod extension;
+pub mod extension_decl;
+pub mod field;
+pub mod file;
+pub mod location;
+pub mod message;
+pub mod method;
+pub mod node;
+pub mod oneof;
+pub mod package;
+pub mod path;
+pub mod reference;
+pub mod reserved;
+pub mod service;
+pub mod uninterpreted;
+pub mod value;
 
 mod collection;
 mod hydrate;
@@ -66,7 +67,7 @@ pub struct Ast {
     fields: field::Table,
     oneofs: oneof::Table,
     extensions: extension::Table,
-    extension_blocks: extension_decl::Table,
+    extension_decls: extension_decl::Table,
     nodes: HashMap<FullyQualifiedName, node::Key>,
     well_known: package::Key,
 }

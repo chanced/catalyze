@@ -1,4 +1,4 @@
-use std::{fmt};
+use std::fmt;
 
 use crate::HashMap;
 
@@ -30,7 +30,7 @@ pub(super) enum Key {
     Extension(extension::Key),
 }
 
-pub(super) type NodeMap = HashMap<FullyQualifiedName, Key>;
+pub(super) type Map = HashMap<FullyQualifiedName, Key>;
 
 impl From<package::Key> for Key {
     fn from(key: package::Key) -> Self {

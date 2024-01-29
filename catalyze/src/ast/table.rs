@@ -11,9 +11,9 @@ pub(super) struct Table<K, V, I = HashMap<FullyQualifiedName, K>>
 where
     K: slotmap::Key,
 {
-    map: SlotMap<K, V>,
-    index: I,
-    order: Vec<K>,
+    pub(super) map: SlotMap<K, V>,
+    pub(super) index: I,
+    pub(super) order: Vec<K>,
 }
 
 trait WithCapacity {
@@ -79,6 +79,7 @@ where
     pub(crate) fn get_mut(&mut self, key: K) -> Option<&mut V> {
         self.map.get_mut(key)
     }
+
     pub(crate) fn get_by_index(&self, index: usize) -> Option<&V> {
         self.order.get(index).map(|key| &self.map[*key])
     }
