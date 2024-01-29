@@ -79,5 +79,5 @@ for the `my_generator` plugin.
 ### Overview
 
 <p align="center">
-	<img width="500" alt="simple graph diagram depicting type relations" src="https://github.com/chanced/catalyze/blob/initial-version/media/graph.png?raw=true">
+	<img alt="simple graph diagram depicting type relations" src="https://github.com/chanced/catalyze/blob/initial-version/media/graph.svg?raw=true">
 </p>
