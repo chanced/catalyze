@@ -18,8 +18,8 @@ for code generators based on [Protocol Buffers](https://protobuf.dev/).
     -   [ ] [`hyperium/tonic`](https://github.com/hyperium/tonic)
     -   [ ] [`stepancheg/rust-protobuf`](https://github.com/stepancheg/rust-protobuf/)
     -   [ ] [`stepancheg/grpc-rust`](https://crates.io/crates/grpc)
+-   [ ] Parallel execution of generators
 -   [ ] `catalyze-cli`
-    -   [ ] Parallel processing of generators and post-processors
     -   [ ] Execution of WASM/WASI plugins
 
 ## Refresh of `protoc`
@@ -59,8 +59,8 @@ binary named `protoc-gen-<plugin_name>`. Using the example above, `protoc` would
 search `PATH` for a binary named `protoc-gen-my_generator`.
 
 In addition to the auto-resolution of plugins by name to binaries in your
-`PATH`, `protoc` has two additional ways for resolving plugins. The first is for
-standard plugins that are shipped with `protoc` itself. These plugins are
+`PATH`, `protoc` has two additional methods for resolving plugins. The first is
+for standard plugins that are shipped with `protoc` itself. These plugins are
 resolved by name internally and thus do not to need discoverable in your `PATH`.
 The second is to specify a path via the `--plugin` flag. The expected format is
 `--plugin=protoc-gen-<plugin_name>=<path_to_plugin>`. For example,

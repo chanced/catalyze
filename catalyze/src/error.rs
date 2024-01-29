@@ -1,7 +1,7 @@
 use snafu::Snafu;
 use std::{fmt, path::PathBuf};
 
-use crate::ast::{method, FullyQualifiedName};
+use crate::ast::{location, method, FullyQualifiedName};
 
 #[derive(snafu::Snafu, Debug)]
 #[snafu(visibility(pub(crate)), context(suffix(Ctx)))]
@@ -46,8 +46,11 @@ pub enum HydrationFailed {
     },
 
     /// The number of locations for a given file is invalid.
-    #[snafu(transparent)]
-    LocationMisaligned { source: LocationsMisaligned },
+    #[snafu(display("{source} for node with fully qualified name \"{fqn}\""))]
+    LocationsMisaligned {
+        source: LocationsMisaligned,
+        container_fqn: FullyQualifiedName,
+    },
 
     #[snafu(display("Invalid Oneof index {} for field with fully qualified name \"{field_fqn}\"", source.index))]
     OneofIndex {
@@ -78,13 +81,16 @@ pub enum HydrationFailed {
 #[derive(Debug, snafu::Snafu)]
 #[snafu(
     visibility(pub(crate)),
-    display("Locations for {kind} are misaligned; expected: {expected} locations, found: {found}"),
-    context(suffix(Ctx))
+    display(
+        "Locations for {kind} are misaligned; expected: {expected} locations, found: {actual}"
+    ),
+    context(suffix(Ctx)),
+    module
 )]
 pub struct LocationsMisaligned {
-    pub kind: &'static str,
+    pub kind: location::Kind,
     pub expected: usize,
-    pub found: usize,
+    pub actual: usize,
     pub backtrace: snafu::Backtrace,
 }
 

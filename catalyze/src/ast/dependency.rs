@@ -1,4 +1,3 @@
-
 use std::{iter::Copied, ops::Deref};
 
 use itertools::Itertools;
@@ -75,7 +74,7 @@ impl<'ast> Dependencies<'ast> {
 
 pub struct Iter<'ast> {
     ast: &'ast Ast,
-    direct: &'ast [Inner],
+    slice: &'ast [Inner],
     cursor: usize,
     indexes: Option<Copied<std::slice::Iter<'ast, usize>>>,
 }
@@ -88,7 +87,7 @@ impl<'ast> Iter<'ast> {
         let indexes = indexes.map(|i| i.iter().copied());
         Self {
             ast,
-            direct,
+            slice: direct,
             cursor: 0,
             indexes,
         }
@@ -97,7 +96,7 @@ impl<'ast> Iter<'ast> {
         self.indexes.as_mut().map_or_else(
             || {
                 let cursor = self.cursor;
-                if cursor >= self.direct.len() {
+                if cursor >= self.slice.len() {
                     return None;
                 }
                 self.cursor += 1;
@@ -111,11 +110,10 @@ impl<'ast> Iterator for Iter<'ast> {
     type Item = Dependency<'ast>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let cursor = self.next_cursor()?;
-        let inner = &self.direct[cursor];
+        let next = &self.slice[self.next_cursor()?];
         Some(Dependency {
-            dependency: file::File::new(inner.dependency, self.ast),
-            dependent: file::File::new(inner.dependent, self.ast),
+            dependency: file::File::new(next.dependency, self.ast),
+            dependent: file::File::new(next.dependent, self.ast),
         })
     }
 }
@@ -123,7 +121,7 @@ impl<'ast> ExactSizeIterator for Iter<'ast> {
     fn len(&self) -> usize {
         self.indexes
             .as_ref()
-            .map_or(self.direct.len() - self.cursor, ExactSizeIterator::len)
+            .map_or(self.slice.len() - self.cursor, ExactSizeIterator::len)
     }
 }
 

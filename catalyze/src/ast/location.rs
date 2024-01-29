@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{
     hash::{Hash, Hasher},
     iter::Peekable,
@@ -5,10 +6,28 @@ use std::{
 
 use protobuf::descriptor::{source_code_info::Location as ProtoLoc, SourceCodeInfo};
 
-
 use crate::error::{self, HydrationFailed};
 
 use super::path;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    File,
+    Message,
+    Enum,
+    Service,
+    Field,
+    Extension,
+    ExtensionDecl,
+    EnumValue,
+    Method,
+    Oneof,
+}
+impl fmt::Display for Kind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self, f)
+    }
+}
 
 /// Zero-based spans of a node.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

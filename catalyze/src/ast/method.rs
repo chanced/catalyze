@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{ops::Deref};
+use std::ops::Deref;
 
 use protobuf::{
     descriptor::{method_options, MethodOptions},
@@ -14,7 +14,7 @@ use super::{
     location::{self, Comments, Span},
     message::{self, Message},
     node, package,
-    reference::{References},
+    reference::References,
     resolve::Resolver,
     service,
     uninterpreted::{into_uninterpreted_options, UninterpretedOption},
@@ -250,7 +250,7 @@ impl IdempotencyLevel {
     ///
     /// [`NoSideEffects`]: IdempotencyLevel::NoSideEffects
     #[must_use]
-    pub fn is_no_side_effects(&self) -> bool {
+    pub fn is_no_side_effects(self) -> bool {
         matches!(self, Self::NoSideEffects)
     }
 
@@ -258,7 +258,7 @@ impl IdempotencyLevel {
     ///
     /// [`Idempotent`]: IdempotencyLevel::Idempotent
     #[must_use]
-    pub fn is_idempotent(&self) -> bool {
+    pub fn is_idempotent(self) -> bool {
         matches!(self, Self::Idempotent)
     }
 
@@ -266,7 +266,7 @@ impl IdempotencyLevel {
     ///
     /// [`Unknown`]: IdempotencyLevel::Unknown
     #[must_use]
-    pub fn is_unknown(&self) -> bool {
+    pub fn is_unknown(self) -> bool {
         matches!(self, Self::Unknown(..))
     }
 }

@@ -290,9 +290,6 @@ macro_rules! impl_key {
             pub(super) fn key(&self) -> $key {
                 self.key
             }
-            pub(super) fn set_key(&mut self, key: $key) {
-                self.key = key;
-            }
         }
     };
 }
@@ -332,11 +329,11 @@ macro_rules! impl_access_fqn {
             }
         }
         impl<'ast> $node<'ast> {
-            fn fully_qualified_name(&self) -> &crate::ast::FullyQualifiedName {
+            pub fn fully_qualified_name(&self) -> &crate::ast::FullyQualifiedName {
                 use crate::ast::resolve::Resolve;
                 &self.resolve().fqn
             }
-            fn fqn(&self) -> &crate::ast::FullyQualifiedName {
+            pub fn fqn(&self) -> &crate::ast::FullyQualifiedName {
                 self.fully_qualified_name()
             }
         }
