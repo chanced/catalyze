@@ -183,11 +183,6 @@ impl File {
         let mut dependencies = Vec::new();
         let mut extensions = Vec::new();
         let mut node_count = 0;
-        let Detail {
-            path: _,
-            span: _,
-            comments: _,
-        } = Detail::new(locations.next().unwrap())?;
 
         while let Some(loc) = locations.next() {
             match path::File::from_i32(loc.path[0]) {

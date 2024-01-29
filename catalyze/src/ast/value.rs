@@ -1,19 +1,20 @@
 use std::fmt;
 
-use protobuf::descriptor::field_descriptor_proto;
+use crate::error::{self, UnknownFieldType};
 
-use super::{enum_, message, Ast, Enum, Message};
+use super::{enum_, field, message, Ast, Enum, Message};
+use protobuf::descriptor::field_descriptor_proto::{self, Type as ProtoType};
+use snafu::Backtrace;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Inner {
     Scalar(Scalar),
     Enum(enum_::Key),
     Message(message::Key),
-    Unknown(i32),
 }
 impl Default for Inner {
     fn default() -> Self {
-        Self::Unknown(0)
+        Self::Scalar(Scalar::String)
     }
 }
 
@@ -23,7 +24,6 @@ impl Inner {
             Self::Scalar(s) => Value::Scalar(s),
             Self::Enum(key) => (key, ast).into(),
             Self::Message(key) => (key, ast).into(),
-            Self::Unknown(u) => Value::Unknown(u),
         }
     }
 }
@@ -33,14 +33,6 @@ pub enum Value<'ast> {
     Scalar(Scalar),
     Enum(Enum<'ast>),       // 14,
     Message(Message<'ast>), // 11,
-    // Group = 10, not supported
-    Unknown(i32),
-}
-
-impl<'ast> From<i32> for Value<'ast> {
-    fn from(v: i32) -> Self {
-        Self::Unknown(v)
-    }
 }
 
 impl<'ast> From<Message<'ast>> for Value<'ast> {
@@ -78,27 +70,14 @@ impl<'ast> fmt::Debug for Value<'ast> {
             Self::Scalar(s) => fmt::Debug::fmt(s, f),
             Self::Enum(e) => fmt::Debug::fmt(e, f),
             Self::Message(m) => fmt::Debug::fmt(m, f),
-            Self::Unknown(i) => fmt::Debug::fmt(i, f),
         }
     }
 }
 
 impl<'ast> Value<'ast> {
-    /// Returns `true` if the type is [`Unknown`].
-    ///
-    /// [`Unknown`]: Type::Unknown
-    #[must_use]
-    pub const fn is_unknown(&self) -> bool {
-        matches!(self, Self::Unknown(..))
-    }
-
     #[must_use]
     pub const fn is_scalar(&self) -> bool {
         matches!(self, Self::Scalar(_))
-    }
-    #[must_use]
-    pub const fn is_group(&self) -> bool {
-        matches!(self, Self::Unknown(10))
     }
     #[must_use]
     pub const fn is_message(&self) -> bool {
@@ -136,15 +115,6 @@ impl<'ast> Value<'ast> {
         }
     }
 
-    #[must_use]
-    pub const fn as_unknown(&self) -> Option<i32> {
-        if let Self::Unknown(v) = self {
-            Some(*v)
-        } else {
-            None
-        }
-    }
-
     pub const fn try_into_scalar(self) -> Result<Scalar, Self> {
         if let Self::Scalar(v) = self {
             Ok(v)
@@ -168,14 +138,6 @@ impl<'ast> Value<'ast> {
             Err(self)
         }
     }
-
-    pub const fn try_into_unknown(self) -> Result<i32, Self> {
-        if let Self::Unknown(v) = self {
-            Ok(v)
-        } else {
-            Err(self)
-        }
-    }
 }
 impl Inner {
     pub(super) fn new(
@@ -183,27 +145,11 @@ impl Inner {
         enum_: Option<enum_::Key>,
         msg: Option<message::Key>,
     ) -> Self {
-        use field_descriptor_proto::Type as ProtoType;
         match typ {
             ProtoType::TYPE_ENUM => Self::Enum(enum_.unwrap()),
             ProtoType::TYPE_MESSAGE => Self::Message(msg.unwrap()),
-
-            ProtoType::TYPE_DOUBLE => Self::Scalar(Scalar::Double),
-            ProtoType::TYPE_FLOAT => Self::Scalar(Scalar::Float),
-            ProtoType::TYPE_INT64 => Self::Scalar(Scalar::Int64),
-            ProtoType::TYPE_UINT64 => Self::Scalar(Scalar::Uint64),
-            ProtoType::TYPE_INT32 => Self::Scalar(Scalar::Int32),
-            ProtoType::TYPE_FIXED64 => Self::Scalar(Scalar::Fixed64),
-            ProtoType::TYPE_FIXED32 => Self::Scalar(Scalar::Fixed32),
-            ProtoType::TYPE_BOOL => Self::Scalar(Scalar::Bool),
-            ProtoType::TYPE_STRING => Self::Scalar(Scalar::String),
-            ProtoType::TYPE_BYTES => Self::Scalar(Scalar::Bytes),
-            ProtoType::TYPE_UINT32 => Self::Scalar(Scalar::Uint32),
-            ProtoType::TYPE_SFIXED32 => Self::Scalar(Scalar::Sfixed32),
-            ProtoType::TYPE_SFIXED64 => Self::Scalar(Scalar::Sfixed64),
-            ProtoType::TYPE_SINT32 => Self::Scalar(Scalar::Sint32),
-            ProtoType::TYPE_SINT64 => Self::Scalar(Scalar::Sint64),
             ProtoType::TYPE_GROUP => unreachable!(),
+            _ => Self::Scalar(typ.try_into().unwrap()),
         }
     }
 }
@@ -215,7 +161,6 @@ pub enum Scalar {
     /// Not ZigZag encoded.  Negative numbers take 10 bytes.  Use TYPE_SINT64 if
     /// negative values are likely.
     Int64 = 3,
-    Uint64 = 4,
     /// Not ZigZag encoded.  Negative numbers take 10 bytes.  Use TYPE_SINT32 if
     /// negative values are likely.
     Int32 = 5,
@@ -226,13 +171,38 @@ pub enum Scalar {
     /// New in version 2.
     Bytes = 12,
     Uint32 = 13,
-    Enum = 14,
+    Uint64 = 4,
     Sfixed32 = 15,
     Sfixed64 = 16,
     /// Uses ZigZag encoding.
     Sint32 = 17,
     /// Uses ZigZag encoding.
     Sint64 = 18,
+}
+
+impl TryFrom<field_descriptor_proto::Type> for Scalar {
+    type Error = field_descriptor_proto::Type;
+
+    fn try_from(typ: field_descriptor_proto::Type) -> Result<Self, Self::Error> {
+        match typ {
+            ProtoType::TYPE_DOUBLE => Ok(Self::Double),
+            ProtoType::TYPE_FLOAT => Ok(Self::Float),
+            ProtoType::TYPE_INT64 => Ok(Self::Int64),
+            ProtoType::TYPE_UINT64 => Ok(Self::Uint64),
+            ProtoType::TYPE_INT32 => Ok(Self::Int32),
+            ProtoType::TYPE_FIXED64 => Ok(Self::Fixed64),
+            ProtoType::TYPE_FIXED32 => Ok(Self::Fixed32),
+            ProtoType::TYPE_BOOL => Ok(Self::Bool),
+            ProtoType::TYPE_STRING => Ok(Self::String),
+            ProtoType::TYPE_BYTES => Ok(Self::Bytes),
+            ProtoType::TYPE_UINT32 => Ok(Self::Uint32),
+            ProtoType::TYPE_SFIXED32 => Ok(Self::Sfixed32),
+            ProtoType::TYPE_SFIXED64 => Ok(Self::Sfixed64),
+            ProtoType::TYPE_SINT32 => Ok(Self::Sint32),
+            ProtoType::TYPE_SINT64 => Ok(Self::Sint64),
+            ProtoType::TYPE_ENUM | ProtoType::TYPE_GROUP | ProtoType::TYPE_MESSAGE => Err(typ),
+        }
+    }
 }
 
 impl fmt::Display for Scalar {
@@ -249,7 +219,6 @@ impl fmt::Display for Scalar {
             Self::String => "string",
             Self::Bytes => "bytes",
             Self::Uint32 => "uint32",
-            Self::Enum => "enum",
             Self::Sfixed32 => "sfixed32",
             Self::Sfixed64 => "sfixed64",
             Self::Sint32 => "sint32",
@@ -262,16 +231,70 @@ impl fmt::Display for Scalar {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MapKey {
     Int64 = 3,
-    Uint64 = 4,
     Int32 = 5,
     Fixed64 = 6,
     Fixed32 = 7,
     String = 9,
     Uint32 = 13,
+    Uint64 = 4,
     Sfixed32 = 15,
     Sfixed64 = 16,
     Sint32 = 17,
     Sint64 = 18,
+}
+
+impl TryFrom<field::TypeInner> for MapKey {
+    type Error = error::InvalidMapKey;
+
+    fn try_from(value: field::TypeInner) -> Result<Self, Self::Error> {
+        match value {
+            field::TypeInner::Single(v) => match v {
+                Inner::Scalar(scalar) => MapKey::try_from(scalar),
+                Inner::Enum(_) => Err(error::InvalidMapKey {
+                    type_: error::InvalidMapKeyType::Enum,
+                    backtrace: Backtrace::capture(),
+                }),
+                Inner::Message(_) => Err(error::InvalidMapKey {
+                    type_: error::InvalidMapKeyType::Message,
+                    backtrace: Backtrace::capture(),
+                }),
+            },
+            field::TypeInner::Repeated(_) => Err(error::InvalidMapKey {
+                backtrace: Backtrace::capture(),
+                type_: error::InvalidMapKeyType::Repeated,
+            }),
+            field::TypeInner::Map(_) => Err(error::InvalidMapKey {
+                backtrace: Backtrace::capture(),
+                type_: error::InvalidMapKeyType::Map,
+            }),
+        }
+    }
+}
+impl TryFrom<Scalar> for MapKey {
+    type Error = error::InvalidMapKey;
+
+    fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
+        match scalar {
+            Scalar::Int64 => Ok(MapKey::Int64),
+            Scalar::Int32 => Ok(MapKey::Int32),
+            Scalar::Fixed64 => Ok(MapKey::Fixed64),
+            Scalar::Fixed32 => Ok(MapKey::Fixed32),
+            Scalar::String => Ok(MapKey::String),
+            Scalar::Uint64 => Ok(MapKey::Uint64),
+            Scalar::Uint32 => Ok(MapKey::Uint32),
+            Scalar::Sfixed32 => Ok(MapKey::Sfixed32),
+            Scalar::Sfixed64 => Ok(MapKey::Sfixed64),
+            Scalar::Sint32 => Ok(MapKey::Sint32),
+            Scalar::Sint64 => Ok(MapKey::Sint64),
+
+            Scalar::Bytes | Scalar::Bool | Scalar::Float | Scalar::Double => {
+                Err(error::InvalidMapKey {
+                    backtrace: Backtrace::capture(),
+                    type_: error::InvalidMapKeyType::Scalar(scalar),
+                })
+            }
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Clone)]
@@ -304,6 +327,6 @@ impl<'ast> Map<'ast> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct MapInner {
-    key: MapKey,
-    value: Inner,
+    pub(super) key: MapKey,
+    pub(super) value: Inner,
 }

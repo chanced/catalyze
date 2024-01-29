@@ -1,5 +1,3 @@
-
-
 use crate::error::HydrationFailed;
 
 use super::{
@@ -56,47 +54,39 @@ pub(super) struct Hydrate {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Inner {
-    key: Key,
-    fqn: FullyQualifiedName,
-    name: Name,
-    node_path: Box<[i32]>,
-    span: Span,
-    comments: Option<Comments>,
-    container: container::Key,
-    package: Option<package::Key>,
-    file: file::Key,
-
-    extensions: Collection<extension::Key>,
-    extension_decls: Vec<extension_decl::Key>,
-
-    fields: Collection<field::Key>,
-    enums: Collection<enum_::Key>,
-    messages: Collection<message::Key>,
-    oneofs: Collection<oneof::Key>,
-    real_oneofs: Collection<oneof::Key>,
-    synthetic_oneofs: Collection<oneof::Key>,
-
-    applied_extensions: Collection<extension::Key>,
-    dependents: Collection<file::Key>,
-
-    referenced_by: Vec<reference::Inner>,
-
-    references: Vec<reference::Inner>,
-    all_references: Vec<reference::Inner>,
-
-    pub extension_ranges: Vec<ExtensionRange>,
-    reserved: Reserved,
-    message_set_wire_format: bool,
-    no_standard_descriptor_accessor: bool,
-    deprecated: bool,
-    map_entry: bool,
-
-    uninterpreted_options: Vec<UninterpretedOption>,
-
-    unknown_fields: protobuf::UnknownFields,
-
-    special_fields: SpecialFields,
-    options_special_fields: SpecialFields,
+    pub(super) key: Key,
+    pub(super) fqn: FullyQualifiedName,
+    pub(super) name: Name,
+    pub(super) node_path: Box<[i32]>,
+    pub(super) span: Span,
+    pub(super) comments: Option<Comments>,
+    pub(super) container: container::Key,
+    pub(super) package: Option<package::Key>,
+    pub(super) file: file::Key,
+    pub(super) extensions: Collection<extension::Key>,
+    pub(super) extension_decls: Vec<extension_decl::Key>,
+    pub(super) well_known: Option<WellKnownMessage>,
+    pub(super) fields: Collection<field::Key>,
+    pub(super) enums: Collection<enum_::Key>,
+    pub(super) messages: Collection<message::Key>,
+    pub(super) oneofs: Collection<oneof::Key>,
+    pub(super) real_oneofs: Collection<oneof::Key>,
+    pub(super) synthetic_oneofs: Collection<oneof::Key>,
+    pub(super) applied_extensions: Collection<extension::Key>,
+    pub(super) dependents: Collection<file::Key>,
+    pub(super) referenced_by: Vec<reference::Inner>,
+    pub(super) references: Vec<reference::Inner>,
+    pub(super) all_references: Vec<reference::Inner>,
+    pub(super) extension_ranges: Vec<ExtensionRange>,
+    pub(super) reserved: Reserved,
+    pub(super) message_set_wire_format: bool,
+    pub(super) no_standard_descriptor_accessor: bool,
+    pub(super) deprecated: bool,
+    pub(super) is_map_entry: bool,
+    pub(super) uninterpreted_options: Vec<UninterpretedOption>,
+    pub(super) unknown_fields: protobuf::UnknownFields,
+    pub(super) special_fields: SpecialFields,
+    pub(super) options_special_fields: SpecialFields,
 }
 
 impl Inner {
@@ -107,7 +97,7 @@ impl Inner {
             package,
             location,
             options,
-            well_known: _,
+            well_known,
             reserved_ranges,
             reserved_names,
             extension_range,
@@ -125,6 +115,7 @@ impl Inner {
         self.package = package;
         self.container = container;
         self.references = references;
+        self.well_known = well_known;
         self.all_references = all_refs;
         self.extension_ranges = extension_range.into_iter().map(Into::into).collect();
         self.special_fields = special_fields;
@@ -151,7 +142,7 @@ impl Inner {
         self.message_set_wire_format = message_set_wire_format.unwrap_or(false);
         self.no_standard_descriptor_accessor = no_standard_descriptor_accessor.unwrap_or(false);
         self.deprecated = deprecated.unwrap_or(false);
-        self.map_entry = map_entry.unwrap_or(false);
+        self.is_map_entry = map_entry.unwrap_or(false);
         self.uninterpreted_options = into_uninterpreted_options(uninterpreted_option);
         self.options_special_fields = special_fields;
         Ok(())

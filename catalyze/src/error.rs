@@ -1,7 +1,7 @@
 use snafu::Snafu;
 use std::{fmt, path::PathBuf};
 
-use crate::ast::{location, method, FullyQualifiedName};
+use crate::ast::{location, method, value, FullyQualifiedName};
 
 #[derive(snafu::Snafu, Debug)]
 #[snafu(visibility(pub(crate)), context(suffix(Ctx)))]
@@ -46,7 +46,7 @@ pub enum HydrationFailed {
     },
 
     /// The number of locations for a given file is invalid.
-    #[snafu(display("{source} for node with fully qualified name \"{fqn}\""))]
+    #[snafu(display("{source} for node with fully qualified name \"{container_fqn}\""))]
     LocationsMisaligned {
         source: LocationsMisaligned,
         container_fqn: FullyQualifiedName,
@@ -61,7 +61,6 @@ pub enum HydrationFailed {
     #[snafu(display("{source} for field with fully qualified name \"{field_fqn}\""))]
     EmptyTypeName {
         source: EmptyTypeName,
-        type_not_found: TypeNotFound,
         field_fqn: FullyQualifiedName,
     },
 
@@ -76,6 +75,11 @@ pub enum HydrationFailed {
         method_fqn: FullyQualifiedName,
         direction: method::Direction,
     },
+}
+
+#[derive(Debug, snafu::Snafu)]
+pub struct UnknownOrMissingFieldType {
+    pub type_: Option<i32>,
 }
 
 #[derive(Debug, snafu::Snafu)]
@@ -182,4 +186,43 @@ impl fmt::Display for TypeNotFound {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self, f)
     }
+}
+
+#[derive(Debug, snafu::Snafu)]
+#[snafu(
+    visibility(pub),
+    context(suffix(Ctx)),
+    display("Invalid map key type: {type_}"),
+    module
+)]
+pub struct InvalidMapKey {
+    pub type_: InvalidMapKeyType,
+    pub backtrace: snafu::Backtrace,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum InvalidMapKeyType {
+    Scalar(value::Scalar),
+    Message,
+    Enum,
+    Repeated,
+    Map,
+}
+
+impl fmt::Display for InvalidMapKeyType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self, f)
+    }
+}
+
+#[derive(Debug, snafu::Snafu)]
+#[snafu(
+    visibility(pub),
+    context(suffix(Ctx)),
+    display("Unknown field type value: {type_}"),
+    module
+)]
+pub struct UnknownFieldTpe {
+    pub backtrace: snafu::Backtrace,
+    pub type_: i32,
 }

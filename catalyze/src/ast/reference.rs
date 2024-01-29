@@ -123,15 +123,6 @@ impl<'ast> Referrer<'ast> {
         }
     }
 
-    // TODO: (change name, finish updates to method mod)
-    // pub fn referent_or_referents(self) -> Referent<'ast> {
-    //     match self {
-    //         Self::Field(f) => f.referent(),
-    //         Self::Extension(e) => e.referent(),
-    //         Self::Method(m) => todo!(),
-    //     }
-    // }
-
     /// Returns `true` if the referrer is [`Field`].
     ///
     /// [`Field`]: Referrer::Field

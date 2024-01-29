@@ -6,20 +6,18 @@ use protobuf::{
         EnumValueDescriptorProto, FieldDescriptorProto, FileDescriptorProto, MethodDescriptorProto,
         OneofDescriptorProto, ServiceDescriptorProto, SourceCodeInfo,
     },
-    MessageField,
+    EnumOrUnknown, MessageField,
 };
 use snafu::{Backtrace, ResultExt};
 use std::{iter::Peekable, path::PathBuf, str::FromStr, vec::IntoIter};
 
 use crate::{
-    error::{self, Error, GroupNotSupported, HydrationCtx, HydrationFailed},
+    error::{self, Error, GroupNotSupported, HydrationCtx, HydrationFailed, InvalidMapKey},
     HashMap,
 };
 
 use super::{
-    container, dependency, enum_, enum_value, extension, extension_decl, field, file, location,
-    message, method, node, oneof, package, reference, service, value, Ast, FullyQualifiedName,
-    Name,
+    container, dependency, enum_, enum_value, extension, extension_decl, field::{self, TypeInner}, file, location, message, method, node, oneof, package, reference, resolve::Get, service, value::{self, MapKey}, Ast, FullyQualifiedName, Name
 };
 
 pub(super) fn run(descriptors: Vec<FileDescriptorProto>, targets: &[String]) -> Result<Ast, Error> {
@@ -361,84 +359,7 @@ impl Hydrator {
             field_refs: references,
         })
     }
-    fn hydrate_value_enum(
-        &mut self,
-        type_name: String,
-    ) -> Result<field::value::Inner, error::EmptyTypeName> {
-        if type_name.is_empty() {
-            return Err(error::EmptyTypeName {
-                backtrace: Backtrace::capture(),
-                type_not_found: error::TypeNotFound::Enum,
-            });
-        }
-        let fqn = FullyQualifiedName(type_name.into());
-        let key = self.ast.enums.get_or_insert_key(fqn);
-        Ok(field::value::Inner::Enum(key))
-    }
-    fn hydrate_value_message(
-        &mut self,
-        type_name: String,
-    ) -> Result<field::value::Inner, error::EmptyTypeName> {
-        if type_name.is_empty() {
-            return Err(error::EmptyTypeName {
-                backtrace: Backtrace::capture(),
-                type_not_found: error::TypeNotFound::Message,
-            });
-        }
-        let fqn = FullyQualifiedName(type_name.into());
-        let key = self.ast.messages.get_or_insert_key(fqn);
-        Ok(field::value::Inner::Message(key))
-    }
-    fn hydrate_field_value(
-        &mut self,
-        proto_type: field_descriptor_proto::Type,
-        type_name: String,
-        field_fqn: &FullyQualifiedName,
-    ) -> Result<field::value::Inner, HydrationFailed> {
-        use field_descriptor_proto::Type as ProtoType;
-        match proto_type {
-            ProtoType::TYPE_ENUM => {
-                self.hydrate_value_enum(type_name)
-                    .with_context(|_| error::EmptyTypeNameCtx {
-                        field_fqn: field_fqn.clone(),
-                        type_not_found: error::TypeNotFound::Enum,
-                    })
-            }
-            ProtoType::TYPE_MESSAGE => {
-                self.hydrate_value_message(type_name)
-                    .with_context(|_| error::EmptyTypeNameCtx {
-                        field_fqn: field_fqn.clone(),
-                        type_not_found: error::TypeNotFound::Message,
-                    })
-            }
-            ProtoType::TYPE_GROUP => Err(GroupNotSupported {
-                backtrace: Backtrace::capture(),
-            })
-            .with_context(|_| error::GroupNotSupportedCtx {
-                field_fqn: field_fqn.clone(),
-            }),
-            _ => Ok(value::Inner::new(proto_type, None, None)),
-        }
-    }
 
-    #[allow(clippy::unused_self)]
-    fn hydrate_reference(
-        &self,
-        field: field::Key,
-        value: value::Inner,
-    ) -> Option<reference::Inner> {
-        match value {
-            value::Inner::Enum(key) => Some(reference::Inner {
-                referent: reference::ReferentKey::Enum(key),
-                referrer: reference::ReferrerKey::Field(field),
-            }),
-            value::Inner::Message(key) => Some(reference::Inner {
-                referent: reference::ReferentKey::Message(key),
-                referrer: reference::ReferrerKey::Field(field),
-            }),
-            _ => None,
-        }
-    }
     fn hydrate_field(
         &mut self,
         field: HydrateField,
@@ -455,7 +376,6 @@ impl Hydrator {
             nodes,
         } = field;
 
-        let key = self.ast.fields.get_or_insert_key(fqn.clone());
         let FieldDescriptorProto {
             name,
             number,
@@ -472,34 +392,21 @@ impl Hydrator {
         } = descriptor;
 
         let name: Name = name.unwrap_or_default().into();
+        let key = self.ast.fields.get_or_insert_key(fqn.clone());
 
-        let proto_type = type_
-            .unwrap()
-            .enum_value()
-            .map_err(|type_| error::UnknownFieldType {
-                backtrace: Backtrace::capture(),
-                type_,
-            })
-            .with_context(|_| error::UnknownFieldTypeCtx {
-                field_fqn: fqn.clone(),
-            })?;
-
-        let value =
-            self.hydrate_field_value(proto_type, type_name.clone().unwrap_or_default(), &fqn)?;
-        let reference = self.hydrate_reference(key, value);
+        let reference = self.hydrate_reference(key.into(), value);
 
         if let Some(reference) = reference {
             references.push(reference);
         }
+        let type_ = type_.unwrap();
 
         let field = self.ast.fields[key].hydrate(field::Hydrate {
             name,
             location: location.detail,
             number,
-            value,
             label,
             type_,
-            proto_type,
             type_name,
             default_value,
             json_name,
@@ -519,6 +426,83 @@ impl Hydrator {
         let field = self.insert_node(nodes, field)?;
         Ok((field, reference))
     }
+    fn hydrate_value_enum(
+        &mut self,
+        type_name: String,
+    ) -> Result<value::Inner, error::EmptyTypeName> {
+        if type_name.is_empty() {
+            return Err(error::EmptyTypeName {
+                backtrace: Backtrace::capture(),
+                type_not_found: error::TypeNotFound::Enum,
+            });
+        }
+        let fqn = FullyQualifiedName(type_name.into());
+        let key = self.ast.enums.get_or_insert_key(fqn);
+        Ok(value::Inner::Enum(key))
+    }
+    fn hydrate_value_message(
+        &mut self,
+        type_name: String,
+    ) -> Result<value::Inner, error::EmptyTypeName> {
+        if type_name.is_empty() {
+            return Err(error::EmptyTypeName {
+                backtrace: Backtrace::capture(),
+                type_not_found: error::TypeNotFound::Message,
+            });
+        }
+        let fqn = FullyQualifiedName(type_name.into());
+        let key = self.ast.messages.get_or_insert_key(fqn);
+        Ok(value::Inner::Message(key))
+    }
+    fn hydrate_field_value(
+        &mut self,
+        proto_type: field_descriptor_proto::Type,
+        type_name: String,
+        field_fqn: &FullyQualifiedName,
+    ) -> Result<value::Inner, HydrationFailed> {
+        use field_descriptor_proto::Type as ProtoType;
+        match proto_type {
+            ProtoType::TYPE_ENUM => {
+                self.hydrate_value_enum(type_name)
+                    .with_context(|_| error::EmptyTypeNameCtx {
+                        field_fqn: field_fqn.clone(),
+                    })
+            }
+            ProtoType::TYPE_MESSAGE => {
+                self.hydrate_value_message(type_name)
+                    .with_context(|_| error::EmptyTypeNameCtx {
+                        field_fqn: field_fqn.clone(),
+                    })
+            }
+            ProtoType::TYPE_GROUP => Err(GroupNotSupported {
+                backtrace: Backtrace::capture(),
+            })
+            .with_context(|_| error::GroupNotSupportedCtx {
+                field_fqn: field_fqn.clone(),
+            }),
+            _ => Ok(value::Inner::new(proto_type, None, None)),
+        }
+    }
+
+    #[allow(clippy::unused_self)]
+    fn hydrate_reference(
+        &self,
+        referrer: reference::ReferrerKey,
+        type_: TypeInner,
+    ) -> Option<reference::Inner> {
+
+        let value = match type_ {
+            TypeInner::Single(val) => val,
+            TypeInner::Repeated(val) => val,
+            TypeInner::Map(map) => map.value,
+        };
+        let referent = match value {
+            value::Inner::Enum(key) => reference::ReferentKey::Enum(key),
+            value::Inner::Message(key) => reference::ReferentKey::Message(key),
+            _ => return None,
+        };
+        Some(reference::Inner { referrer, referent })
+    }
 
     fn hydrate_dependencies(
         &mut self,
@@ -537,6 +521,98 @@ impl Hydrator {
             })
             .collect_vec();
         Ok(direct_dependencies)
+    }
+    fn hydrate_value_type_map(&mut self, key: message::Key) -> Result<field::TypeInner, InvalidMapKey>{
+        let map = self.ast.get(key);
+        let map_key = self.ast.fields.get(map.fields.get(0).unwrap()).unwrap();
+        let map_value = self.ast.fields.get(map.fields.get(1).unwrap()).unwrap();
+        let map_key = MapKey::try_from(map_key.type_)?;
+
+        match map_value.type_ {
+            field::TypeInner::Single(val) => {
+                Ok(field::TypeInner::Map(value::MapInner{
+                    key: map_key,
+                    value: val
+                }))
+            },
+            _ => unreachable!()
+        }
+    }
+    fn hydrate_value_type_message(&mut self, 
+        fqn: FullyQualifiedName,
+        is_repeated: bool
+    ) -> Result<field::TypeInner, InvalidMapKey>{
+        let msg = self.ast.messages.get_or_insert(fqn);
+        // TODO: what if the message is not yet hydrated?
+        // as of right now, i dont think it is possible for a message
+        // to be both a map -and- not already hydrated.
+        if msg.is_map_entry{
+            return self.hydrate_value_type_map(msg.key);
+        }
+        if is_repeated {
+            Ok(field::TypeInner::Repeated(value::Inner::Message(msg.key)))
+        } else {
+            Ok(field::TypeInner::Single(value::SingleInner::Message(msg.key)))
+        }
+    }
+
+    fn hydrate_value_type(
+        &mut self,
+        type_: Option<EnumOrUnknown<field_descriptor_proto::Type>>,
+        is_repeated: bool,
+        type_name: Option<String>,
+        container_fqn: &FullyQualifiedName,
+    ) -> Result<field::Type, HydrationFailed> {
+        use field_descriptor_proto::Type as ProtoType;
+        let proto_type = type_
+            .unwrap()
+            .enum_value()
+            .map_err(|type_| error::UnknownFieldType {
+                backtrace: Backtrace::capture(),
+                type_,
+            })
+            .with_context(|_| error::UnknownFieldTypeCtx {
+                field_fqn: container_fqn.clone(),
+            })?;
+
+        let extract_type_name = |type_name: Option<String>| {
+            type_name
+                .ok_or(error::EmptyTypeName {
+                    backtrace: Backtrace::capture(),
+                    type_not_found: error::TypeNotFound::Message,
+                })
+                .with_context(|_| error::EmptyTypeNameCtx {
+                    field_fqn: container_fqn.clone(),
+                })
+                .map(|type_name| FullyQualifiedName(type_name.into()))
+        };
+        match proto_type {
+            ProtoType::TYPE_MESSAGE => {
+                let type_name = extract_type_name(type_name)?;
+                let type_ = self.hydrate_value_type_message(type_name, is_repeated);
+                Ok(type_)
+            },
+            ProtoType::TYPE_ENUM => {
+                let typ = self
+                .hydrate_value_enum(extract_type_name(type_name)?)
+                .with_context(|_| error::EmptyTypeNameCtx {
+                    field_fqn: container_fqn.clone(),
+                })?;
+                Ok(typ)
+            },
+            ProtoType::TYPE_GROUP => Err(error::GroupNotSupported {
+                backtrace: Backtrace::capture(),
+            })
+            .with_context(|_| error::GroupNotSupportedCtx {
+                field_fqn: container_fqn.clone(),
+            }),
+            _ => 
+        }
+        let value = self.hydrate_field_value(
+            proto_type,
+            type_name.clone().unwrap_or_default(),
+            &container_fqn,
+        )?;
     }
 
     fn hydrate_enums(&mut self, enums: HydrateEnums) -> Result<Vec<enum_::Ident>, HydrationFailed> {
@@ -751,7 +827,7 @@ impl Hydrator {
                 ext_decl,
             } = self.hydrate_extension(HydrateExtension {
                 container: container.into(),
-                decl: key,
+                ext_decl: key,
                 descriptor,
                 file,
                 package,
@@ -759,9 +835,10 @@ impl Hydrator {
                 nodes,
                 fqn,
             })?;
-            hydrated.ext_refs.push(reference);
+            if let Some(reference) = reference {
+                hydrated.ext_refs.push(reference);
+            }
             hydrated.extensions.push(extension);
-            self.insert_node(nodes, extension)?;
         }
         Ok(hydrated)
     }
@@ -778,7 +855,7 @@ impl Hydrator {
             file,
             package,
             nodes,
-            decl,
+            ext_decl,
         } = extension;
         let FieldDescriptorProto {
             name,
@@ -792,8 +869,59 @@ impl Hydrator {
             options,
             proto3_optional,
             special_fields,
-            oneof_index,
+            oneof_index: _, // not needed - extension fields cant be part of a oneof
         } = descriptor;
+
+        let name: Name = name.unwrap_or_default().into();
+        let key = self.ast.extensions.get_or_insert_key(fqn.clone());
+
+        let proto_type = type_
+            .unwrap()
+            .enum_value()
+            .map_err(|type_| error::UnknownFieldType {
+                backtrace: Backtrace::capture(),
+                type_,
+            })
+            .with_context(|_| error::UnknownFieldTypeCtx {
+                field_fqn: fqn.clone(),
+            })?;
+
+        let value =
+            self.hydrate_field_value(proto_type, type_name.clone().unwrap_or_default(), &fqn)?;
+
+        let reference = self.hydrate_reference(key.into(), value);
+        let extendee = self
+            .ast
+            .messages
+            .get_or_insert_key(FullyQualifiedName(extendee.unwrap().into()));
+
+        let extension = self.ast.extensions[key].hydrate(extension::Hydrate {
+            name,
+            location: location.detail,
+            number,
+            value,
+            label,
+            type_,
+            proto_type,
+            type_name,
+            default_value,
+            json_name,
+            options,
+            proto3_optional,
+            special_fields,
+            container,
+            extendee,
+            file,
+            package,
+            reference,
+        })?;
+
+        let extension = self.insert_node(nodes, extension)?;
+        Ok(ExtensionHydrated {
+            ext_decl,
+            extension,
+            reference,
+        })
     }
 
     fn is_well_known(&self, package: Option<package::Key>) -> bool {
@@ -1224,7 +1352,7 @@ struct HydrateOneofs<'h> {
 struct HydrateExtension<'h> {
     descriptor: FieldDescriptorProto,
     location: location::Extension,
-    decl: extension_decl::Key,
+    ext_decl: extension_decl::Key,
     fqn: FullyQualifiedName,
     container: container::Key,
     file: file::Key,
@@ -1274,7 +1402,7 @@ impl ExtensionsHydrated {
 
 struct ExtensionHydrated {
     extension: extension::Ident,
-    reference: reference::Inner,
+    reference: Option<reference::Inner>,
     ext_decl: extension_decl::Key,
 }
 
