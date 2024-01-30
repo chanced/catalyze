@@ -2,7 +2,7 @@ use ahash::HashMapExt;
 use itertools::Itertools;
 use protobuf::{
     descriptor::{
-        self, field_descriptor_proto, DescriptorProto, EnumDescriptorProto,
+        field_descriptor_proto, DescriptorProto, EnumDescriptorProto,
         EnumValueDescriptorProto, FieldDescriptorProto, FileDescriptorProto, MethodDescriptorProto,
         OneofDescriptorProto, ServiceDescriptorProto, SourceCodeInfo,
     },
@@ -17,7 +17,7 @@ use crate::{
 };
 
 use super::{
-    container, dependency, enum_, enum_value, extension, extension_decl, field::{self, TypeInner}, file, location, message, method, node, oneof, package, reference, resolve::Get, service, value::{self, MapKey}, Ast, FullyQualifiedName, Name
+    container, dependency, enum_, enum_value, extension, extension_decl, field, file, location, message, method, node, oneof, package, reference, resolve::Get, service, value::{self, MapKey}, Ast, FullyQualifiedName, Name
 };
 
 pub(super) fn run(descriptors: Vec<FileDescriptorProto>, targets: &[String]) -> Result<Ast, Error> {
@@ -488,13 +488,13 @@ impl Hydrator {
     fn hydrate_reference(
         &self,
         referrer: reference::ReferrerKey,
-        type_: TypeInner,
+        type_: value::TypeInner,
     ) -> Option<reference::Inner> {
 
         let value = match type_ {
-            TypeInner::Single(val) => val,
-            TypeInner::Repeated(val) => val,
-            TypeInner::Map(map) => map.value,
+            value::TypeInner::Single(val) => val,
+            value::TypeInner::Repeated(val) => val,
+            value::TypeInner::Map(map) => map.value,
         };
         let referent = match value {
             value::Inner::Enum(key) => reference::ReferentKey::Enum(key),
@@ -522,15 +522,15 @@ impl Hydrator {
             .collect_vec();
         Ok(direct_dependencies)
     }
-    fn hydrate_value_type_map(&mut self, key: message::Key) -> Result<field::TypeInner, InvalidMapKey>{
+    fn hydrate_value_type_map(&mut self, key: message::Key) -> Result<value::TypeInner, InvalidMapKey>{
         let map = self.ast.get(key);
         let map_key = self.ast.fields.get(map.fields.get(0).unwrap()).unwrap();
         let map_value = self.ast.fields.get(map.fields.get(1).unwrap()).unwrap();
         let map_key = MapKey::try_from(map_key.type_)?;
 
         match map_value.type_ {
-            field::TypeInner::Single(val) => {
-                Ok(field::TypeInner::Map(value::MapInner{
+            value::TypeInner::Single(val) => {
+                Ok(value::TypeInner::Map(value::MapInner{
                     key: map_key,
                     value: val
                 }))
@@ -541,18 +541,14 @@ impl Hydrator {
     fn hydrate_value_type_message(&mut self, 
         fqn: FullyQualifiedName,
         is_repeated: bool
-    ) -> Result<field::TypeInner, InvalidMapKey>{
-        let msg = self.ast.messages.get_or_insert(fqn);
-        // TODO: what if the message is not yet hydrated?
-        // as of right now, i dont think it is possible for a message
-        // to be both a map -and- not already hydrated.
-        if msg.is_map_entry{
-            return self.hydrate_value_type_map(msg.key);
-        }
-        if is_repeated {
-            Ok(field::TypeInner::Repeated(value::Inner::Message(msg.key)))
+    ) -> Result<value::TypeInner, InvalidMapKey>{
+        let message = self.ast.messages.get_or_insert(fqn);
+        if message.is_map_entry{
+            self.hydrate_value_type_map(message.key)
+        } else if is_repeated {
+            Ok(value::TypeInner::Repeated(value::Inner::Message(message.key)))
         } else {
-            Ok(field::TypeInner::Single(value::SingleInner::Message(msg.key)))
+            Ok(value::TypeInner::Single(value::Inner::Message(message.key)))
         }
     }
 
@@ -562,7 +558,7 @@ impl Hydrator {
         is_repeated: bool,
         type_name: Option<String>,
         container_fqn: &FullyQualifiedName,
-    ) -> Result<field::Type, HydrationFailed> {
+    ) -> Result<value::Type, HydrationFailed> {
         use field_descriptor_proto::Type as ProtoType;
         let proto_type = type_
             .unwrap()

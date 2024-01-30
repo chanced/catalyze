@@ -214,15 +214,3 @@ impl fmt::Display for InvalidMapKeyType {
         fmt::Debug::fmt(self, f)
     }
 }
-
-#[derive(Debug, snafu::Snafu)]
-#[snafu(
-    visibility(pub),
-    context(suffix(Ctx)),
-    display("Unknown field type value: {type_}"),
-    module
-)]
-pub struct UnknownFieldTpe {
-    pub backtrace: snafu::Backtrace,
-    pub type_: i32,
-}

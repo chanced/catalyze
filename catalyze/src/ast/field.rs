@@ -13,8 +13,7 @@ use super::{
     file, location, message, node, package,
     reference::{self, References},
     resolve::Resolver,
-    value::{self, Value},
-    Name,
+    value, Name,
 };
 
 pub struct Field<'ast>(Resolver<'ast, Key, Inner>);
@@ -30,7 +29,7 @@ pub(super) struct Hydrate {
     pub(super) message: message::Key,
     pub(super) location: location::Detail,
     pub(super) number: Option<i32>,
-    pub(super) type_: TypeInner,
+    pub(super) type_: value::ValueTypeInner,
     pub(super) type_name: Option<String>,
     pub(super) default_value: Option<String>,
     pub(super) json_name: Option<String>,
@@ -52,7 +51,7 @@ pub(super) struct Inner {
     pub(super) comments: Option<location::Comments>,
     pub(super) number: i32,
     pub(super) label: Option<Label>,
-    pub(super) type_: TypeInner,
+    pub(super) type_: value::ValueTypeInner,
     pub(super) type_name: Option<String>,
     pub(super) default_value: Option<String>,
     pub(super) oneof_index: Option<i32>,
@@ -200,27 +199,6 @@ impl From<&ProtobufCType> for CType {
 impl From<ProtobufCType> for CType {
     fn from(value: ProtobufCType) -> Self {
         Self::from(&value)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum Type<'ast> {
-    Single(Value<'ast>),
-    Repeated(Value<'ast>),
-    Map(value::Map<'ast>),
-}
-
-// impl Copy for Type<'_> {}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum TypeInner {
-    Single(value::Inner),
-    Repeated(value::Inner),
-    Map(value::MapInner),
-}
-impl Default for TypeInner {
-    fn default() -> Self {
-        Self::Single(value::Inner::default())
     }
 }
 

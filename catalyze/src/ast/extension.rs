@@ -7,9 +7,7 @@ use crate::{ast::impl_traits_and_methods, error::HydrationFailed};
 
 use super::{
     access::NodeKeys,
-    container, extension_decl,
-    field::TypeInner,
-    file, location, message, node, package,
+    container, extension_decl, file, location, message, node, package,
     reference::{self, References},
     resolve,
     uninterpreted::UninterpretedOption,
@@ -34,8 +32,7 @@ pub(super) struct Hydrate {
     pub(super) extendee: message::Key,
     pub(super) location: location::Detail,
     pub(super) number: Option<i32>,
-    pub(super) type_: Option<EnumOrUnknown<field_descriptor_proto::Type>>,
-    pub(super) type_name: Option<String>,
+    pub(super) value_type: Option<EnumOrUnknown<field_descriptor_proto::Type>>,
     pub(super) default_value: Option<String>,
     pub(super) json_name: Option<String>,
     pub(super) proto3_optional: Option<bool>,
@@ -50,7 +47,6 @@ pub(super) struct Hydrate {
 pub(super) struct Inner {
     key: Key,
     name: Box<str>,
-    value: value::Inner,
     block: extension_decl::Key,
     fqn: FullyQualifiedName,
     node_path: Vec<i32>,
@@ -58,8 +54,7 @@ pub(super) struct Inner {
     comments: Option<location::Comments>,
     number: i32,
     label: Option<Label>,
-    field_type: TypeInner,
-    type_name: Option<String>,
+    value_type: value::ValueTypeInner,
     extendee: message::Key,
     default_value: Option<String>,
     oneof_index: Option<i32>,
@@ -89,8 +84,6 @@ impl Inner {
             extendee,
             location,
             number,
-            type_,
-            type_name,
             default_value,
             json_name,
             proto3_optional,
@@ -99,6 +92,7 @@ impl Inner {
             options,
             proto_type,
             reference,
+            value_type,
         } = hydrate;
     }
     fn hydrate_options(&mut self, opts: FieldOptions) -> Result<(), HydrationFailed> {}

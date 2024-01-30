@@ -243,12 +243,12 @@ pub enum MapKey {
     Sint64 = 18,
 }
 
-impl TryFrom<field::TypeInner> for MapKey {
+impl TryFrom<TypeInner> for MapKey {
     type Error = error::InvalidMapKey;
 
-    fn try_from(value: field::TypeInner) -> Result<Self, Self::Error> {
+    fn try_from(value: TypeInner) -> Result<Self, Self::Error> {
         match value {
-            field::TypeInner::Single(v) => match v {
+            TypeInner::Single(v) => match v {
                 Inner::Scalar(scalar) => MapKey::try_from(scalar),
                 Inner::Enum(_) => Err(error::InvalidMapKey {
                     type_: error::InvalidMapKeyType::Enum,
@@ -259,11 +259,11 @@ impl TryFrom<field::TypeInner> for MapKey {
                     backtrace: Backtrace::capture(),
                 }),
             },
-            field::TypeInner::Repeated(_) => Err(error::InvalidMapKey {
+            TypeInner::Repeated(_) => Err(error::InvalidMapKey {
                 backtrace: Backtrace::capture(),
                 type_: error::InvalidMapKeyType::Repeated,
             }),
-            field::TypeInner::Map(_) => Err(error::InvalidMapKey {
+            TypeInner::Map(_) => Err(error::InvalidMapKey {
                 backtrace: Backtrace::capture(),
                 type_: error::InvalidMapKeyType::Map,
             }),
@@ -329,4 +329,25 @@ impl<'ast> Map<'ast> {
 pub(super) struct MapInner {
     pub(super) key: MapKey,
     pub(super) value: Inner,
+}
+
+#[derive(Clone, Debug)]
+pub enum Type<'ast> {
+    Single(Value<'ast>),
+    Repeated(Value<'ast>),
+    Map(Map<'ast>),
+}
+
+// impl Copy for Type<'_> {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum TypeInner {
+    Single(Inner),
+    Repeated(Inner),
+    Map(MapInner),
+}
+impl Default for TypeInner {
+    fn default() -> Self {
+        Self::Single(Inner::default())
+    }
 }
