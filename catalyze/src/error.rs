@@ -75,6 +75,14 @@ pub enum HydrationFailed {
         method_fqn: FullyQualifiedName,
         direction: method::Direction,
     },
+
+    #[snafu(display("{source} at {fqn}"))]
+    InvalidMapKey {
+        source: InvalidMapKey,
+        fqn: FullyQualifiedName,
+    },
+    #[snafu(display("Field \"{field_fqn}\" missing number"))]
+    FieldMissingNumber { field_fqn: FullyQualifiedName },
 }
 
 #[derive(Debug, snafu::Snafu)]

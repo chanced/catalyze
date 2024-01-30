@@ -28,15 +28,14 @@ pub(super) struct Hydrate {
     pub(super) package: Option<package::Key>,
     pub(super) message: message::Key,
     pub(super) location: location::Detail,
-    pub(super) number: Option<i32>,
-    pub(super) type_: value::ValueTypeInner,
-    pub(super) type_name: Option<String>,
+    pub(super) number: i32,
+    pub(super) type_: value::TypeInner,
     pub(super) default_value: Option<String>,
     pub(super) json_name: Option<String>,
     pub(super) proto3_optional: Option<bool>,
     pub(super) oneof_index: Option<i32>,
     pub(super) special_fields: protobuf::SpecialFields,
-    pub(super) label: Option<protobuf::EnumOrUnknown<field_descriptor_proto::Label>>,
+    pub(super) label: Option<Label>,
     pub(super) options: protobuf::MessageField<FieldOptions>,
     pub(super) reference: Option<reference::Inner>,
 }
@@ -51,16 +50,16 @@ pub(super) struct Inner {
     pub(super) comments: Option<location::Comments>,
     pub(super) number: i32,
     pub(super) label: Option<Label>,
-    pub(super) type_: value::ValueTypeInner,
-    pub(super) type_name: Option<String>,
+    pub(super) type_: value::TypeInner,
+    pub(super) message: message::Key,
     pub(super) default_value: Option<String>,
     pub(super) oneof_index: Option<i32>,
     pub(super) json_name: Option<String>,
     pub(super) ctype: Option<CType>,
-    pub(super) packed: bool,
     pub(super) jstype: Option<JsType>,
-    pub(super) lazy: bool,
-    pub(super) deprecated: bool,
+    pub(super) is_packed: bool,
+    pub(super) is_lazy: bool,
+    pub(super) is_deprecated: bool,
     pub(super) weak: bool,
     pub(super) uninterpreted_options: Vec<UninterpretedOption>,
     pub(super) proto3_optional: Option<bool>,
@@ -83,7 +82,6 @@ impl Inner {
             message,
             package,
             type_,
-            type_name,
             default_value,
             json_name,
             proto3_optional,
@@ -94,14 +92,15 @@ impl Inner {
 
         self.name = name;
         self.file = file;
-
-        self.type_name = type_name;
+        self.reference = reference;
+        self.package = package;
+        self.message = message;
         self.default_value = default_value;
         self.oneof_index = oneof_index;
         self.json_name = json_name;
         self.proto3_optional = proto3_optional;
-        self.number = number.unwrap();
-        self.label = label.map(Into::into);
+        self.number = number;
+        self.label = label;
         self.special_fields = special_fields;
         self.type_ = type_;
         self.hydrate_location(location);
@@ -120,10 +119,10 @@ impl Inner {
             special_fields,
         } = opts;
         self.ctype = ctype.map(Into::into);
-        self.packed = packed.unwrap_or(false);
+        self.is_packed = packed.unwrap_or(false);
         self.jstype = jstype.map(Into::into);
-        self.lazy = lazy.unwrap_or(false);
-        self.deprecated = deprecated.unwrap_or(false);
+        self.is_lazy = lazy.unwrap_or(false);
+        self.is_deprecated = deprecated.unwrap_or(false);
         self.weak = weak.unwrap_or(false);
         self.uninterpreted_options = uninterpreted_option.into_iter().map(Into::into).collect();
         self.options_special_fields = special_fields;
@@ -147,17 +146,38 @@ pub enum Label {
     Required = 1,
     Optional = 2,
     Repeated = 3,
-    Unkown(i32),
 }
-impl From<EnumOrUnknown<field_descriptor_proto::Label>> for Label {
-    fn from(value: EnumOrUnknown<field_descriptor_proto::Label>) -> Self {
-        match value.enum_value() {
-            Ok(v) => v.into(),
-            Err(v) => Self::Unkown(v),
-        }
+impl Default for Label {
+    fn default() -> Self {
+        Self::Optional
     }
 }
 
+impl Label {
+    /// Returns `true` if the label is [`Required`].
+    ///
+    /// [`Required`]: Label::Required
+    #[must_use]
+    pub fn is_required(&self) -> bool {
+        matches!(self, Self::Required)
+    }
+
+    /// Returns `true` if the label is [`Optional`].
+    ///
+    /// [`Optional`]: Label::Optional
+    #[must_use]
+    pub fn is_optional(&self) -> bool {
+        matches!(self, Self::Optional)
+    }
+
+    /// Returns `true` if the label is [`Repeated`].
+    ///
+    /// [`Repeated`]: Label::Repeated
+    #[must_use]
+    pub fn is_repeated(&self) -> bool {
+        matches!(self, Self::Repeated)
+    }
+}
 impl From<field_descriptor_proto::Label> for Label {
     fn from(value: field_descriptor_proto::Label) -> Self {
         use field_descriptor_proto::Label as ProtoLabel;

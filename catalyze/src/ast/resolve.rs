@@ -4,6 +4,7 @@ use std::fmt;
 #[doc(hidden)]
 pub(super) trait Get<K, T> {
     fn get(&self, key: K) -> &T;
+    fn get_mut(&mut self, key: K) -> &mut T;
 }
 
 pub(super) trait Resolve<T> {
@@ -68,6 +69,9 @@ macro_rules! impl_resolve {
             impl Get<$mod::Key, $mod::Inner> for Ast {
                 fn get(&self, key: $mod::Key) -> &$mod::Inner {
                     &self.$col[key]
+                }
+                fn get_mut(&mut self, key: $mod::Key) -> &mut $mod::Inner {
+                    &mut self.$col[key]
                 }
             }
             impl<'ast> Resolve<$mod::Inner> for Resolver<'ast, $mod::Key, $mod::Inner>

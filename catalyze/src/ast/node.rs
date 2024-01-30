@@ -131,6 +131,7 @@ pub trait AsNode<'ast>: Into<Node<'ast>> + Copy {
     }
 }
 
+#[derive(Debug)]
 /// A node's key, fully-qualified name, name, and node path.
 pub struct Ident<K> {
     pub(super) key: K,

@@ -1,16 +1,25 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    fmt,
+    ops::{Deref, DerefMut},
+};
 
-use super::{file, location, package, reference, resolve};
+use super::{extension, file, location, package, reference, resolve};
 
 slotmap::new_key_type! {
     pub(super) struct Key;
 }
 
+#[derive(Default, Clone)]
 pub(super) struct Table(super::table::Table<Key, Inner>);
 impl Deref for Table {
     type Target = super::table::Table<Key, Inner>;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+impl fmt::Debug for Table {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 impl DerefMut for Table {
@@ -19,23 +28,25 @@ impl DerefMut for Table {
     }
 }
 impl Table {
-    pub fn push(&mut self, mut inner: Inner) {
+    pub fn push(&mut self, inner: Inner) -> Key {
         let key = self.0.map.insert(inner);
+        let inner = self.0.get_mut(key).unwrap();
         inner.key = key;
         self.0.order.push(key);
+        key
     }
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {
-    key: Key,
-    span: location::Span,
-    node_path: Box<[i32]>,
-    comments: Option<location::Comments>,
-    extensions: Vec<Key>,
-    references: Vec<reference::Inner>,
-    file: file::Key,
-    package: Option<package::Key>,
+    pub(super) key: Key,
+    pub(super) span: location::Span,
+    pub(super) node_path: Box<[i32]>,
+    pub(super) comments: Option<location::Comments>,
+    pub(super) extensions: Vec<extension::Key>,
+    pub(super) references: Vec<reference::Inner>,
+    pub(super) file: file::Key,
+    pub(super) package: Option<package::Key>,
 }
 
 impl Inner {
