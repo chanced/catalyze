@@ -1,6 +1,6 @@
 # Catalyze
 
-Catalyze is a library that aims to assist in the creation of `protoc` plugins
+Catalyze is a library that simplifies the creation of `protoc` plugins
 for code generators based on [Protocol Buffers](https://protobuf.dev/).
 
 ## Table of Contents
@@ -11,7 +11,7 @@ for code generators based on [Protocol Buffers](https://protobuf.dev/).
 
 ## Roadmap
 
--   [ ] Fully materialized Abstract Syntax Tree (AST)
+-   [x] Fully materialized Abstract Syntax Tree (AST)
 -   [x] Complete encapsulation of the [`protobuf`](https://github.com/stepancheg/rust-protobuf/) crate
 -   [ ] Context support for the following crates:
     -   [ ] [`tokio-rs/prost`](https://github.com/tokio-rs/prost)
@@ -19,6 +19,7 @@ for code generators based on [Protocol Buffers](https://protobuf.dev/).
     -   [ ] [`stepancheg/rust-protobuf`](https://github.com/stepancheg/rust-protobuf/)
     -   [ ] [`stepancheg/grpc-rust`](https://crates.io/crates/grpc)
 -   [ ] Parallel execution of generators
+-   [ ] Encapsulation of
 -   [ ] `catalyze-cli`
     -   [ ] Execution of WASM/WASI plugins
 
@@ -45,25 +46,25 @@ protoc -I ./path/to/protos
 
 The `CodeGeneratorRequest` is serialized and passed to each specified plugin via
 `stdin`. Those plugins are then expected to deserialize the request, generate a
-[`CodeGeneratorResponse`](https://github.com/protocolbuffers/protobuf/blob/1d6ac5979b909a222db45cb154f0be3a31828324/src/google/protobuf/compiler/plugin.proto#L82-L180),
+[`CodeGeneratorResponse`](https://github.com/protocolbuffers/protobuf/blob/1d6ac5979b909a222db45cb154f0be3a31828324/src/google/protobuf/compiler/plugin.proto#L82-L180)
 containing all artifacts that are to be minted, and finally relay that to
 `protoc` via `stdout`.
 
 `protoc` determines which plugins to execute based upon a convetion of
-`<plugin_name>_out`, which is the (required) desired output directory for the
-plugin, and `<plugin_name>_opt`, the (optional) free-form string that can be
-used as parameters to your plugin.
-
-`protoc` then searches your `PATH` for a
+`<plugin_name>_out`, the (required) desired output directory for the plugin, and
+`<plugin_name>_opt`, the (optional) free-form string that can be used as
+parameters to your plugin. `protoc` then searches your `PATH` for a
 binary named `protoc-gen-<plugin_name>`. Using the example above, `protoc` would
 search `PATH` for a binary named `protoc-gen-my_generator`.
 
-In addition to the auto-resolution of plugins by name to binaries in your
-`PATH`, `protoc` has two additional methods for resolving plugins. The first is
-for standard plugins that are shipped with `protoc` itself. These plugins are
+In addition to auto-resolution of plugins by name to binaries in your `PATH`,
+`protoc` has two additional procedures for resolving plugins. The first is for
+standard plugins that are shipped with `protoc` itself. These std plugins are
 resolved by name internally and thus do not to need discoverable in your `PATH`.
 The second is to specify a path via the `--plugin` flag. The expected format is
-`--plugin=protoc-gen-<plugin_name>=<path_to_plugin>`. For example,
+`--plugin=protoc-gen-<plugin_name>=<path_to_plugin>`. For example, the following
+would instruct `protoc` to use the binary at `/path/to/protoc-gen-my_generator`
+for the `my_generator` plugin.
 
 ```sh
 protoc -I ./path/to/protos
@@ -73,10 +74,9 @@ protoc -I ./path/to/protos
   ./proto/**/*.proto
 ```
 
-This would instruct `protoc` that `/path/to/protoc-gen-my_generator` is the binary to use
-for the `my_generator` plugin.
-
 ### Overview
+
+Catalyze aims to both simplify the process of creating `protoc` plugins through the usage of
 
 <p align="center">
 	<img alt="simple graph diagram depicting type relations" src="https://github.com/chanced/catalyze/blob/initial-version/media/graph.svg?raw=true">

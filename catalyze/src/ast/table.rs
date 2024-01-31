@@ -1,10 +1,14 @@
-use std::ops::{Index, IndexMut};
+use std::{
+    borrow::Borrow,
+    ops::{Index, IndexMut},
+    path::{Path, PathBuf},
+};
 
 use slotmap::SlotMap;
 
 use crate::HashMap;
 
-use super::{access, FullyQualifiedName};
+use super::{access, file::SetPath, FullyQualifiedName};
 
 #[derive(Debug, Clone)]
 pub(super) struct Table<K, V, I = HashMap<FullyQualifiedName, K>>
@@ -90,6 +94,40 @@ where
     }
 }
 
+impl<K, V> Table<K, V, HashMap<PathBuf, K>>
+where
+    K: slotmap::Key,
+    V: Default + SetPath + access::Key<Key = K>,
+{
+    pub(super) fn get_by_path(&self, path: impl Borrow<Path>) -> Option<&V> {
+        self.index.get(path.borrow()).map(|key| &self.map[*key])
+    }
+    pub(super) fn get_mut_by_path(&mut self, path: impl Borrow<Path>) -> Option<&mut V> {
+        self.index.get(path.borrow()).map(|key| &mut self.map[*key])
+    }
+    pub(super) fn get_or_insert_key(&mut self, path: PathBuf) -> K {
+        self.get_or_insert_key_and_value(path).0
+    }
+
+    pub(super) fn get_or_insert(&mut self, path: PathBuf) -> &mut V {
+        self.get_or_insert_key_and_value(path).1
+    }
+    pub(super) fn get_or_insert_key_and_value(&mut self, path: PathBuf) -> (K, &mut V) {
+        let key = *self.index.entry(path.clone()).or_insert_with(|| {
+            let mut entry = V::default();
+            entry.set_path(path.clone());
+            let key = self.map.insert(entry);
+            self.order.push(key);
+            key
+        });
+        let value = &mut self.map[key];
+
+        value.set_key(key);
+
+        (key, value)
+    }
+}
+
 impl<K, V, N> Table<K, V, N>
 where
     K: slotmap::Key,
@@ -132,18 +170,19 @@ where
         }
     }
 
-    pub(super) fn get_or_insert_key(&mut self, fqn: FullyQualifiedName) -> K {
-        self.get_or_insert_key_and_value(fqn).0
+    pub(super) fn get_or_insert_key(&mut self, path: FullyQualifiedName) -> K {
+        self.get_or_insert_key_and_value(path).0
     }
 
     pub(super) fn get_or_insert(&mut self, fqn: FullyQualifiedName) -> &mut V {
         self.get_or_insert_key_and_value(fqn).1
     }
     pub(super) fn get_or_insert_key_and_value(&mut self, fqn: FullyQualifiedName) -> (K, &mut V) {
-        let key = *self
-            .index
-            .entry(fqn.clone())
-            .or_insert_with(|| self.map.insert(fqn.into()));
+        let key = *self.index.entry(fqn.clone()).or_insert_with(|| {
+            let key = self.map.insert(fqn.into());
+            self.order.push(key);
+            key
+        });
         let value = &mut self.map[key];
 
         value.set_key(key);
@@ -152,7 +191,7 @@ where
     }
 }
 
-impl<K, V, N> Index<K> for Table<K, V, N>
+impl<K, V, I> Index<K> for Table<K, V, I>
 where
     K: slotmap::Key,
 {
@@ -161,7 +200,7 @@ where
         &self.map[key]
     }
 }
-impl<K, V> IndexMut<K> for Table<K, V>
+impl<K, V, I> IndexMut<K> for Table<K, V, I>
 where
     K: slotmap::Key,
 {

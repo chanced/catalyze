@@ -10,6 +10,7 @@ use snafu::Backtrace;
 use std::{
     fmt,
     hash::Hash,
+    ops::{Deref, DerefMut},
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -18,11 +19,11 @@ use super::{
     access::NodeKeys,
     collection::Collection,
     dependency::{self, DependenciesInner},
-    dependent::{self, DependentsInner},
+    dependent::DependentsInner,
     enum_, extension, extension_decl, impl_traits_and_methods, location, message, node, package,
     reference,
     resolve::Resolver,
-    service,
+    service, table,
     uninterpreted::UninterpretedOption,
     FullyQualifiedName, Name,
 };
@@ -31,8 +32,11 @@ slotmap::new_key_type! {
     #[doc(hidden)]
     pub struct Key;
 }
-pub(super) type Table = super::table::Table<Key, Inner>;
 pub type Ident = node::Ident<Key>;
+
+pub(super) trait SetPath {
+    fn set_path(&mut self, path: PathBuf);
+}
 
 pub(super) struct Hydrate {
     pub(super) name: Name,
@@ -409,10 +413,19 @@ impl NodeKeys for Inner {
     }
 }
 
+impl SetPath for Inner {
+    fn set_path(&mut self, path: PathBuf) {
+        self.set_path_and_name(path);
+    }
+}
 impl Inner {
     pub(super) fn set_name_and_path(&mut self, name: Name) {
         self.path = PathBuf::from(name.as_ref());
         self.name = name;
+    }
+    pub(super) fn set_path_and_name(&mut self, path: PathBuf) {
+        self.name = Name(path.to_str().unwrap().into());
+        self.path = path;
     }
 
     pub(super) fn hydrate(
@@ -539,3 +552,25 @@ impl Inner {
 //         self.files.push(key);
 //     }
 // }
+
+#[derive(Debug, Clone, Default)]
+pub(super) struct Table(table::Table<Key, Inner, HashMap<PathBuf, Key>>);
+impl Table {
+    pub(super) fn with_capacity(capacity: usize) -> Self {
+        Self(table::Table::with_capacity(capacity))
+    }
+    pub(super) fn get_by_name(&self, name: &str) -> Option<&Inner> {
+        self.0.iter().find(|(_, v)| v.name == *name).map(|(_, v)| v)
+    }
+}
+impl Deref for Table {
+    type Target = table::Table<Key, Inner, HashMap<PathBuf, Key>>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl DerefMut for Table {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}

@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package extended;
+import "validate/validate.proto";
+
+message Validated {
+	int32 value = 1 [(validate.rules).int32 = { not_in: 1 }];
+}

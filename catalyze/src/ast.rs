@@ -57,8 +57,6 @@ trait FromFqn {
 pub struct Ast {
     packages: package::Table,
     files: file::Table,
-    files_by_name: HashMap<Name, file::Key>,
-    files_by_path: HashMap<PathBuf, file::Key>,
     messages: message::Table,
     enums: enum_::Table,
     enum_values: enum_value::Table,
@@ -207,6 +205,21 @@ impl fmt::Display for FullyQualifiedName {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Name(Box<str>);
+impl From<Name> for String {
+    fn from(name: Name) -> Self {
+        name.0.into()
+    }
+}
+impl From<Name> for Box<str> {
+    fn from(name: Name) -> Self {
+        name.0
+    }
+}
+impl From<Name> for PathBuf {
+    fn from(value: Name) -> Self {
+        value.as_str().into()
+    }
+}
 
 impl PartialEq<str> for Name {
     fn eq(&self, other: &str) -> bool {

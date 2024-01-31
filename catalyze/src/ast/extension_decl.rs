@@ -10,9 +10,10 @@ slotmap::new_key_type! {
 }
 
 #[derive(Default, Clone)]
-pub(super) struct Table(super::table::Table<Key, Inner>);
+pub(super) struct Table(super::table::Table<Key, Inner, ()>);
+
 impl Deref for Table {
-    type Target = super::table::Table<Key, Inner>;
+    type Target = super::table::Table<Key, Inner, ()>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -36,7 +37,6 @@ impl Table {
         key
     }
 }
-
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Inner {
     pub(super) key: Key,

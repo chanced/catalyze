@@ -1,4 +1,5 @@
 use ahash::HashMapExt;
+use core::panic;
 use itertools::Itertools;
 use protobuf::{
     descriptor::{
@@ -48,31 +49,26 @@ impl Hydrator {
     ) -> Result<(), Error> {
         for descriptor in descriptors {
             let file_path = PathBuf::from(descriptor.name());
-            let file = self
-                .hydrate_file(descriptor, targets)
+            self.hydrate_file(descriptor, targets)
                 .with_context(|_| HydrationCtx {
                     file_path: file_path.clone(),
                 })?;
-            self.ast.files_by_path.insert(file_path, file.key);
-            self.ast.files_by_name.insert(file.name, file.key);
         }
         self.finalize_files()
     }
     fn finalize_files(&mut self) -> Result<(), Error> {
+        // this method is a hot mess and likely has a lot of room for perf
+        // improvement
+
         let mut dependencies = HashMap::with_capacity(self.ast.files.len());
-        for (dependent_key, dependent) in self.ast.files.iter_mut() {
-            // dbg!(&dependent);
-            // dbg!(&dependent.dependencies);
+        for (dependent_file_key, dependent) in self.ast.files.iter_mut() {
             let mut dep_refs = vec![Vec::new(); dependent.dependencies.direct.len()];
             for reference in &dependent.all_references {
                 let dependency_file_key = match reference.referent {
-                    reference::ReferentKey::Message(msg) => {
-                        let msg = &self.ast.messages[msg];
-                        msg.file
-                    }
+                    reference::ReferentKey::Message(msg) => self.ast.messages[msg].file,
                     reference::ReferentKey::Enum(enm) => self.ast.enums[enm].file,
                 };
-                if dependency_file_key == dependent_key {
+                if dependency_file_key == dependent_file_key {
                     continue;
                 }
 
@@ -84,7 +80,7 @@ impl Hydrator {
 
                 assert!(
                     dep_idx.is_some(),
-                    "could not find dependency {dependency_file_key:?} for {dependent_key:?}\n{:?}\n",
+                    "could not find dependency {dependency_file_key:?} for {dependent_file_key:?}\n{:?}\n",
                     dependent.fqn()
                 );
                 let dep_idx = dep_idx.unwrap();
@@ -96,7 +92,7 @@ impl Hydrator {
                     dependent.dependencies.unused.push(idx);
                 }
             }
-            dependencies.insert(dependent_key, dependent.dependencies.clone());
+            dependencies.insert(dependent_file_key, dependent.dependencies.clone());
         }
         for (dependent_key, dependencies) in dependencies.drain() {
             for dependency in dependencies.direct.iter().as_ref() {
@@ -189,9 +185,13 @@ impl Hydrator {
         } = descriptor;
         let (package, package_fqn) = self.hydrate_package(package);
         let name: Name = name.unwrap().into();
-
+        let path: PathBuf = name.clone().into();
         let fqn = FullyQualifiedName::for_file(&name, package_fqn);
-        let key = self.ast.files.get_or_insert_key(fqn.clone());
+        assert!(!name.is_empty(), "file {name}");
+        let key = self.ast.files.get_or_insert_key(path);
+        // setting it here so that it can be used during hydration of dependencies?
+        self.ast.files[key].name = name.clone();
+
         let location = file_location(source_code_info)?;
         let mut nodes = HashMap::with_capacity(location.node_count);
         self.ast.reserve(location.node_count);
@@ -552,8 +552,7 @@ impl Hydrator {
         let direct_dependencies = dependencies
             .into_iter()
             .map(|dependency| {
-                let fqn = FullyQualifiedName(dependency.into());
-                let dependency = self.ast.files.get_or_insert_key(fqn);
+                let dependency = self.ast.files.get_or_insert_key(dependency.into());
                 dependency::Inner {
                     dependency,
                     dependent,
@@ -562,6 +561,7 @@ impl Hydrator {
             .collect_vec();
         Ok(direct_dependencies)
     }
+
     fn hydrate_value_type_map(
         &mut self,
         key: message::Key,
@@ -585,7 +585,7 @@ impl Hydrator {
         is_repeated: bool,
     ) -> Result<value::TypeInner, InvalidMapKey> {
         let key = self.ast.messages.get_or_insert_key(fqn);
-        let is_map_entry = self.ast.get(key).is_map_entry;
+        let is_map_entry = self.ast.messages[key].is_map_entry;
         if is_map_entry {
             return self.hydrate_value_type_map(key);
         };
@@ -1546,7 +1546,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_() {
-        let cgr = crate::test::cgr::commented();
+        let cgr = crate::test::cgr::extended();
         let ast = Ast::build(cgr.proto_file, &[]).unwrap();
         fs::write("./dbg.rs", format!("{ast:#?}")).unwrap();
     }
