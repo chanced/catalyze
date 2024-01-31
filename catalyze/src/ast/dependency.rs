@@ -131,10 +131,13 @@ pub(super) struct DependenciesInner {
     pub(super) transitive: Vec<Inner>,
     pub(super) public: Vec<usize>,
     pub(super) weak: Vec<usize>,
-    pub(super) unusued: Vec<usize>,
+    pub(super) unused: Vec<usize>,
 }
 
 impl DependenciesInner {
+    pub(crate) fn len(&self) -> usize {
+        self.direct.len()
+    }
     pub(crate) fn new(
         direct: Vec<Inner>,
         public: Vec<i32>,
@@ -174,7 +177,7 @@ impl DependenciesInner {
             transitive,
             public,
             weak,
-            unusued: Vec::new(),
+            unused: Vec::new(),
         })
     }
 }

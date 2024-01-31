@@ -183,8 +183,12 @@ impl File {
         let mut dependencies = Vec::new();
         let mut extensions = Vec::new();
         let mut node_count = 0;
-
         while let Some(loc) = locations.next() {
+            if loc.path.is_empty() {
+                // i dont know why?
+                println!("empty");
+                continue;
+            }
             match path::File::from_i32(loc.path[0]) {
                 path::File::Syntax => {
                     syntax = Some(Detail::new(loc)?);

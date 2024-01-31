@@ -50,22 +50,20 @@ pub(super) struct Inner {
 }
 
 impl Inner {
-    pub(super) fn new(
+    pub(super) fn hydrate(
+        &mut self,
         location: location::Detail,
         file: file::Key,
         package: Option<package::Key>,
         ext_count: usize,
-    ) -> Self {
-        Self {
-            key: Key::default(),
-            span: location.span,
-            node_path: location.path,
-            comments: location.comments,
-            extensions: Vec::with_capacity(ext_count),
-            references: Vec::with_capacity(ext_count),
-            file,
-            package,
-        }
+    ) {
+        self.span = location.span;
+        self.node_path = location.path;
+        self.comments = location.comments;
+        self.file = file;
+        self.package = package;
+        self.extensions = Vec::with_capacity(ext_count);
+        self.references = Vec::with_capacity(ext_count);
     }
 }
 /// A set of [`Extension`] which are defined together in a single message-like

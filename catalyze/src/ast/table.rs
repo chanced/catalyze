@@ -15,7 +15,28 @@ where
     pub(super) index: I,
     pub(super) order: Vec<K>,
 }
-
+impl<K, V, I> Table<K, V, I>
+where
+    K: slotmap::Key,
+{
+    pub(super) fn len(&self) -> usize {
+        self.map.len()
+    }
+    pub(super) fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+}
+impl<K, V, I> Table<K, V, I>
+where
+    K: slotmap::Key,
+    V: Default,
+{
+    pub(super) fn insert_default(&mut self) -> (K, &mut V) {
+        let key = self.map.insert(V::default());
+        self.order.push(key);
+        (key, &mut self.map[key])
+    }
+}
 trait WithCapacity {
     fn with_capacity(len: usize) -> Self;
 }
@@ -93,8 +114,8 @@ where
     pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = (K, &mut V)> {
         self.map.iter_mut()
     }
-    pub(crate) fn keys(&self) -> impl '_ + Iterator<Item = K> {
-        self.order.iter().copied()
+    pub(crate) fn keys(&self) -> &[K] {
+        &self.order
     }
 }
 
@@ -125,9 +146,7 @@ where
             .or_insert_with(|| self.map.insert(fqn.into()));
         let value = &mut self.map[key];
 
-        if value.key() == K::default() {
-            value.set_key(key);
-        }
+        value.set_key(key);
 
         (key, value)
     }

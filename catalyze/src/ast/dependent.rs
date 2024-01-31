@@ -5,13 +5,40 @@ use super::{
     file,
 };
 
+pub(super) struct NewDependent {
+    pub(super) is_unused: bool,
+    pub(super) is_public: bool,
+    pub(super) is_weak: bool,
+    pub(super) dependent: file::Key,
+    pub(super) dependency: file::Key,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(super) struct DependentsInner {
     pub(super) direct: Vec<Inner>,
     pub(super) transitive: Vec<Inner>,
-    pub(super) public: Vec<Inner>,
-    pub(super) weak: Vec<Inner>,
-    pub(super) unusued: Vec<Inner>,
+    pub(super) public: Vec<usize>,
+    pub(super) weak: Vec<usize>,
+    pub(super) unusued: Vec<usize>,
+}
+impl DependentsInner {
+    pub(crate) fn push(&mut self, dep: NewDependent) {
+        let inner = Inner {
+            dependency: dep.dependency,
+            dependent: dep.dependent,
+        };
+        let len = self.direct.len();
+        if dep.is_public {
+            self.public.push(len);
+        }
+        if dep.is_weak {
+            self.weak.push(len);
+        }
+        if dep.is_unused {
+            self.unusued.push(len);
+        }
+        self.direct.push(inner);
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

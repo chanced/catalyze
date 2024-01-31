@@ -1,4 +1,7 @@
-use std::{iter::Copied, option, slice};
+use std::{
+    iter::{Copied, Fuse},
+    option, slice,
+};
 
 use either::Either;
 
@@ -237,21 +240,54 @@ impl From<(method::Key, method::Direction)> for ReferrerKey {
     }
 }
 
+enum ReferencesInner<'ast> {
+    ReferrerKeys {
+        keys: Copied<slice::Iter<'ast, ReferrerKey>>,
+        referent: ReferentKey,
+        ast: &'ast Ast,
+    },
+    Reference {
+        inner: Fuse<option::IntoIter<&'ast Inner>>,
+    },
+    Slice {
+        inner: slice::Iter<'ast, Inner>,
+    },
+}
+
 pub struct References<'ast> {
     ast: &'ast Ast,
-    inner: Either<Copied<slice::Iter<'ast, Inner>>, option::IntoIter<Inner>>,
+    inner: ReferencesInner<'ast>,
 }
 impl<'ast> References<'ast> {
-    pub(crate) fn from_option(opt: Option<Inner>, ast: &'ast Ast) -> Self {
+    pub(super) fn from_option(inner: Option<&'ast Inner>, ast: &'ast Ast) -> References<'ast> {
         Self {
             ast,
-            inner: Either::Right(opt.into_iter()),
+            inner: ReferencesInner::Reference {
+                inner: inner.into_iter().fuse(),
+            },
         }
     }
-    pub(crate) fn from_slice(slice: &'ast [Inner], ast: &'ast Ast) -> Self {
+
+    pub(super) fn from_ref_slice(references: &'ast [Inner], ast: &'ast Ast) -> References<'ast> {
         Self {
             ast,
-            inner: Either::Left(slice.iter().copied()),
+            inner: ReferencesInner::Slice {
+                inner: references.iter(),
+            },
+        }
+    }
+    pub(super) fn from_ref_key_slice(
+        keys: &'ast [ReferrerKey],
+        referent: ReferentKey,
+        ast: &'ast Ast,
+    ) -> References<'ast> {
+        Self {
+            ast,
+            inner: ReferencesInner::ReferrerKeys {
+                keys: keys.iter().copied(),
+                referent,
+                ast,
+            },
         }
     }
 }
@@ -260,9 +296,6 @@ impl<'ast> Iterator for References<'ast> {
     type Item = Reference<'ast>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let Some(next) = self.inner.next() else {
-            return None;
-        };
-        Some(Reference::from_inner(next, self.ast))
+        todo!()
     }
 }

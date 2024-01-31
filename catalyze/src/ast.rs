@@ -177,7 +177,9 @@ impl FullyQualifiedName {
         }
         Self(format!("{container}.{value}").into())
     }
-
+    pub fn for_file(name: &str, package: Option<Self>) -> Self {
+        package.map_or_else(|| Self::new(name, None), |fqn| fqn)
+    }
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -753,18 +755,6 @@ use node_method_new;
 
 // use impl_state;
 
-#[cfg(test)]
-mod test {
-    use protobuf::{plugin::CodeGeneratorRequest, Message};
-    pub(super) fn code_generator_request(bytes: impl AsRef<[u8]>) -> CodeGeneratorRequest {
-        CodeGeneratorRequest::parse_from_bytes(bytes.as_ref()).unwrap()
-    }
-    pub(super) fn commented_cgr() -> CodeGeneratorRequest {
-        code_generator_request(include_bytes!(
-            "../../fixtures/cgr/commented/code_generator_request.bin"
-        ))
-    }
-}
 #[cfg(test)]
 mod tests {
 

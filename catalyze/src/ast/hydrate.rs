@@ -9,16 +9,16 @@ use protobuf::{
     EnumOrUnknown, MessageField,
 };
 use snafu::{Backtrace, ResultExt};
-use std::{iter::Peekable, path::PathBuf, str::FromStr, vec::IntoIter};
+use std::{path::PathBuf, str::FromStr};
 
 use crate::{
-    error::{self, Error, GroupNotSupported, HydrationCtx, HydrationFailed, InvalidMapKey},
+    error::{self, Error, HydrationCtx, HydrationFailed, InvalidMapKey},
     HashMap,
 };
 
 use super::{
-    container, dependency, enum_, enum_value, extension, extension_decl, field, file, location,
-    message, method, node, oneof, package, reference,
+    container, dependency, dependent, enum_, enum_value, extension, extension_decl, field, file,
+    location, message, method, node, oneof, package, reference,
     resolve::Get,
     service,
     value::{self, MapKey},
@@ -56,8 +56,105 @@ impl Hydrator {
             self.ast.files_by_path.insert(file_path, file.key);
             self.ast.files_by_name.insert(file.name, file.key);
         }
+        self.finalize_files()
+    }
+    fn finalize_files(&mut self) -> Result<(), Error> {
+        let mut dependencies = HashMap::with_capacity(self.ast.files.len());
+        for (dependent_key, dependent) in self.ast.files.iter_mut() {
+            // dbg!(&dependent);
+            // dbg!(&dependent.dependencies);
+            let mut dep_refs = vec![Vec::new(); dependent.dependencies.direct.len()];
+            for reference in &dependent.all_references {
+                let dependency_file_key = match reference.referent {
+                    reference::ReferentKey::Message(msg) => {
+                        let msg = &self.ast.messages[msg];
+                        msg.file
+                    }
+                    reference::ReferentKey::Enum(enm) => self.ast.enums[enm].file,
+                };
+                if dependency_file_key == dependent_key {
+                    continue;
+                }
+
+                let dep_idx = dependent
+                    .dependencies
+                    .direct
+                    .iter()
+                    .position(|dep| dep.dependency == dependency_file_key);
+
+                assert!(
+                    dep_idx.is_some(),
+                    "could not find dependency {dependency_file_key:?} for {dependent_key:?}\n{:?}\n",
+                    dependent.fqn()
+                );
+                let dep_idx = dep_idx.unwrap();
+                dep_refs[dep_idx].push(*reference);
+            }
+
+            for (idx, dep_refs) in dep_refs.into_iter().enumerate() {
+                if dep_refs.is_empty() {
+                    dependent.dependencies.unused.push(idx);
+                }
+            }
+            dependencies.insert(dependent_key, dependent.dependencies.clone());
+        }
+        for (dependent_key, dependencies) in dependencies.drain() {
+            for dependency in dependencies.direct.iter().as_ref() {
+                let dependency_file = &mut self.ast.files[dependency.dependency];
+                let idx = dependencies
+                    .direct
+                    .iter()
+                    .position(|dep| dep.dependency == dependency_file.key)
+                    .unwrap();
+                let is_weak = dependencies.weak.contains(&idx);
+                let is_public = dependencies.public.contains(&idx);
+                let is_unused = dependencies.unused.contains(&idx);
+                dependency_file.dependents.push(dependent::NewDependent {
+                    dependent: dependent_key,
+                    dependency: dependency_file.key,
+                    is_public,
+                    is_unused,
+                    is_weak,
+                });
+            }
+        }
+        #[allow(clippy::unnecessary_to_owned)]
+        for file in self.ast.files.keys().to_vec() {
+            let mut transitive_dependents = Vec::new();
+            self.collect_transitive_dependents(file, &mut transitive_dependents);
+            let mut transitive_dependencies = Vec::new();
+            self.collect_transitive_dependencies(file, &mut transitive_dependencies);
+            let file = &mut self.ast.files[file];
+            file.dependencies.transitive = transitive_dependencies;
+            file.dependents.transitive = transitive_dependents;
+        }
+
         Ok(())
     }
+    fn collect_transitive_dependents(
+        &self,
+        key: file::Key,
+        transitive: &mut Vec<dependent::Inner>,
+    ) {
+        transitive.reserve(self.ast.files[key].dependents.direct.len());
+        for dep in self.ast.files[key].dependents.direct.clone() {
+            transitive.push(dep);
+            self.collect_transitive_dependents(dep.dependent, transitive);
+        }
+    }
+
+    fn collect_transitive_dependencies(
+        &self,
+        key: file::Key,
+        transitive: &mut Vec<dependency::Inner>,
+    ) {
+        transitive.reserve(self.ast.files[key].dependencies.direct.len());
+        for dep in self.ast.files[key].dependencies.direct.clone() {
+            transitive.push(dep);
+            self.collect_transitive_dependencies(dep.dependency, transitive);
+        }
+    }
+
     fn hydrate_package(
         &mut self,
         package: Option<String>,
@@ -93,7 +190,7 @@ impl Hydrator {
         let (package, package_fqn) = self.hydrate_package(package);
         let name: Name = name.unwrap().into();
 
-        let fqn = FullyQualifiedName::new(&name, package_fqn);
+        let fqn = FullyQualifiedName::for_file(&name, package_fqn);
         let key = self.ast.files.get_or_insert_key(fqn.clone());
         let location = file_location(source_code_info)?;
         let mut nodes = HashMap::with_capacity(location.node_count);
@@ -231,7 +328,6 @@ impl Hydrator {
         let mut all_refs = Vec::new();
         let name: Name = descriptor.name.unwrap_or_default().into();
         let key = self.ast.messages.get_or_insert_key(fqn.clone());
-
         let enums = self.hydrate_enums(HydrateEnums {
             descriptors: descriptor.enum_type,
             locations: location.enums,
@@ -277,7 +373,7 @@ impl Hydrator {
             mut ext_refs,
         } = self.hydrate_extensions(HydrateExtensions {
             container: key.into(),
-            container_fqn: fqn.clone(),
+            container_fqn: fqn,
             decl_locations: location.extensions,
             ext_descriptors: descriptor.extension,
             file,
@@ -297,7 +393,7 @@ impl Hydrator {
         let msg = self.ast.messages[key].hydrate(message::Hydrate {
             name,
             location: location.detail,
-            all_refs,
+            all_references: all_refs,
             references,
             container,
             package,
@@ -313,6 +409,7 @@ impl Hydrator {
             reserved_names: descriptor.reserved_name,
             extension_range: descriptor.extension_range,
             special_fields: descriptor.special_fields,
+            file,
         })?;
         self.insert_node(nodes, msg)
     }
@@ -430,7 +527,7 @@ impl Hydrator {
 
     #[allow(clippy::unused_self)]
     fn hydrate_reference(
-        &self,
+        &mut self,
         referrer: reference::ReferrerKey,
         type_: value::TypeInner,
     ) -> Option<reference::Inner> {
@@ -443,6 +540,7 @@ impl Hydrator {
             value::Inner::Message(key) => reference::ReferentKey::Message(key),
             value::Inner::Scalar(_) => return None,
         };
+
         Some(reference::Inner { referrer, referent })
     }
 
@@ -468,7 +566,7 @@ impl Hydrator {
         &mut self,
         key: message::Key,
     ) -> Result<value::TypeInner, InvalidMapKey> {
-        let map = self.ast.get(key);
+        let map = &self.ast.messages[key];
         let map_key = self.ast.fields.get(map.fields.get(0).unwrap()).unwrap();
         let map_value = self.ast.fields.get(map.fields.get(1).unwrap()).unwrap();
         let map_key = MapKey::try_from(map_key.type_)?;
@@ -766,10 +864,10 @@ impl Hydrator {
             package,
             nodes,
         } = ext_decl;
-        let inner = extension_decl::Inner::new(location.detail, file, package, descriptors.len());
-        let key = inner.key();
+
+        let (key, ext_decl) = self.ast.extension_decls.insert_default();
+        ext_decl.hydrate(location.detail, file, package, descriptors.len());
         let mut hydrated = ExtensionDeclHydrated::new(key, descriptors.len());
-        let key = self.ast.extension_decls.push(inner);
         let mut extensions = Vec::with_capacity(descriptors.len());
         for (descriptor, location) in descriptors.zip(location.extensions) {
             let fqn = FullyQualifiedName::new(descriptor.name(), Some(container_fqn.clone()));
@@ -840,6 +938,14 @@ impl Hydrator {
             .ast
             .messages
             .get_or_insert_key(FullyQualifiedName(extendee.unwrap().into()));
+
+        // Adds the extension to the extendee message's applied extensions.
+        self.ast
+            .messages
+            .get_mut(extendee)
+            .unwrap()
+            .applied_extensions
+            .push(key);
 
         let extension = self.ast.extensions[key].hydrate(extension::Hydrate {
             name,
@@ -1431,4 +1537,17 @@ fn validate_extension_locations(
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+    #[test]
+    fn test_() {
+        let cgr = crate::test::cgr::commented();
+        let ast = Ast::build(cgr.proto_file, &[]).unwrap();
+        fs::write("./dbg.rs", format!("{ast:#?}")).unwrap();
+    }
 }

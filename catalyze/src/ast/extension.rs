@@ -150,6 +150,6 @@ impl<'ast> Extension<'ast> {
 
 impl<'ast> super::access::References<'ast> for Extension<'ast> {
     fn references(&'ast self) -> super::reference::References<'ast> {
-        References::from_option(self.0.reference, self.ast())
+        References::from_option(self.0.reference.as_ref(), self.ast())
     }
 }

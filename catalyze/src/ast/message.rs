@@ -31,6 +31,7 @@ pub(super) type Table = super::table::Table<Key, Inner>;
 pub(super) struct Hydrate {
     pub(super) name: Name,
     pub(super) container: container::Key,
+    pub(super) file: file::Key,
     pub(super) package: Option<package::Key>,
     pub(super) well_known: Option<WellKnownMessage>,
     pub(super) location: location::Detail,
@@ -48,10 +49,11 @@ pub(super) struct Hydrate {
     pub(super) references: Vec<reference::Inner>,
     /// all references for fields and extensions of this message and those of
     /// nested messages
-    pub(super) all_refs: Vec<reference::Inner>,
+    pub(super) all_references: Vec<reference::Inner>,
     pub(super) options: protobuf::MessageField<MessageOptions>,
 }
 
+/// Message Inner
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Inner {
     pub(super) key: Key,
@@ -64,6 +66,7 @@ pub(super) struct Inner {
     pub(super) package: Option<package::Key>,
     pub(super) file: file::Key,
     pub(super) extensions: Collection<extension::Key>,
+    pub(super) applied_extensions: Vec<extension::Key>,
     pub(super) extension_decls: Vec<extension_decl::Key>,
     pub(super) well_known: Option<WellKnownMessage>,
     pub(super) fields: Collection<field::Key>,
@@ -72,10 +75,14 @@ pub(super) struct Inner {
     pub(super) oneofs: Collection<oneof::Key>,
     pub(super) real_oneofs: Collection<oneof::Key>,
     pub(super) synthetic_oneofs: Collection<oneof::Key>,
-    pub(super) applied_extensions: Collection<extension::Key>,
     pub(super) dependents: Collection<file::Key>,
-    pub(super) referenced_by: Vec<reference::Inner>,
+
+    pub(super) referenced_by: Vec<reference::ReferrerKey>,
+
+    /// references for fields and extensions of this message
     pub(super) references: Vec<reference::Inner>,
+    /// all references for fields and extensions of this message and those of
+    /// nested messages
     pub(super) all_references: Vec<reference::Inner>,
     pub(super) extension_ranges: Vec<ExtensionRange>,
     pub(super) reserved: Reserved,
@@ -106,12 +113,14 @@ impl Inner {
             enums,
             fields,
             references,
-            all_refs,
+            all_references: all_refs,
             oneofs,
             extensions,
             extension_decls,
+            file,
         } = hydrate;
         self.name = name;
+        self.file = file;
         self.package = package;
         self.container = container;
         self.references = references;
@@ -162,12 +171,12 @@ impl<'ast> Message<'ast> {
 }
 impl<'ast> access::References<'ast> for Message<'ast> {
     fn references(&'ast self) -> super::reference::References<'ast> {
-        References::from_slice(&self.0.references, self.ast())
+        References::from_ref_slice(&self.0.references, self.ast())
     }
 }
 impl<'ast> access::ReferencedBy<'ast> for Message<'ast> {
     fn referenced_by(&'ast self) -> super::reference::References<'ast> {
-        References::from_slice(&self.0.referenced_by, self.ast())
+        References::from_ref_key_slice(&self.0.referenced_by, self.key().into(), self.ast())
     }
 }
 

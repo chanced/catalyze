@@ -18,7 +18,7 @@ use super::{
     access::NodeKeys,
     collection::Collection,
     dependency::{self, DependenciesInner},
-    dependent::{self},
+    dependent::{self, DependentsInner},
     enum_, extension, extension_decl, impl_traits_and_methods, location, message, node, package,
     reference,
     resolve::Resolver,
@@ -238,7 +238,7 @@ impl Syntax {
     }
     pub fn parse(s: &str) -> Result<Self, error::UnsupportedSyntax> {
         match s {
-            Self::PROTO2 => Ok(Self::Proto2),
+            Self::PROTO2 | "" => Ok(Self::Proto2),
             Self::PROTO3 => Ok(Self::Proto3),
             _ => Err(crate::error::UnsupportedSyntax {
                 backtrace: Backtrace::capture(),
@@ -359,51 +359,44 @@ pub(super) struct Inner {
     pub(super) fqn: FullyQualifiedName,
     pub(super) name: Name,
     pub(super) path: PathBuf,
-
-    package: Option<package::Key>,
-    messages: Collection<message::Key>,
-    enums: Collection<enum_::Key>,
-    services: Collection<service::Key>,
-    defined_extensions: Collection<extension::Key>,
-    extension_decls: Vec<extension_decl::Key>,
-    dependencies: DependenciesInner,
-    package_comments: Option<location::Comments>,
-    comments: Option<location::Comments>,
-
-    all_rferences: Vec<reference::Inner>,
-    ext_references: Vec<reference::Inner>,
-
-    dependents: dependent::DependentsInner,
-
-    is_build_target: bool,
-    syntax: Syntax,
-
-    nodes: HashMap<FullyQualifiedName, super::node::Key>,
-
-    java_package: Option<String>,
-    java_outer_classname: Option<String>,
-    java_multiple_files: bool,
-    java_generate_equals_and_hash: bool,
-    java_string_check_utf8: bool,
-    java_generic_services: bool,
-    optimize_for: Option<OptimizeMode>,
-    go_package: Option<String>,
-    cc_generic_services: bool,
-    py_generic_services: bool,
-    php_generic_services: bool,
-    deprecated: bool,
-    cc_enable_arenas: bool,
-    objc_class_prefix: Option<String>,
-    csharp_namespace: Option<String>,
-    swift_prefix: Option<String>,
-    php_class_prefix: Option<String>,
-    php_namespace: Option<String>,
-    php_metadata_namespace: Option<String>,
-    ruby_package: Option<String>,
-    uninterpreted_options: Vec<UninterpretedOption>,
-
-    special_fields: SpecialFields,
-    options_special_fields: SpecialFields,
+    pub(super) package: Option<package::Key>,
+    pub(super) messages: Collection<message::Key>,
+    pub(super) enums: Collection<enum_::Key>,
+    pub(super) services: Collection<service::Key>,
+    pub(super) defined_extensions: Collection<extension::Key>,
+    pub(super) extension_decls: Vec<extension_decl::Key>,
+    pub(super) dependencies: DependenciesInner,
+    pub(super) package_comments: Option<location::Comments>,
+    pub(super) comments: Option<location::Comments>,
+    pub(super) all_references: Vec<reference::Inner>,
+    pub(super) ext_references: Vec<reference::Inner>,
+    pub(super) dependents: DependentsInner,
+    pub(super) is_build_target: bool,
+    pub(super) syntax: Syntax,
+    pub(super) nodes: HashMap<FullyQualifiedName, super::node::Key>,
+    pub(super) java_package: Option<String>,
+    pub(super) java_outer_classname: Option<String>,
+    pub(super) java_multiple_files: bool,
+    pub(super) java_generate_equals_and_hash: bool,
+    pub(super) java_string_check_utf8: bool,
+    pub(super) java_generic_services: bool,
+    pub(super) optimize_for: Option<OptimizeMode>,
+    pub(super) go_package: Option<String>,
+    pub(super) cc_generic_services: bool,
+    pub(super) py_generic_services: bool,
+    pub(super) php_generic_services: bool,
+    pub(super) deprecated: bool,
+    pub(super) cc_enable_arenas: bool,
+    pub(super) objc_class_prefix: Option<String>,
+    pub(super) csharp_namespace: Option<String>,
+    pub(super) swift_prefix: Option<String>,
+    pub(super) php_class_prefix: Option<String>,
+    pub(super) php_namespace: Option<String>,
+    pub(super) php_metadata_namespace: Option<String>,
+    pub(super) ruby_package: Option<String>,
+    pub(super) uninterpreted_options: Vec<UninterpretedOption>,
+    pub(super) special_fields: SpecialFields,
+    pub(super) options_special_fields: SpecialFields,
 }
 
 impl NodeKeys for Inner {
@@ -460,7 +453,7 @@ impl Inner {
         self.special_fields = special_fields;
         self.dependencies =
             DependenciesInner::new(dependencies, public_dependencies, weak_dependencies)?;
-        self.all_rferences = all_references;
+        self.all_references = all_references;
         self.ext_references = ext_references;
         self.package_comments = package_comments.and_then(|c| c.comments);
         self.comments = comments.and_then(|c| c.comments);
