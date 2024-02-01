@@ -12,7 +12,7 @@ for code generators based on [Protocol Buffers](https://protobuf.dev/).
 ## Roadmap
 
 -   [x] Fully materialized Abstract Syntax Tree (AST)
--   [x] Complete encapsulation of the [`protobuf`](https://github.com/stepancheg/rust-protobuf/) crate
+-   [ ] Complete encapsulation of the [`protobuf`](https://github.com/stepancheg/rust-protobuf/) crate
 -   [ ] Context support for the following crates:
     -   [ ] [`tokio-rs/prost`](https://github.com/tokio-rs/prost)
     -   [ ] [`hyperium/tonic`](https://github.com/hyperium/tonic)

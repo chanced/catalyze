@@ -475,6 +475,10 @@ impl Hydrator {
             nodes,
         } = field;
 
+        if fqn == ".extended.Validated.value" {
+            println!("here");
+        }
+
         let FieldDescriptorProto {
             name,
             number,

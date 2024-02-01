@@ -185,8 +185,6 @@ impl File {
         let mut node_count = 0;
         while let Some(loc) = locations.next() {
             if loc.path.is_empty() {
-                // i dont know why?
-                println!("empty");
                 continue;
             }
             match path::File::from_i32(loc.path[0]) {
