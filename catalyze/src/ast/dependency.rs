@@ -8,9 +8,9 @@ use crate::error::{self, InvalidIndex};
 use super::{file, map_try_into_usize, Ast};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Inner {
-    pub(super) dependency: file::Key,
-    pub(super) dependent: file::Key,
+pub(super) struct DependencyInner {
+    pub(super) dependency: file::FileKey,
+    pub(super) dependent: file::FileKey,
 }
 
 pub struct Dependency<'ast> {
@@ -62,7 +62,7 @@ pub struct Dependencies<'ast> {
 
 impl<'ast> Dependencies<'ast> {
     pub(super) fn new(
-        direct: Vec<Inner>,
+        direct: Vec<DependencyInner>,
         public: Vec<i32>,
         weak: Vec<i32>,
         ast: &'ast Ast,
@@ -74,13 +74,13 @@ impl<'ast> Dependencies<'ast> {
 
 pub struct Iter<'ast> {
     ast: &'ast Ast,
-    slice: &'ast [Inner],
+    slice: &'ast [DependencyInner],
     cursor: usize,
     indexes: Option<Copied<std::slice::Iter<'ast, usize>>>,
 }
 impl<'ast> Iter<'ast> {
     pub(super) fn new(
-        direct: &'ast [Inner],
+        direct: &'ast [DependencyInner],
         indexes: Option<&'ast [usize]>,
         ast: &'ast Ast,
     ) -> Self {
@@ -127,8 +127,8 @@ impl<'ast> ExactSizeIterator for Iter<'ast> {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct DependenciesInner {
-    pub(super) direct: Vec<Inner>,
-    pub(super) transitive: Vec<Inner>,
+    pub(super) direct: Vec<DependencyInner>,
+    pub(super) transitive: Vec<DependencyInner>,
     pub(super) public: Vec<usize>,
     pub(super) weak: Vec<usize>,
     pub(super) unused: Vec<usize>,
@@ -139,7 +139,7 @@ impl DependenciesInner {
         self.direct.len()
     }
     pub(crate) fn new(
-        direct: Vec<Inner>,
+        direct: Vec<DependencyInner>,
         public: Vec<i32>,
         weak: Vec<i32>,
     ) -> Result<Self, error::HydrationFailed> {

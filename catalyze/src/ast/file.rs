@@ -3,7 +3,10 @@ use crate::{
     HashMap,
 };
 use protobuf::{
-    descriptor::{file_options::OptimizeMode as ProtoOptimizeMode, FileOptions},
+    descriptor::{
+        self, file_options::OptimizeMode as ProtoOptimizeMode, uninterpreted_option,
+        FileOptions as ProtoFileOpts,
+    },
     SpecialFields,
 };
 use snafu::Backtrace;
@@ -16,7 +19,7 @@ use std::{
 };
 
 use super::{
-    access::NodeKeys,
+    access::{AccessName, AccessNodeKeys},
     collection::Collection,
     dependency::{self, DependenciesInner},
     dependent::DependentsInner,
@@ -30,40 +33,23 @@ use super::{
 
 slotmap::new_key_type! {
     #[doc(hidden)]
-    pub struct Key;
+    pub struct FileKey;
 }
-pub type Ident = node::Ident<Key>;
+pub type Ident = node::Ident<FileKey>;
 
 pub(super) trait SetPath {
     fn set_path(&mut self, path: PathBuf);
 }
 
-pub(super) struct Hydrate {
-    pub(super) name: Name,
-    pub(super) syntax: Option<String>,
-    pub(super) options: protobuf::MessageField<FileOptions>,
-    pub(super) package: Option<package::Key>,
-    pub(super) messages: Vec<message::Ident>,
-    pub(super) enums: Vec<enum_::Ident>,
-    pub(super) services: Vec<service::Ident>,
-    pub(super) extensions: Vec<extension::Ident>,
-    pub(super) extension_decls: Vec<extension_decl::Key>,
-    pub(super) dependencies: Vec<dependency::Inner>,
-    pub(super) public_dependencies: Vec<i32>,
-    pub(super) weak_dependencies: Vec<i32>,
-    pub(super) ext_references: Vec<reference::Inner>,
-    pub(super) all_references: Vec<reference::Inner>,
-    pub(super) package_comments: Option<location::Detail>,
-    pub(super) comments: Option<location::Detail>,
-    pub(super) is_build_target: bool,
-    pub(super) special_fields: SpecialFields,
-    pub(super) nodes: HashMap<FullyQualifiedName, node::Key>,
-}
-
-pub struct File<'ast>(Resolver<'ast, Key, Inner>);
-impl_traits_and_methods!(File, Key, Inner);
+pub struct File<'ast>(pub(super) Resolver<'ast, FileKey, FileInner>);
+impl_traits_and_methods!(File, FileKey, FileInner);
 
 impl<'ast> File<'ast> {
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.0.name
+    }
+
     #[must_use]
     pub fn path(&self) -> &Path {
         self.0.path.as_ref()
@@ -78,136 +64,10 @@ impl<'ast> File<'ast> {
     pub fn syntax(&self) -> Syntax {
         self.0.syntax
     }
-
-    #[must_use]
-    pub fn java_multiple_files(&self) -> bool {
-        self.0.java_multiple_files
-    }
-
-    #[must_use]
-    pub fn java_package(&self) -> Option<&str> {
-        self.0.java_package.as_deref()
-    }
-
-    #[must_use]
-    pub fn java_outer_classname(&self) -> Option<&str> {
-        self.0.java_outer_classname.as_deref()
-    }
-
-    #[must_use]
-    pub fn java_generate_equals_and_hash(&self) -> bool {
-        self.0.java_generate_equals_and_hash
-    }
-
-    #[must_use]
-    pub fn java_string_check_utf8(&self) -> bool {
-        self.0.java_string_check_utf8
-    }
-
-    #[must_use]
-    pub fn optimize_for(&self) -> Option<OptimizeMode> {
-        self.0.optimize_for
-    }
-
-    #[must_use]
-    pub fn go_package(&self) -> Option<&str> {
-        self.0.go_package.as_deref()
-    }
-
-    #[must_use]
-    pub fn cc_generic_services(&self) -> bool {
-        self.0.cc_generic_services
-    }
-
-    #[must_use]
-    pub fn java_generic_services(&self) -> bool {
-        self.0.java_generic_services
-    }
-
-    #[must_use]
-    pub fn py_generic_services(&self) -> bool {
-        self.0.py_generic_services
-    }
-
-    #[must_use]
-    pub fn php_generic_services(&self) -> bool {
-        self.0.php_generic_services
-    }
-
-    ///  Is this file deprecated?
-    ///  Depending on the target platform, this can emit Deprecated annotations
-    ///  for everything in the file, or it will be completely ignored; in the
-    /// very  least, this is a formalization for deprecating files.
-    #[must_use]
-    pub fn deprecated(&self) -> bool {
-        self.0.deprecated
-    }
-
-    ///  Enables the use of arenas for the proto messages in this file. This
-    /// applies  only to generated classes for C++.
-    #[must_use]
-    pub fn cc_enable_arenas(&self) -> bool {
-        self.0.cc_enable_arenas
-    }
-
-    ///  Sets the objective c class prefix which is prepended to all objective c
-    ///  generated classes from this .proto. There is no default.
-    #[must_use]
-    pub fn objc_class_prefix(&self) -> Option<&str> {
-        self.0.objc_class_prefix.as_deref()
-    }
-
-    ///  Namespace for generated classes; defaults to the package.
-    #[must_use]
-    pub fn csharp_namespace(&self) -> Option<&str> {
-        self.0.csharp_namespace.as_deref()
-    }
-
-    ///  By default Swift generators will take the proto package and CamelCase
-    /// it  replacing '.' with underscore and use that to prefix the
-    /// types/symbols  defined. When this options is provided, they will use
-    /// this value instead  to prefix the types/symbols defined.
-    #[must_use]
-    pub fn swift_prefix(&self) -> Option<&str> {
-        self.0.swift_prefix.as_deref()
-    }
-
-    ///  Sets the php class prefix which is prepended to all php generated
-    /// classes  from this .proto. Default is empty.
-    #[must_use]
-    pub fn php_class_prefix(&self) -> Option<&str> {
-        self.0.php_class_prefix.as_deref()
-    }
-
-    ///  Use this option to change the namespace of php generated classes.
-    /// Default  is empty. When this option is empty, the package name will
-    /// be used for  determining the namespace.
-    #[must_use]
-    pub fn php_namespace(&self) -> Option<&str> {
-        self.0.php_namespace.as_deref()
-    }
-
-    ///  Use this option to change the namespace of php generated metadata
-    /// classes.  Default is empty. When this option is empty, the proto
-    /// file name will be  used for determining the namespace.
-    #[must_use]
-    pub fn php_metadata_namespace(&self) -> Option<&str> {
-        self.0.php_metadata_namespace.as_deref()
-    }
-
-    ///  Use this option to change the package of ruby generated classes.
-    /// Default  is empty. When this option is not set, the package name
-    /// will be used for  determining the ruby package.
-    #[must_use]
-    pub fn ruby_package(&self) -> Option<&str> {
-        self.0.ruby_package.as_deref()
-    }
-
-    ///  The parser stores options it doesn't recognize here.
-    ///  See the documentation for the "Options" section above.
-    #[must_use]
-    pub fn uninterpreted_option(&self) -> &[UninterpretedOption] {
-        &self.0.uninterpreted_options
+}
+impl<'ast> AccessName for File<'ast> {
+    fn name(&self) -> &str {
+        &self.0.name
     }
 }
 
@@ -307,7 +167,7 @@ pub enum OptimizeMode {
 
 impl OptimizeMode {
     /// Returns `true` if the optimize mode is [`Speed`].
-    ///
+    //
     /// [`Speed`]: OptimizeMode::Speed
     #[must_use]
     pub const fn is_speed(self) -> bool {
@@ -358,53 +218,34 @@ impl From<protobuf::descriptor::file_options::OptimizeMode> for OptimizeMode {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 #[doc(hidden)]
-pub(super) struct Inner {
-    pub(super) key: Key,
+pub(super) struct FileInner {
+    pub(super) key: FileKey,
     pub(super) fqn: FullyQualifiedName,
     pub(super) name: Name,
     pub(super) path: PathBuf,
-    pub(super) package: Option<package::Key>,
-    pub(super) messages: Collection<message::Key>,
-    pub(super) enums: Collection<enum_::Key>,
-    pub(super) services: Collection<service::Key>,
-    pub(super) defined_extensions: Collection<extension::Key>,
-    pub(super) extension_decls: Vec<extension_decl::Key>,
+    pub(super) package: Option<package::PackageKey>,
+    pub(super) messages: Collection<message::MessageKey>,
+    pub(super) enums: Collection<enum_::EnumKey>,
+    pub(super) services: Collection<service::ServiceKey>,
+    pub(super) defined_extensions: Collection<extension::ExtensionKey>,
+    pub(super) extension_decls: Vec<extension_decl::ExtensionDeclKey>,
     pub(super) dependencies: DependenciesInner,
     pub(super) package_comments: Option<location::Comments>,
     pub(super) comments: Option<location::Comments>,
-    pub(super) all_references: Vec<reference::Inner>,
-    pub(super) ext_references: Vec<reference::Inner>,
+    pub(super) all_references: Vec<reference::ReferenceInner>,
+    pub(super) ext_references: Vec<reference::ReferenceInner>,
     pub(super) dependents: DependentsInner,
     pub(super) is_build_target: bool,
     pub(super) syntax: Syntax,
-    pub(super) nodes: HashMap<FullyQualifiedName, super::node::Key>,
-    pub(super) java_package: Option<String>,
-    pub(super) java_outer_classname: Option<String>,
-    pub(super) java_multiple_files: bool,
-    pub(super) java_generate_equals_and_hash: bool,
-    pub(super) java_string_check_utf8: bool,
-    pub(super) java_generic_services: bool,
-    pub(super) optimize_for: Option<OptimizeMode>,
-    pub(super) go_package: Option<String>,
-    pub(super) cc_generic_services: bool,
-    pub(super) py_generic_services: bool,
-    pub(super) php_generic_services: bool,
-    pub(super) deprecated: bool,
-    pub(super) cc_enable_arenas: bool,
-    pub(super) objc_class_prefix: Option<String>,
-    pub(super) csharp_namespace: Option<String>,
-    pub(super) swift_prefix: Option<String>,
-    pub(super) php_class_prefix: Option<String>,
-    pub(super) php_namespace: Option<String>,
-    pub(super) php_metadata_namespace: Option<String>,
-    pub(super) ruby_package: Option<String>,
-    pub(super) uninterpreted_options: Vec<UninterpretedOption>,
+    pub(super) nodes: HashMap<FullyQualifiedName, super::node::NodeKey>,
     pub(super) special_fields: SpecialFields,
     pub(super) options_special_fields: SpecialFields,
+    pub(super) options: FileOptions,
+    pub(super) proto_opts: descriptor::FileOptions,
 }
 
-impl NodeKeys for Inner {
-    fn keys(&self) -> impl Iterator<Item = super::node::Key> {
+impl AccessNodeKeys for FileInner {
+    fn keys(&self) -> impl Iterator<Item = super::node::NodeKey> {
         std::iter::empty()
             .chain(self.messages.iter().copied().map(Into::into))
             .chain(self.enums.iter().copied().map(Into::into))
@@ -413,12 +254,194 @@ impl NodeKeys for Inner {
     }
 }
 
-impl SetPath for Inner {
+impl SetPath for FileInner {
     fn set_path(&mut self, path: PathBuf) {
         self.set_path_and_name(path);
     }
 }
-impl Inner {
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FileOptions {
+    pub java_package: Option<String>,
+    pub java_outer_classname: Option<String>,
+    pub java_multiple_files: Option<bool>,
+    pub java_generate_equals_and_hash: Option<bool>,
+    pub java_string_check_utf8: Option<bool>,
+    pub java_generic_services: Option<bool>,
+    pub optimize_for: Option<OptimizeMode>,
+    pub go_package: Option<String>,
+    pub cc_generic_services: Option<bool>,
+    pub py_generic_services: Option<bool>,
+    pub php_generic_services: Option<bool>,
+    pub deprecated: Option<bool>,
+    pub cc_enable_arenas: Option<bool>,
+    pub objc_class_prefix: Option<String>,
+    pub csharp_namespace: Option<String>,
+    pub swift_prefix: Option<String>,
+    pub php_class_prefix: Option<String>,
+    pub php_namespace: Option<String>,
+    pub php_metadata_namespace: Option<String>,
+    pub ruby_package: Option<String>,
+    pub uninterpreted_options: Vec<UninterpretedOption>,
+    pub special_fields: SpecialFields,
+}
+impl FileOptions {
+    fn hydrate(&mut self, opts: &mut descriptor::FileOptions) {
+        self.java_package = opts.java_package.take();
+        self.java_outer_classname = opts.java_outer_classname.take();
+        self.java_multiple_files = opts.java_multiple_files.take();
+        self.java_generate_equals_and_hash = opts.java_generate_equals_and_hash.take();
+        self.java_string_check_utf8 = opts.java_string_check_utf8.take();
+        self.java_generic_services = opts.java_generic_services.take();
+        self.optimize_for = opts.optimize_for.take().map(Into::into);
+        self.go_package = opts.go_package.take();
+        self.cc_generic_services = opts.cc_generic_services.take();
+        self.py_generic_services = opts.py_generic_services.take();
+        self.php_generic_services = opts.php_generic_services.take();
+        self.deprecated = opts.deprecated.take();
+        self.cc_enable_arenas = opts.cc_enable_arenas.take();
+        self.objc_class_prefix = opts.objc_class_prefix.take();
+        self.csharp_namespace = opts.csharp_namespace.take();
+        self.swift_prefix = opts.swift_prefix.take();
+        self.php_class_prefix = opts.php_class_prefix.take();
+        self.php_namespace = opts.php_namespace.take();
+        self.php_metadata_namespace = opts.php_metadata_namespace.take();
+        self.ruby_package = opts.ruby_package.take();
+        let uninterpreted_options = std::mem::take(&mut opts.uninterpreted_option);
+        self.uninterpreted_options = uninterpreted_options.into_iter().map(Into::into).collect();
+    }
+    #[must_use]
+    pub fn java_multiple_files(&self) -> bool {
+        self.java_multiple_files.unwrap_or(false)
+    }
+
+    #[must_use]
+    pub fn java_package(&self) -> Option<&str> {
+        self.java_package.as_deref()
+    }
+
+    #[must_use]
+    pub fn java_outer_classname(&self) -> Option<&str> {
+        self.java_outer_classname.as_deref()
+    }
+
+    #[must_use]
+    pub fn java_generate_equals_and_hash(&self) -> bool {
+        self.java_generate_equals_and_hash.unwrap_or(false)
+    }
+
+    #[must_use]
+    pub fn java_string_check_utf8(&self) -> bool {
+        self.java_string_check_utf8.unwrap_or(false)
+    }
+
+    #[must_use]
+    pub fn optimize_for(&self) -> Option<OptimizeMode> {
+        self.optimize_for
+    }
+
+    #[must_use]
+    pub fn go_package(&self) -> Option<&str> {
+        self.go_package.as_deref()
+    }
+
+    #[must_use]
+    pub fn cc_generic_services(&self) -> bool {
+        self.cc_generic_services.unwrap_or(false)
+    }
+
+    #[must_use]
+    pub fn java_generic_services(&self) -> bool {
+        self.java_generic_services.unwrap_or(false)
+    }
+
+    #[must_use]
+    pub fn py_generic_services(&self) -> bool {
+        self.py_generic_services.unwrap_or(false)
+    }
+
+    #[must_use]
+    pub fn php_generic_services(&self) -> bool {
+        self.php_generic_services.unwrap_or(false)
+    }
+
+    ///  Is this file deprecated?
+    ///  Depending on the target platform, this can emit Deprecated annotations
+    ///  for everything in the file, or it will be completely ignored; in the
+    /// very  least, this is a formalization for deprecating files.
+    #[must_use]
+    pub fn deprecated(&self) -> bool {
+        self.deprecated.unwrap_or(false)
+    }
+
+    ///  Enables the use of arenas for the proto messages in this file. This
+    /// applies  only to generated classes for C++.
+    #[must_use]
+    pub fn cc_enable_arenas(&self) -> bool {
+        self.cc_enable_arenas.unwrap_or(false)
+    }
+
+    ///  Sets the objective c class prefix which is prepended to all objective c
+    ///  generated classes from this .proto. There is no default.
+    #[must_use]
+    pub fn objc_class_prefix(&self) -> Option<&str> {
+        self.objc_class_prefix.as_deref()
+    }
+
+    ///  Namespace for generated classes; defaults to the package.
+    #[must_use]
+    pub fn csharp_namespace(&self) -> Option<&str> {
+        self.csharp_namespace.as_deref()
+    }
+
+    ///  By default Swift generators will take the proto package and CamelCase
+    /// it  replacing '.' with underscore and use that to prefix the
+    /// types/symbols  defined. When this options is provided, they will use
+    /// this value instead  to prefix the types/symbols defined.
+    #[must_use]
+    pub fn swift_prefix(&self) -> Option<&str> {
+        self.swift_prefix.as_deref()
+    }
+
+    ///  Sets the php class prefix which is prepended to all php generated
+    /// classes  from this .proto. Default is empty.
+    #[must_use]
+    pub fn php_class_prefix(&self) -> Option<&str> {
+        self.php_class_prefix.as_deref()
+    }
+
+    ///  Use this option to change the namespace of php generated classes.
+    /// Default  is empty. When this option is empty, the package name will
+    /// be used for  determining the namespace.
+    #[must_use]
+    pub fn php_namespace(&self) -> Option<&str> {
+        self.php_namespace.as_deref()
+    }
+
+    ///  Use this option to change the namespace of php generated metadata
+    /// classes.  Default is empty. When this option is empty, the proto
+    /// file name will be  used for determining the namespace.
+    #[must_use]
+    pub fn php_metadata_namespace(&self) -> Option<&str> {
+        self.php_metadata_namespace.as_deref()
+    }
+
+    ///  Use this option to change the package of ruby generated classes.
+    /// Default  is empty. When this option is not set, the package name
+    /// will be used for  determining the ruby package.
+    #[must_use]
+    pub fn ruby_package(&self) -> Option<&str> {
+        self.ruby_package.as_deref()
+    }
+
+    ///  The parser stores options it doesn't recognize here.
+    ///  See the documentation for the "Options" section above.
+    #[must_use]
+    pub fn uninterpreted_option(&self) -> &[UninterpretedOption] {
+        &self.uninterpreted_options
+    }
+}
+impl FileInner {
     pub(super) fn set_name_and_path(&mut self, name: Name) {
         self.path = PathBuf::from(name.as_ref());
         self.name = name;
@@ -431,11 +454,11 @@ impl Inner {
     pub(super) fn hydrate(
         &mut self,
         hydrate: Hydrate,
-    ) -> Result<node::Ident<Key>, crate::error::HydrationFailed> {
+    ) -> Result<node::Ident<FileKey>, crate::error::HydrationFailed> {
         let Hydrate {
             name,
             syntax,
-            options,
+            mut options,
             package,
             messages,
             enums,
@@ -472,40 +495,9 @@ impl Inner {
         self.comments = comments.and_then(|c| c.comments);
         self.is_build_target = hydrate.is_build_target;
         self.nodes = nodes;
-        self.hydrate_options(options.unwrap_or_default())?;
+        self.options.hydrate(&mut options);
+        self.proto_opts = options;
         Ok(self.into())
-    }
-    /// Hydrates the data within the descriptor.
-    ///
-    /// Note: References and nested nodes are not hydrated.
-    fn hydrate_options(&mut self, opts: FileOptions) -> Result<(), HydrationFailed> {
-        self.java_package = opts.java_package;
-        self.java_outer_classname = opts.java_outer_classname;
-        self.java_multiple_files = opts.java_multiple_files.unwrap_or(false);
-        self.java_generate_equals_and_hash = opts.java_generate_equals_and_hash.unwrap_or(false);
-        self.java_string_check_utf8 = opts.java_string_check_utf8.unwrap_or(false);
-        self.java_generic_services = opts.java_generic_services.unwrap_or(false);
-        self.optimize_for = opts.optimize_for.map(Into::into);
-        self.go_package = opts.go_package;
-        self.cc_generic_services = opts.cc_generic_services.unwrap_or(false);
-        self.py_generic_services = opts.py_generic_services.unwrap_or(false);
-        self.php_generic_services = opts.php_generic_services.unwrap_or(false);
-        self.deprecated = opts.deprecated.unwrap_or(false);
-        self.cc_enable_arenas = opts.cc_enable_arenas.unwrap_or(false);
-        self.objc_class_prefix = opts.objc_class_prefix;
-        self.csharp_namespace = opts.csharp_namespace;
-        self.swift_prefix = opts.swift_prefix;
-        self.php_class_prefix = opts.php_class_prefix;
-        self.php_namespace = opts.php_namespace;
-        self.php_metadata_namespace = opts.php_metadata_namespace;
-        self.ruby_package = opts.ruby_package;
-        self.uninterpreted_options = opts
-            .uninterpreted_option
-            .into_iter()
-            .map(Into::into)
-            .collect();
-        self.options_special_fields = opts.special_fields;
-        Ok(())
     }
 }
 
@@ -554,17 +546,17 @@ impl Inner {
 // }
 
 #[derive(Debug, Clone, Default)]
-pub(super) struct Table(table::Table<Key, Inner, HashMap<PathBuf, Key>>);
+pub(super) struct Table(table::Table<FileKey, FileInner, HashMap<PathBuf, FileKey>>);
 impl Table {
     pub(super) fn with_capacity(capacity: usize) -> Self {
         Self(table::Table::with_capacity(capacity))
     }
-    pub(super) fn get_by_name(&self, name: &str) -> Option<&Inner> {
+    pub(super) fn get_by_name(&self, name: &str) -> Option<&FileInner> {
         self.0.iter().find(|(_, v)| v.name == *name).map(|(_, v)| v)
     }
 }
 impl Deref for Table {
-    type Target = table::Table<Key, Inner, HashMap<PathBuf, Key>>;
+    type Target = table::Table<FileKey, FileInner, HashMap<PathBuf, FileKey>>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -573,4 +565,26 @@ impl DerefMut for Table {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
+}
+
+pub(super) struct Hydrate {
+    pub(super) name: Name,
+    pub(super) syntax: Option<String>,
+    pub(super) options: ProtoFileOpts,
+    pub(super) package: Option<package::PackageKey>,
+    pub(super) messages: Vec<message::Ident>,
+    pub(super) enums: Vec<enum_::EnumIdent>,
+    pub(super) services: Vec<service::Ident>,
+    pub(super) extensions: Vec<extension::Ident>,
+    pub(super) extension_decls: Vec<extension_decl::ExtensionDeclKey>,
+    pub(super) dependencies: Vec<dependency::DependencyInner>,
+    pub(super) public_dependencies: Vec<i32>,
+    pub(super) weak_dependencies: Vec<i32>,
+    pub(super) ext_references: Vec<reference::ReferenceInner>,
+    pub(super) all_references: Vec<reference::ReferenceInner>,
+    pub(super) package_comments: Option<location::Location>,
+    pub(super) comments: Option<location::Location>,
+    pub(super) is_build_target: bool,
+    pub(super) special_fields: SpecialFields,
+    pub(super) nodes: HashMap<FullyQualifiedName, node::NodeKey>,
 }

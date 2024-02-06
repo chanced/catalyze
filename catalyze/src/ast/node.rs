@@ -3,85 +3,58 @@ use std::fmt;
 use crate::HashMap;
 
 use super::{
-    enum_::{self, Enum},
-    enum_value::{self, EnumValue},
-    extension::{self, Extension},
-    field::{self, Field},
-    file::{self},
-    message::{self, Message},
-    method::{self, Method},
-    oneof::{self, Oneof},
-    package::{self},
-    service::{self, Service},
+    access::AccessName,
+    enum_::{self, Enum, EnumInner, EnumKey},
+    enum_value::{self, EnumValue, EnumValueInner, EnumValueKey},
+    extension::{self, Extension, ExtensionInner, ExtensionKey},
+    field::{self, Field, FieldInner, FieldKey},
+    file::{self, FileInner, FileKey},
+    message::{self, Message, MessageInner, MessageKey},
+    method::{self, Method, MethodInner, MethodKey},
+    oneof::{self, Oneof, OneofInner, OneofKey},
+    package::{self, PackageInner, PackageKey},
+    service::{self, Service, ServiceInner, ServiceKey},
     FullyQualifiedName, Name,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Key {
-    Package(package::Key),
-    File(file::Key),
-    Message(message::Key),
-    Enum(enum_::Key),
-    EnumValue(enum_value::Key),
-    Service(service::Key),
-    Method(method::Key),
-    Field(field::Key),
-    Oneof(oneof::Key),
-    Extension(extension::Key),
+pub(super) enum NodeKey {
+    Package(package::PackageKey),
+    File(file::FileKey),
+    Message(message::MessageKey),
+    Enum(enum_::EnumKey),
+    EnumValue(enum_value::EnumValueKey),
+    Service(service::ServiceKey),
+    Method(method::MethodKey),
+    Field(field::FieldKey),
+    Oneof(oneof::OneofKey),
+    Extension(extension::ExtensionKey),
+}
+macro_rules! impl_from {
+    ($($var:ident @ $key:ident,)+) => {
+        $(
+            impl From<$key> for NodeKey {
+                fn from(key: $key) -> Self {
+                    Self::$var(key)
+                }
+            }
+        )+
+    };
 }
 
-pub(super) type Map = HashMap<FullyQualifiedName, Key>;
-
-impl From<package::Key> for Key {
-    fn from(key: package::Key) -> Self {
-        Self::Package(key)
-    }
-}
-impl From<file::Key> for Key {
-    fn from(key: file::Key) -> Self {
-        Self::File(key)
-    }
-}
-impl From<message::Key> for Key {
-    fn from(key: message::Key) -> Self {
-        Self::Message(key)
-    }
-}
-impl From<enum_::Key> for Key {
-    fn from(key: enum_::Key) -> Self {
-        Self::Enum(key)
-    }
-}
-impl From<enum_value::Key> for Key {
-    fn from(key: enum_value::Key) -> Self {
-        Self::EnumValue(key)
-    }
-}
-impl From<service::Key> for Key {
-    fn from(key: service::Key) -> Self {
-        Self::Service(key)
-    }
-}
-impl From<method::Key> for Key {
-    fn from(key: method::Key) -> Self {
-        Self::Method(key)
-    }
-}
-impl From<field::Key> for Key {
-    fn from(key: field::Key) -> Self {
-        Self::Field(key)
-    }
-}
-impl From<oneof::Key> for Key {
-    fn from(key: oneof::Key) -> Self {
-        Self::Oneof(key)
-    }
-}
-impl From<extension::Key> for Key {
-    fn from(key: extension::Key) -> Self {
-        Self::Extension(key)
-    }
-}
+impl_from!(
+    Package @ PackageKey,
+    File @ FileKey,
+    Message @ MessageKey,
+    Enum @ EnumKey,
+    EnumValue @ EnumValueKey,
+    Service @ ServiceKey,
+    Method @ MethodKey,
+    Field @ FieldKey,
+    Oneof @ OneofKey,
+    Extension @ ExtensionKey,
+);
+pub(super) type Map = HashMap<FullyQualifiedName, NodeKey>;
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum Node<'ast> {
@@ -94,10 +67,25 @@ pub enum Node<'ast> {
     Field(Field<'ast>),
     Extension(Extension<'ast>),
 }
+macro_rules! impl_from {
+    ($($var:ident,)+) => {
+        $(
+            impl<'ast> From<$var<'ast>> for Node<'ast> {
+                fn from(inner: $var<'ast>) -> Self {
+                    Self::$var(inner)
+                }
+            }
+        )+
+    };
+}
+
+impl_from!(
+    Message, Oneof, Enum, EnumValue, Service, Method, Field, Extension,
+);
 
 macro_rules! delegate {
-    ($method: ident) => {
-        match self {
+    ($self:ident, $method: ident) => {
+        match $self {
             Self::Message(n) => n.$method(),
             Self::Oneof(n) => n.$method(),
             Self::Enum(n) => n.$method(),
@@ -108,6 +96,12 @@ macro_rules! delegate {
             Self::Extension(n) => n.$method(),
         }
     };
+}
+
+impl<'ast> AccessName for Node<'ast> {
+    fn name(&self) -> &str {
+        delegate!(self, name)
+    }
 }
 
 impl fmt::Debug for Node<'_> {
@@ -131,7 +125,7 @@ pub trait AsNode<'ast>: Into<Node<'ast>> + Copy {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// A node's key, fully-qualified name, name, and node path.
 pub struct Ident<K> {
     pub(super) key: K,
@@ -141,9 +135,9 @@ pub struct Ident<K> {
 
 impl<K> Ident<K>
 where
-    K: Copy + Into<Key>,
+    K: Copy + Into<NodeKey>,
 {
-    pub(super) fn node_key(&self) -> Key {
+    pub(super) fn node_key(&self) -> NodeKey {
         self.key.into()
     }
     pub(super) fn fqn(&self) -> FullyQualifiedName {
@@ -152,9 +146,9 @@ where
 }
 impl<K> Ident<K>
 where
-    K: Copy + Into<Key>,
+    K: Copy + Into<NodeKey>,
 {
-    pub(super) fn as_node_entry(&self) -> (FullyQualifiedName, Key) {
+    pub(super) fn as_node_entry(&self) -> (FullyQualifiedName, NodeKey) {
         (self.fqn.clone(), self.key.into())
     }
 }
@@ -162,9 +156,9 @@ where
 pub(super) trait IdentIterExt<'iter, K>: Iterator<Item = &'iter Ident<K>>
 where
     Self: Sized,
-    K: 'static + Copy + Into<Key>,
+    K: 'static + Copy + Into<NodeKey>,
 {
-    fn into_entries(self) -> impl Iterator<Item = (FullyQualifiedName, Key)> {
+    fn into_entries(self) -> impl Iterator<Item = (FullyQualifiedName, NodeKey)> {
         self.map(Ident::as_node_entry)
     }
 }
@@ -172,13 +166,13 @@ where
 impl<'iter, I, K> IdentIterExt<'iter, K> for I
 where
     I: Iterator<Item = &'iter Ident<K>> + Sized,
-    K: 'static + Copy + Into<Key>,
+    K: 'static + Copy + Into<NodeKey>,
 {
 }
 
-impl<K> From<&Ident<K>> for (Key, FullyQualifiedName)
+impl<K> From<&Ident<K>> for (NodeKey, FullyQualifiedName)
 where
-    K: Copy + Into<Key>,
+    K: Copy + Into<NodeKey>,
 {
     fn from(value: &Ident<K>) -> Self {
         (value.key.into(), value.fqn.clone())
@@ -187,42 +181,52 @@ where
 
 pub(super) trait ExtendNodes
 where
-    Self: Extend<(FullyQualifiedName, Key)> + Sized,
+    Self: Extend<(FullyQualifiedName, NodeKey)> + Sized,
 {
     fn extend_nodes<'iter, K>(&mut self, iter: impl IntoIterator<Item = &'iter Ident<K>>)
     where
-        K: 'static + Copy + Into<Key>,
+        K: 'static + Copy + Into<NodeKey>,
     {
         self.extend(iter.into_iter().into_entries());
     }
 }
 
-impl ExtendNodes for HashMap<FullyQualifiedName, Key> {}
+impl ExtendNodes for HashMap<FullyQualifiedName, NodeKey> {}
 
 macro_rules! ident_from {
-    ($($mod:ident,)+) => {
+    ($($inner:ident @ $key:ident,)+) => {
         $(
-            impl From<&mut $mod::Inner> for Ident<$mod::Key> {
-                fn from(inner: &mut $mod::Inner) -> Self {
+            impl From<&mut $inner> for Ident<$key> {
+                fn from(inner: &mut $inner) -> Self {
                     Self {
                         key: inner.key(),
                         fqn: inner.fqn().clone(),
-                        name: inner.name().into(),
+                        name: inner.name.as_ref().into(),
                     }
                 }
             }
-            impl From<&$mod::Inner> for Ident<$mod::Key> {
-                fn from(inner: &$mod::Inner) -> Self {
+            impl From<&$inner> for Ident<$key> {
+                fn from(inner: &$inner) -> Self {
                     Self {
                         key: inner.key(),
                         fqn: inner.fqn().clone(),
-                        name: inner.name().into(),
+                        name: inner.name.as_ref().into(),
                     }
                 }
             }
         )+
     };
 }
+
 ident_from!(
-    package, file, message, enum_, enum_value, service, method, field, oneof, extension,
+    PackageInner @ PackageKey,
+    FileInner @ FileKey,
+    MessageInner @ MessageKey,
+    EnumInner @ EnumKey,
+    EnumValueInner @ EnumValueKey,
+    ServiceInner @ ServiceKey,
+    MethodInner @ MethodKey,
+    FieldInner @ FieldKey,
+    OneofInner @ OneofKey,
+    ExtensionInner @ ExtensionKey,
 );

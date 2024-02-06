@@ -18,92 +18,104 @@ use super::{
 };
 
 use protobuf::{
-    descriptor::{descriptor_proto, MessageOptions},
+    descriptor::{self, descriptor_proto},
     SpecialFields,
 };
 
 slotmap::new_key_type! {
-    pub(super) struct Key;
+    pub(super) struct MessageKey;
 }
-pub(super) type Ident = node::Ident<Key>;
-pub(super) type Table = super::table::Table<Key, Inner>;
+pub(super) type Ident = node::Ident<MessageKey>;
+pub(super) type Table = super::table::Table<MessageKey, MessageInner>;
 
-pub(super) struct Hydrate {
-    pub(super) name: Name,
-    pub(super) container: container::Key,
-    pub(super) file: file::Key,
-    pub(super) package: Option<package::Key>,
-    pub(super) well_known: Option<WellKnownMessage>,
-    pub(super) location: location::Detail,
-    pub(super) reserved_ranges: Vec<descriptor_proto::ReservedRange>,
-    pub(super) reserved_names: Vec<String>,
-    pub(super) extension_range: Vec<descriptor_proto::ExtensionRange>,
-    pub(super) special_fields: protobuf::SpecialFields,
-    pub(super) messages: Vec<node::Ident<message::Key>>,
-    pub(super) enums: Vec<node::Ident<enum_::Key>>,
-    pub(super) fields: Vec<node::Ident<field::Key>>,
-    pub(super) oneofs: Vec<node::Ident<oneof::Key>>,
-    pub(super) extensions: Vec<node::Ident<extension::Key>>,
-    pub(super) extension_decls: Vec<extension_decl::Key>,
-    /// references from fields and extensions of this message
-    pub(super) references: Vec<reference::Inner>,
-    /// all references for fields and extensions of this message and those of
-    /// nested messages
-    pub(super) all_references: Vec<reference::Inner>,
-    pub(super) options: protobuf::MessageField<MessageOptions>,
+pub struct Message<'ast>(pub(super) Resolver<'ast, MessageKey, MessageInner>);
+impl_traits_and_methods!(Message, MessageKey, MessageInner);
+
+impl<'ast> Message<'ast> {
+    pub fn name(&self) -> &str {
+        self.0.name.as_ref()
+    }
+    pub fn references(&'ast self) -> References<'ast> {
+        access::AccessReferences::references(self)
+    }
+    pub fn referenced_by(&'ast self) -> References<'ast> {
+        access::AccessReferencedBy::referenced_by(self)
+    }
+    pub fn options(&self) -> &MessageOptions {
+        &self.0.options
+    }
+}
+
+impl<'ast> access::AccessProtoOpts for Message<'ast> {
+    type ProtoOpts = descriptor::MessageOptions;
+
+    fn proto_opts(&self) -> &Self::ProtoOpts {
+        &self.0.proto_opts
+    }
+}
+impl<'ast> access::AccessName for Message<'ast> {
+    fn name(&self) -> &str {
+        self.0.name.as_ref()
+    }
+}
+
+impl<'ast> access::AccessReferences<'ast> for Message<'ast> {
+    fn references(&'ast self) -> super::reference::References<'ast> {
+        References::from_ref_slice(&self.0.references, self.ast())
+    }
+}
+impl<'ast> access::AccessReferencedBy<'ast> for Message<'ast> {
+    fn referenced_by(&'ast self) -> super::reference::References<'ast> {
+        References::from_ref_key_slice(&self.0.referenced_by, self.key().into(), self.ast())
+    }
 }
 
 /// Message Inner
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(super) struct Inner {
-    pub(super) key: Key,
+pub(super) struct MessageInner {
+    pub(super) key: MessageKey,
     pub(super) fqn: FullyQualifiedName,
     pub(super) name: Name,
     pub(super) node_path: Box<[i32]>,
     pub(super) span: Span,
     pub(super) comments: Option<Comments>,
     pub(super) container: container::Key,
-    pub(super) package: Option<package::Key>,
-    pub(super) file: file::Key,
-    pub(super) extensions: Collection<extension::Key>,
-    pub(super) applied_extensions: Vec<extension::Key>,
-    pub(super) extension_decls: Vec<extension_decl::Key>,
+    pub(super) package: Option<package::PackageKey>,
+    pub(super) file: file::FileKey,
+    pub(super) extensions: Collection<extension::ExtensionKey>,
+    pub(super) applied_extensions: Vec<extension::ExtensionKey>,
+    pub(super) extension_decls: Vec<extension_decl::ExtensionDeclKey>,
     pub(super) well_known: Option<WellKnownMessage>,
-    pub(super) fields: Collection<field::Key>,
-    pub(super) enums: Collection<enum_::Key>,
-    pub(super) messages: Collection<message::Key>,
-    pub(super) oneofs: Collection<oneof::Key>,
-    pub(super) real_oneofs: Collection<oneof::Key>,
-    pub(super) synthetic_oneofs: Collection<oneof::Key>,
-    pub(super) dependents: Collection<file::Key>,
+    pub(super) fields: Collection<field::FieldKey>,
+    pub(super) enums: Collection<enum_::EnumKey>,
+    pub(super) messages: Collection<message::MessageKey>,
+    pub(super) oneofs: Collection<oneof::OneofKey>,
+    pub(super) real_oneofs: Collection<oneof::OneofKey>,
+    pub(super) synthetic_oneofs: Collection<oneof::OneofKey>,
+    pub(super) dependents: Collection<file::FileKey>,
 
     pub(super) referenced_by: Vec<reference::ReferrerKey>,
 
     /// references for fields and extensions of this message
-    pub(super) references: Vec<reference::Inner>,
+    pub(super) references: Vec<reference::ReferenceInner>,
     /// all references for fields and extensions of this message and those of
     /// nested messages
-    pub(super) all_references: Vec<reference::Inner>,
+    pub(super) all_references: Vec<reference::ReferenceInner>,
     pub(super) extension_ranges: Vec<ExtensionRange>,
     pub(super) reserved: Reserved,
-    pub(super) message_set_wire_format: bool,
-    pub(super) no_standard_descriptor_accessor: bool,
-    pub(super) deprecated: bool,
-    pub(super) is_map_entry: bool,
-    pub(super) uninterpreted_options: Vec<UninterpretedOption>,
-    pub(super) unknown_fields: protobuf::UnknownFields,
     pub(super) special_fields: SpecialFields,
-    pub(super) options_special_fields: SpecialFields,
+    pub(super) options: MessageOptions,
+    pub(super) proto_opts: descriptor::MessageOptions,
 }
 
-impl Inner {
+impl MessageInner {
     pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationFailed> {
         let Hydrate {
             name,
             container,
             package,
             location,
-            options,
+            mut options,
             well_known,
             reserved_ranges,
             reserved_names,
@@ -135,48 +147,30 @@ impl Inner {
         self.extensions = extensions.into();
         self.extension_decls = extension_decls;
         self.hydrate_location(location);
-        self.hydrate_options(options.unwrap_or_default())?;
+        self.options.hydrate(&mut options)?;
+        self.proto_opts = options;
         self.set_reserved(reserved_names, reserved_ranges);
         Ok(self.into())
     }
-    fn hydrate_options(&mut self, opts: MessageOptions) -> Result<(), HydrationFailed> {
-        let MessageOptions {
-            message_set_wire_format,
-            no_standard_descriptor_accessor,
-            deprecated,
-            map_entry,
-            uninterpreted_option,
-            special_fields,
-        } = opts;
-        self.message_set_wire_format = message_set_wire_format.unwrap_or(false);
-        self.no_standard_descriptor_accessor = no_standard_descriptor_accessor.unwrap_or(false);
-        self.deprecated = deprecated.unwrap_or(false);
-        self.is_map_entry = map_entry.unwrap_or(false);
-        self.uninterpreted_options = into_uninterpreted_options(uninterpreted_option);
-        self.options_special_fields = special_fields;
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct MessageOptions {
+    pub no_standard_descriptor_accessor: Option<bool>,
+    pub message_set_wire_format: Option<bool>,
+    pub deprecated: Option<bool>,
+    pub map_entry: Option<bool>,
+    pub uninterpreted_options: Vec<UninterpretedOption>,
+}
+
+impl MessageOptions {
+    fn hydrate(&mut self, opts: &mut descriptor::MessageOptions) -> Result<(), HydrationFailed> {
+        self.no_standard_descriptor_accessor = opts.no_standard_descriptor_accessor.take();
+        self.message_set_wire_format = opts.message_set_wire_format.take();
+        self.deprecated = opts.deprecated.take();
+        self.map_entry = opts.map_entry.take();
+        self.uninterpreted_options = into_uninterpreted_options(&opts.uninterpreted_option);
         Ok(())
-    }
-}
-
-pub struct Message<'ast>(Resolver<'ast, Key, Inner>);
-impl_traits_and_methods!(Message, Key, Inner);
-
-impl<'ast> Message<'ast> {
-    pub fn references(&'ast self) -> References<'ast> {
-        access::References::references(self)
-    }
-    pub fn referenced_by(&'ast self) -> References<'ast> {
-        access::ReferencedBy::referenced_by(self)
-    }
-}
-impl<'ast> access::References<'ast> for Message<'ast> {
-    fn references(&'ast self) -> super::reference::References<'ast> {
-        References::from_ref_slice(&self.0.references, self.ast())
-    }
-}
-impl<'ast> access::ReferencedBy<'ast> for Message<'ast> {
-    fn referenced_by(&'ast self) -> super::reference::References<'ast> {
-        References::from_ref_key_slice(&self.0.referenced_by, self.key().into(), self.ast())
     }
 }
 
@@ -477,7 +471,7 @@ impl ExtensionRange {
         &self.uninterpreted_options
     }
 }
-impl access::UninterpretedOptions for ExtensionRange {
+impl access::AccessUninterpretedOptions for ExtensionRange {
     fn uninterpreted_options(&self) -> &[UninterpretedOption] {
         &self.uninterpreted_options
     }
@@ -496,4 +490,29 @@ impl From<descriptor_proto::ExtensionRange> for ExtensionRange {
                 .collect(),
         }
     }
+}
+
+pub(super) struct Hydrate {
+    pub(super) name: Name,
+    pub(super) container: container::Key,
+    pub(super) file: file::FileKey,
+    pub(super) package: Option<package::PackageKey>,
+    pub(super) well_known: Option<WellKnownMessage>,
+    pub(super) location: location::Location,
+    pub(super) reserved_ranges: Vec<descriptor_proto::ReservedRange>,
+    pub(super) reserved_names: Vec<String>,
+    pub(super) extension_range: Vec<descriptor_proto::ExtensionRange>,
+    pub(super) special_fields: protobuf::SpecialFields,
+    pub(super) messages: Vec<node::Ident<message::MessageKey>>,
+    pub(super) enums: Vec<node::Ident<enum_::EnumKey>>,
+    pub(super) fields: Vec<node::Ident<field::FieldKey>>,
+    pub(super) oneofs: Vec<node::Ident<oneof::OneofKey>>,
+    pub(super) extensions: Vec<node::Ident<extension::ExtensionKey>>,
+    pub(super) extension_decls: Vec<extension_decl::ExtensionDeclKey>,
+    /// references from fields and extensions of this message
+    pub(super) references: Vec<reference::ReferenceInner>,
+    /// all references for fields and extensions of this message and those of
+    /// nested messages
+    pub(super) all_references: Vec<reference::ReferenceInner>,
+    pub(super) options: descriptor::MessageOptions,
 }

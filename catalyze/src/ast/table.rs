@@ -80,7 +80,7 @@ where
 impl<K, V> Table<K, V, HashMap<FullyQualifiedName, K>>
 where
     K: slotmap::Key,
-    V: access::FullyQualifiedName,
+    V: access::AccessFqn,
 {
     pub(super) fn get_by_fqn(&self, fqn: &FullyQualifiedName) -> Option<&V> {
         self.index.get(fqn).map(|key| &self.map[*key])
@@ -97,7 +97,7 @@ where
 impl<K, V> Table<K, V, HashMap<PathBuf, K>>
 where
     K: slotmap::Key,
-    V: Default + SetPath + access::Key<Key = K>,
+    V: Default + SetPath + access::AccessKey<Key = K>,
 {
     pub(super) fn get_by_path(&self, path: impl Borrow<Path>) -> Option<&V> {
         self.index.get(path.borrow()).map(|key| &self.map[*key])
@@ -160,7 +160,7 @@ where
 impl<K, V> Table<K, V>
 where
     K: slotmap::Key,
-    V: From<FullyQualifiedName> + access::Key<Key = K>,
+    V: From<FullyQualifiedName> + access::AccessKey<Key = K>,
 {
     pub(super) fn new() -> Self {
         Self {

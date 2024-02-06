@@ -1,50 +1,64 @@
-use protobuf::{descriptor::OneofOptions, SpecialFields};
+use protobuf::{descriptor::OneofOptions as ProtoOneofOpts, SpecialFields};
 
 use crate::error::HydrationFailed;
 
 use super::{
-    access::NodeKeys,
-    field, file, impl_traits_and_methods,
+    access::{AccessName, AccessNodeKeys},
+    collection::Collection,
+    field::{self, FieldKey},
+    file, impl_traits_and_methods,
     location::{self, Comments, Span},
-    message, node, package,
+    message::{self, MessageKey},
+    node,
+    package::{self, PackageKey},
     resolve::Resolver,
     uninterpreted::{into_uninterpreted_options, UninterpretedOption},
     FullyQualifiedName, Name,
 };
 
-pub(super) struct Hydrate {
-    pub(super) name: Name,
-    pub(super) message: message::Key,
-    pub(super) file: file::Key,
-    pub(super) package: Option<package::Key>,
-    pub(super) location: location::Detail,
-    pub(super) fields: Vec<field::Ident>,
-    pub(super) options: protobuf::MessageField<OneofOptions>,
-    pub(super) special_fields: protobuf::SpecialFields,
+slotmap::new_key_type! {
+    pub(super) struct OneofKey;
 }
 
-pub(super) type Ident = node::Ident<Key>;
-pub(super) type Table = super::table::Table<Key, Inner>;
-
-pub struct Oneof<'ast>(Resolver<'ast, Key, Inner>);
+pub struct Oneof<'ast>(pub(super) Resolver<'ast, OneofKey, OneofInner>);
+impl<'ast> Oneof<'ast> {
+    pub fn name(&self) -> &str {
+        self.0.name.as_ref()
+    }
+}
+impl<'ast> AccessName for Oneof<'ast> {
+    fn name(&self) -> &str {
+        self.0.name.as_ref()
+    }
+}
 
 #[derive(Debug, Default, Clone, PartialEq)]
-pub(super) struct Inner {
-    key: Key,
-    fqn: FullyQualifiedName,
-    name: Name,
-    message: message::Key,
-    package: Option<package::Key>,
-    node_path: Box<[i32]>,
-    span: Span,
-    comments: Option<Comments>,
-    file: file::Key,
-    uninterpreted_options: Vec<UninterpretedOption>,
-    special_fields: SpecialFields,
-    options_special_fields: SpecialFields,
-    fields: Vec<field::Key>,
+pub struct OneofOptions {
+    pub uninterpreted_options: Vec<UninterpretedOption>,
 }
-impl Inner {
+impl OneofOptions {
+    pub fn hydrate(&mut self, proto_opts: &mut ProtoOneofOpts) {
+        self.uninterpreted_options = into_uninterpreted_options(&proto_opts.uninterpreted_option);
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(super) struct OneofInner {
+    pub(super) key: OneofKey,
+    pub(super) fqn: FullyQualifiedName,
+    pub(super) name: Name,
+    pub(super) message: MessageKey,
+    pub(super) package: Option<PackageKey>,
+    pub(super) node_path: Box<[i32]>,
+    pub(super) span: Span,
+    pub(super) comments: Option<Comments>,
+    pub(super) file: file::FileKey,
+    pub(super) special_fields: SpecialFields,
+    pub(super) fields: Collection<FieldKey>,
+    pub(super) proto_opts: ProtoOneofOpts,
+    pub(super) options: OneofOptions,
+}
+impl OneofInner {
     pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationFailed> {
         let Hydrate {
             name,
@@ -52,40 +66,42 @@ impl Inner {
             file,
             package,
             location,
-            fields: _,
-            options,
+            fields,
+            mut options,
             special_fields,
         } = hydrate;
         self.name = name;
         self.message = message;
         self.package = package;
         self.file = file;
+        self.fields = fields.into();
         self.special_fields = special_fields;
         self.hydrate_location(location);
-        self.hydrate_options(options.unwrap_or_default())?;
-
+        self.options.hydrate(&mut options);
+        self.proto_opts = options;
         Ok(self.into())
     }
-    fn hydrate_options(&mut self, opts: OneofOptions) -> Result<(), HydrationFailed> {
-        let OneofOptions {
-            special_fields,
-            uninterpreted_option,
-        } = opts;
-        self.options_special_fields = special_fields;
-        self.uninterpreted_options = into_uninterpreted_options(uninterpreted_option);
-        Ok(())
-    }
-    pub(crate) fn add_field(&mut self, field: field::Key) {
+    pub(crate) fn add_field(&mut self, field: node::Ident<FieldKey>) {
         self.fields.push(field);
     }
 }
-impl NodeKeys for Inner {
-    fn keys(&self) -> impl Iterator<Item = super::node::Key> {
-        self.fields.iter().copied().map(super::node::Key::Field)
+impl AccessNodeKeys for OneofInner {
+    fn keys(&self) -> impl Iterator<Item = super::node::NodeKey> {
+        self.fields.iter().copied().map(super::node::NodeKey::Field)
     }
 }
-impl_traits_and_methods!(Oneof, Key, Inner);
+impl_traits_and_methods!(Oneof, OneofKey, OneofInner);
 
-slotmap::new_key_type! {
-    pub(super) struct Key;
+pub(super) struct Hydrate {
+    pub(super) name: Name,
+    pub(super) message: MessageKey,
+    pub(super) file: file::FileKey,
+    pub(super) package: Option<PackageKey>,
+    pub(super) location: location::Location,
+    pub(super) fields: Vec<field::FieldIdent>,
+    pub(super) options: ProtoOneofOpts,
+    pub(super) special_fields: protobuf::SpecialFields,
 }
+
+pub(super) type Ident = node::Ident<OneofKey>;
+pub(super) type Table = super::table::Table<OneofKey, OneofInner>;

@@ -1,0 +1,6 @@
+syntax = "proto3";
+import "resolution/no_package/from_root.proto";
+
+message Dependent {
+	FromRoot from_root = 1;
+}

@@ -5,23 +5,23 @@ use super::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Key {
-    Message(message::Key),
-    File(file::Key),
+    Message(message::MessageKey),
+    File(file::FileKey),
 }
 
 impl Default for Key {
     fn default() -> Self {
-        Self::File(file::Key::default())
+        Self::File(file::FileKey::default())
     }
 }
 
-impl From<message::Key> for Key {
-    fn from(key: message::Key) -> Self {
+impl From<message::MessageKey> for Key {
+    fn from(key: message::MessageKey) -> Self {
         Self::Message(key)
     }
 }
-impl From<file::Key> for Key {
-    fn from(key: file::Key) -> Self {
+impl From<file::FileKey> for Key {
+    fn from(key: file::FileKey) -> Self {
         Self::File(key)
     }
 }

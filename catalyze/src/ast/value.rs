@@ -9,8 +9,8 @@ use snafu::Backtrace;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Inner {
     Scalar(Scalar),
-    Enum(enum_::Key),
-    Message(message::Key),
+    Enum(enum_::EnumKey),
+    Message(message::MessageKey),
 }
 impl Default for Inner {
     fn default() -> Self {
@@ -53,13 +53,13 @@ impl<'ast> From<Scalar> for Value<'ast> {
     }
 }
 
-impl<'ast> From<(message::Key, &'ast Ast)> for Value<'ast> {
-    fn from((key, ast): (message::Key, &'ast Ast)) -> Self {
+impl<'ast> From<(message::MessageKey, &'ast Ast)> for Value<'ast> {
+    fn from((key, ast): (message::MessageKey, &'ast Ast)) -> Self {
         Self::from(Message::from((key, ast)))
     }
 }
-impl<'ast> From<(enum_::Key, &'ast Ast)> for Value<'ast> {
-    fn from((key, ast): (enum_::Key, &'ast Ast)) -> Self {
+impl<'ast> From<(enum_::EnumKey, &'ast Ast)> for Value<'ast> {
+    fn from((key, ast): (enum_::EnumKey, &'ast Ast)) -> Self {
         Self::from(Enum::from((key, ast)))
     }
 }
@@ -142,8 +142,8 @@ impl<'ast> Value<'ast> {
 impl Inner {
     pub(super) fn new(
         typ: field_descriptor_proto::Type,
-        enum_: Option<enum_::Key>,
-        msg: Option<message::Key>,
+        enum_: Option<enum_::EnumKey>,
+        msg: Option<message::MessageKey>,
     ) -> Self {
         match typ {
             ProtoType::TYPE_ENUM => Self::Enum(enum_.unwrap()),

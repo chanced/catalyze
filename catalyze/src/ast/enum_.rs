@@ -1,11 +1,11 @@
 use protobuf::{
-    descriptor::{enum_descriptor_proto, EnumOptions},
+    descriptor::{self, enum_descriptor_proto},
     SpecialFields,
 };
 
 use crate::{
     ast::{
-        access::NodeKeys,
+        access::AccessNodeKeys,
         file, impl_traits_and_methods,
         location::{Comments, Span},
         package,
@@ -22,57 +22,52 @@ use std::{fmt, str::FromStr};
 use super::{collection::Collection, container, enum_value, location, node, Name};
 
 slotmap::new_key_type! {
-    pub(super) struct Key;
+    pub(super) struct EnumKey;
 }
-pub(super) type Table = super::table::Table<Key, Inner>;
-pub(super) type Ident = node::Ident<Key>;
 
-pub(super) struct Hydrate {
-    pub(super) name: Name,
-    pub(super) package: Option<package::Key>,
-    pub(super) file: file::Key,
-    pub(super) values: Vec<node::Ident<enum_value::Key>>,
-    pub(super) location: location::Detail,
-    pub(super) options: protobuf::MessageField<EnumOptions>,
-    pub(super) special_fields: protobuf::SpecialFields,
-    pub(super) reserved_names: Vec<String>,
-    pub(super) reserved_ranges: Vec<enum_descriptor_proto::EnumReservedRange>,
-    pub(super) container: container::Key,
-    pub(super) well_known: Option<WellKnownEnum>,
+pub struct Enum<'ast>(pub(super) Resolver<'ast, EnumKey, EnumInner>);
+impl_traits_and_methods!(Enum, EnumKey, EnumInner);
+
+impl<'ast> Enum<'ast> {
+    pub fn name(&self) -> &str {
+        &self.0.name
+    }
 }
+
+pub(super) type EnumTable = super::table::Table<EnumKey, EnumInner>;
+pub(super) type EnumIdent = node::Ident<EnumKey>;
 
 #[derive(Debug, Default, Clone, PartialEq)]
-pub(super) struct Inner {
-    pub(super) key: Key,
+pub(super) struct EnumInner {
+    pub(super) key: EnumKey,
     pub(super) fqn: FullyQualifiedName,
     pub(super) name: Name,
     pub(super) node_path: Box<[i32]>,
     pub(super) span: Span,
     pub(super) comments: Option<Comments>,
     pub(super) reserved: super::reserved::Reserved,
-    pub(super) package: Option<package::Key>,
-    pub(super) file: file::Key,
+    pub(super) package: Option<package::PackageKey>,
+    pub(super) file: file::FileKey,
     pub(super) container: container::Key,
     pub(super) referenced_by: Vec<ReferrerKey>,
-    pub(super) values: Collection<super::enum_value::Key>,
+    pub(super) values: Collection<super::enum_value::EnumValueKey>,
     pub(super) well_known: Option<WellKnownEnum>,
-    pub(super) allow_alias: bool,
-    pub(super) deprecated: bool,
     pub(super) option_special_fields: SpecialFields,
     pub(super) uninterpreted_options: Vec<UninterpretedOption>,
     pub(super) special_fields: SpecialFields,
-    pub(super) options_special_fields: SpecialFields,
+    pub(super) options: EnumOptions,
+    pub(super) proto_opts: descriptor::EnumOptions,
 }
 
-impl Inner {
-    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationFailed> {
+impl EnumInner {
+    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> Result<EnumIdent, HydrationFailed> {
         let Hydrate {
             name,
             package,
             file,
             values,
             location,
-            options,
+            mut options,
             special_fields,
             reserved_names,
             reserved_ranges,
@@ -90,32 +85,40 @@ impl Inner {
         self.well_known = well_known;
         self.special_fields = special_fields;
         self.hydrate_location(location);
-        self.hydrate_options(options.unwrap_or_default());
+        self.options.hydrate(&mut options);
+        self.proto_opts = options;
         Ok(self.into())
     }
+}
 
-    fn hydrate_options(&mut self, options: EnumOptions) {
-        let EnumOptions {
-            allow_alias,
-            deprecated,
-            uninterpreted_option,
-            special_fields,
-        } = options;
-        self.allow_alias = allow_alias.unwrap_or(false);
-        self.deprecated = deprecated.unwrap_or(false);
-        self.set_uninterpreted_options(uninterpreted_option);
-        self.option_special_fields = special_fields;
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct EnumOptions {
+    pub allow_alias: Option<bool>,
+    pub deprecated: Option<bool>,
+}
+impl EnumOptions {
+    pub fn allow_alias(&self) -> bool {
+        self.allow_alias.unwrap_or(false)
+    }
+    pub fn deprecated(&self) -> bool {
+        self.deprecated.unwrap_or(false)
+    }
+}
+impl EnumOptions {
+    fn hydrate(&mut self, options: &mut descriptor::EnumOptions) {
+        self.allow_alias = options.allow_alias.take();
+        self.deprecated = options.deprecated.take();
     }
 }
 
-impl NodeKeys for Inner {
-    fn keys(&self) -> impl Iterator<Item = super::node::Key> {
-        self.values.iter().copied().map(super::node::Key::EnumValue)
+impl AccessNodeKeys for EnumInner {
+    fn keys(&self) -> impl Iterator<Item = super::node::NodeKey> {
+        self.values
+            .iter()
+            .copied()
+            .map(super::node::NodeKey::EnumValue)
     }
 }
-
-pub struct Enum<'ast>(Resolver<'ast, Key, Inner>);
-impl_traits_and_methods!(Enum, Key, Inner);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WellKnownEnum {
@@ -169,4 +172,18 @@ impl fmt::Display for WellKnownEnum {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt.write_str(self.as_str())
     }
+}
+
+pub(super) struct Hydrate {
+    pub(super) name: Name,
+    pub(super) package: Option<package::PackageKey>,
+    pub(super) file: file::FileKey,
+    pub(super) values: Vec<node::Ident<enum_value::EnumValueKey>>,
+    pub(super) location: location::Location,
+    pub(super) special_fields: protobuf::SpecialFields,
+    pub(super) reserved_names: Vec<String>,
+    pub(super) reserved_ranges: Vec<enum_descriptor_proto::EnumReservedRange>,
+    pub(super) container: container::Key,
+    pub(super) well_known: Option<WellKnownEnum>,
+    pub(super) options: descriptor::EnumOptions,
 }

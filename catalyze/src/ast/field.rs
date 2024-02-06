@@ -4,45 +4,71 @@ use crate::{
 };
 use ::std::vec::Vec;
 use protobuf::{
-    descriptor::{field_descriptor_proto, field_options::CType as ProtobufCType, FieldOptions},
+    descriptor::{
+        self, field_descriptor_proto, field_options::CType as ProtobufCType,
+        FieldOptions as ProtoFieldOpts,
+    },
     EnumOrUnknown, SpecialFields,
 };
 
 use super::{
-    access::NodeKeys,
+    access::{AccessName, AccessNodeKeys},
     file, location, message, node, package,
     reference::{self, References},
     resolve::Resolver,
+    uninterpreted::into_uninterpreted_options,
     value, Name,
 };
 
-pub struct Field<'ast>(Resolver<'ast, Key, Inner>);
-impl_traits_and_methods!(Field, Key, Inner);
+slotmap::new_key_type! {
+    pub(super) struct FieldKey;
+}
 
-pub(super) type Ident = node::Ident<Key>;
-pub(super) type Table = super::table::Table<Key, Inner>;
+pub struct Field<'ast>(pub(super) Resolver<'ast, FieldKey, FieldInner>);
+impl_traits_and_methods!(Field, FieldKey, FieldInner);
 
-pub(super) struct Hydrate {
-    pub(super) name: Name,
-    pub(super) file: file::Key,
-    pub(super) package: Option<package::Key>,
-    pub(super) message: message::Key,
-    pub(super) location: location::Detail,
-    pub(super) number: i32,
-    pub(super) type_: value::TypeInner,
-    pub(super) default_value: Option<String>,
-    pub(super) json_name: Option<String>,
-    pub(super) proto3_optional: Option<bool>,
-    pub(super) oneof_index: Option<i32>,
-    pub(super) special_fields: protobuf::SpecialFields,
-    pub(super) label: Option<Label>,
-    pub(super) options: protobuf::MessageField<FieldOptions>,
-    pub(super) reference: Option<reference::Inner>,
+impl<'ast> Field<'ast> {
+    pub fn name(&self) -> &str {
+        &self.0.name
+    }
+}
+
+impl<'ast> AccessName for Field<'ast> {
+    fn name(&self) -> &str {
+        &self.0.name
+    }
+}
+pub(super) type FieldIdent = node::Ident<FieldKey>;
+pub(super) type FieldTable = super::table::Table<FieldKey, FieldInner>;
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct FieldOptions {
+    pub ctype: Option<CType>,
+    pub jstype: Option<JsType>,
+    pub lazy: Option<bool>,
+    pub packed: Option<bool>,
+    pub weak: Option<bool>,
+    pub deprecated: Option<bool>,
+    pub uninterpreted_options: Vec<UninterpretedOption>,
+}
+impl FieldOptions {
+    pub(super) fn hydrate(&mut self, proto_opts: &mut descriptor::FieldOptions) {
+        self.ctype = proto_opts.ctype.take().map(Into::into);
+        self.jstype = proto_opts.jstype.take().map(Into::into);
+        self.packed = proto_opts.packed.take();
+        self.lazy = proto_opts.lazy.take();
+        self.weak = proto_opts.weak.take();
+        self.deprecated = proto_opts.deprecated.take();
+        self.uninterpreted_options = into_uninterpreted_options(&proto_opts.uninterpreted_option);
+    }
+    pub fn ctype(&self) -> CType {
+        self.ctype.unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Default, Clone)]
-pub(super) struct Inner {
-    pub(super) key: Key,
+pub(super) struct FieldInner {
+    pub(super) key: FieldKey,
     pub(super) fqn: FullyQualifiedName,
     pub(super) name: Name,
     pub(super) node_path: Box<[i32]>,
@@ -50,34 +76,29 @@ pub(super) struct Inner {
     pub(super) comments: Option<location::Comments>,
     pub(super) number: i32,
     pub(super) label: Option<Label>,
-    pub(super) type_: value::TypeInner,
-    pub(super) message: message::Key,
+    pub(super) field_type: value::TypeInner,
+    pub(super) message: message::MessageKey,
     pub(super) default_value: Option<String>,
     pub(super) oneof_index: Option<i32>,
     pub(super) json_name: Option<String>,
-    pub(super) ctype: Option<CType>,
-    pub(super) jstype: Option<JsType>,
-    pub(super) is_packed: bool,
-    pub(super) is_lazy: bool,
-    pub(super) is_deprecated: bool,
-    pub(super) weak: bool,
     pub(super) uninterpreted_options: Vec<UninterpretedOption>,
     pub(super) proto3_optional: Option<bool>,
-    pub(super) package: Option<package::Key>,
-    pub(super) reference: Option<reference::Inner>,
-    pub(super) file: file::Key,
+    pub(super) package: Option<package::PackageKey>,
+    pub(super) reference: Option<reference::ReferenceInner>,
+    pub(super) file: file::FileKey,
     pub(super) special_fields: SpecialFields,
-    pub(super) options_special_fields: SpecialFields,
+    pub(super) options: FieldOptions,
+    pub(super) proto_opts: descriptor::FieldOptions,
 }
 
-impl Inner {
-    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationFailed> {
+impl FieldInner {
+    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<FieldIdent, HydrationFailed> {
         let Hydrate {
             location,
             file,
             number,
             label,
-            options,
+            mut options,
             name,
             message,
             package,
@@ -102,42 +123,18 @@ impl Inner {
         self.number = number;
         self.label = label;
         self.special_fields = special_fields;
-        self.type_ = type_;
+        self.field_type = type_;
         self.hydrate_location(location);
-        self.hydrate_options(options.unwrap_or_default())?;
+        self.options.hydrate(&mut options);
+        self.proto_opts = options;
         Ok(self.into())
     }
-    fn hydrate_options(&mut self, opts: FieldOptions) -> Result<(), HydrationFailed> {
-        let FieldOptions {
-            ctype,
-            packed,
-            jstype,
-            lazy,
-            deprecated,
-            weak,
-            uninterpreted_option,
-            special_fields,
-        } = opts;
-        self.ctype = ctype.map(Into::into);
-        self.is_packed = packed.unwrap_or(false);
-        self.jstype = jstype.map(Into::into);
-        self.is_lazy = lazy.unwrap_or(false);
-        self.is_deprecated = deprecated.unwrap_or(false);
-        self.weak = weak.unwrap_or(false);
-        self.uninterpreted_options = uninterpreted_option.into_iter().map(Into::into).collect();
-        self.options_special_fields = special_fields;
-        Ok(())
-    }
 }
 
-impl NodeKeys for Inner {
-    fn keys(&self) -> impl Iterator<Item = node::Key> {
+impl AccessNodeKeys for FieldInner {
+    fn keys(&self) -> impl Iterator<Item = node::NodeKey> {
         std::iter::empty()
     }
-}
-
-slotmap::new_key_type! {
-    pub(super) struct Key;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -189,10 +186,11 @@ impl From<field_descriptor_proto::Label> for Label {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(i32)]
 pub enum CType {
     /// Default mode.
+    #[default]
     String = 0,
     Cord = 1,
     StringPiece = 2,
@@ -222,10 +220,11 @@ impl From<ProtobufCType> for CType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(i32)]
 pub enum JsType {
     /// Use the default type.
+    #[default]
     Normal = 0,
     /// Use JavaScript strings.
     String = 1,
@@ -254,17 +253,37 @@ impl From<protobuf::descriptor::field_options::JSType> for JsType {
 
 impl<'ast> Field<'ast> {
     pub fn references(&'ast self) -> References<'ast> {
-        super::access::References::references(self)
+        super::access::AccessReferences::references(self)
     }
 }
 
-impl<'ast> super::access::References<'ast> for Field<'ast> {
+impl<'ast> super::access::AccessReferences<'ast> for Field<'ast> {
     fn references(&'ast self) -> super::reference::References<'ast> {
         References::from_option(self.0.reference.as_ref(), self.ast())
     }
 }
-impl super::access::ReferencesMut for Inner {
-    fn references_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut super::reference::Inner> {
+impl super::access::AccessReferencesMut for FieldInner {
+    fn references_mut(
+        &mut self,
+    ) -> impl '_ + Iterator<Item = &'_ mut super::reference::ReferenceInner> {
         self.reference.iter_mut()
     }
+}
+
+pub(super) struct Hydrate {
+    pub(super) name: Name,
+    pub(super) file: file::FileKey,
+    pub(super) package: Option<package::PackageKey>,
+    pub(super) message: message::MessageKey,
+    pub(super) location: location::Location,
+    pub(super) number: i32,
+    pub(super) type_: value::TypeInner,
+    pub(super) default_value: Option<String>,
+    pub(super) json_name: Option<String>,
+    pub(super) proto3_optional: Option<bool>,
+    pub(super) oneof_index: Option<i32>,
+    pub(super) special_fields: protobuf::SpecialFields,
+    pub(super) label: Option<Label>,
+    pub(super) options: ProtoFieldOpts,
+    pub(super) reference: Option<reference::ReferenceInner>,
 }

@@ -26,6 +26,9 @@
 
 use std::fmt::Display;
 
+use ast::{access::AccessProtoOpts, Message, Node};
+use protobuf::{descriptor, reflect::ProtobufValue};
+
 pub mod ast;
 pub mod error;
 pub mod generator;
@@ -50,3 +53,24 @@ pub fn delete_me() {
 
 #[cfg(test)]
 pub(crate) mod test;
+
+/// A trait implemented by types which can extract extension fields from a
+/// protobuf message.
+pub trait ExtractExtension<'ast, V> {
+    type Node: 'ast + Into<Node<'ast>>;
+    fn extract_extension(&self, node: Self::Node) -> Option<V>;
+}
+
+impl<'ast, V> ExtractExtension<'ast, V>
+    for protobuf::ext::ExtFieldOptional<descriptor::MessageOptions, V>
+where
+    V: ProtobufValue,
+{
+    type Node = Message<'ast>;
+    fn extract_extension(&self, node: Self::Node) -> Option<V> {
+        match node.into() {
+            Node::Message(m) => self.get(m.proto_opts()),
+            _ => None,
+        }
+    }
+}

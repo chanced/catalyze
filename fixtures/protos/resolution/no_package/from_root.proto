@@ -1,0 +1,4 @@
+
+message FromRoot {
+	required string message = 1;
+}

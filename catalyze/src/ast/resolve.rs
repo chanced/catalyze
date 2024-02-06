@@ -1,4 +1,17 @@
-use super::Ast;
+use super::{
+    enum_::{EnumInner, EnumKey},
+    enum_value::{EnumValueInner, EnumValueKey},
+    extension::{ExtensionInner, ExtensionKey},
+    extension_decl::{ExtensionDeclInner, ExtensionDeclKey},
+    field::{FieldInner, FieldKey},
+    file::{FileInner, FileKey},
+    message::{MessageInner, MessageKey},
+    method::{MethodInner, MethodKey},
+    oneof::{OneofInner, OneofKey},
+    package::{PackageInner, PackageKey},
+    service::{ServiceInner, ServiceKey},
+    Ast,
+};
 use std::fmt;
 
 #[doc(hidden)]
@@ -64,29 +77,29 @@ impl<'ast, K, I> Eq for Resolver<'ast, K, I> where K: Eq {}
 
 macro_rules! impl_resolve {
 
-    ($($col:ident -> $mod:ident,)+) => {
+    ($($col:ident -> {$key:ident, $inner:ident},)+) => {
         $(
-            impl Get<$mod::Key, $mod::Inner> for Ast {
-                fn get(&self, key: $mod::Key) -> &$mod::Inner {
+            impl Get<$key, $inner> for Ast {
+                fn get(&self, key: $key) -> &$inner {
                     &self.$col[key]
                 }
-                fn get_mut(&mut self, key: $mod::Key) -> &mut $mod::Inner {
+                fn get_mut(&mut self, key: $key) -> &mut $inner {
                     &mut self.$col[key]
                 }
             }
-            impl<'ast> Resolve<$mod::Inner> for Resolver<'ast, $mod::Key, $mod::Inner>
+            impl<'ast> Resolve<$inner> for Resolver<'ast, $key, $inner>
             {
-                fn resolve(&self) -> &$mod::Inner {
+                fn resolve(&self) -> &$inner {
                     Get::get(self.ast, self.key.clone())
                 }
             }
-            impl<'ast> ::std::ops::Deref for Resolver<'ast, $mod::Key, $mod::Inner>{
-                type Target = $mod::Inner;
+            impl<'ast> ::std::ops::Deref for Resolver<'ast, $key, $inner>{
+                type Target = $inner;
                 fn deref(&self) -> &Self::Target {
                     self.resolve()
                 }
             }
-            impl<'ast> fmt::Debug for Resolver<'ast, $mod::Key, $mod::Inner>
+            impl<'ast> fmt::Debug for Resolver<'ast, $key, $inner>
             {
                 fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                     fmt::Debug::fmt(self.resolve(), f)
@@ -96,21 +109,16 @@ macro_rules! impl_resolve {
     };
 }
 
-use super::{
-    enum_, enum_value, extension, extension_decl, field, file, message, method, oneof, package,
-    service,
-};
-
 impl_resolve!(
-    packages -> package,
-    files -> file,
-    messages -> message,
-    enums -> enum_,
-    enum_values -> enum_value,
-    oneofs -> oneof,
-    services -> service,
-    methods -> method,
-    fields -> field,
-    extensions -> extension,
-    extension_decls -> extension_decl,
+    packages -> {PackageKey, PackageInner},
+    files -> {FileKey, FileInner},
+    messages -> {MessageKey, MessageInner},
+    enums -> {EnumKey, EnumInner},
+    enum_values -> {EnumValueKey, EnumValueInner},
+    oneofs -> {OneofKey, OneofInner},
+    services -> {ServiceKey, ServiceInner},
+    methods -> {MethodKey, MethodInner},
+    fields -> {FieldKey, FieldInner},
+    extensions -> {ExtensionKey, ExtensionInner},
+    extension_decls -> {ExtensionDeclKey, ExtensionDeclInner},
 );

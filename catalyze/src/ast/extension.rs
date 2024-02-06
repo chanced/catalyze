@@ -1,78 +1,78 @@
-use protobuf::descriptor::{field_descriptor_proto, FieldOptions};
+use protobuf::descriptor::FieldOptions as ProtoFieldOpts;
 
 use crate::{ast::impl_traits_and_methods, error::HydrationFailed};
 
 use super::{
-    access::NodeKeys,
-    container, extension_decl, file, location, message, node, package,
-    reference::{self, References},
-    resolve,
-    uninterpreted::UninterpretedOption,
+    access::{AccessName, AccessNodeKeys},
+    container,
+    extension_decl::{self, ExtensionDeclKey},
+    field::FieldOptions,
+    file,
+    location::{self, Comments},
+    message::{self, MessageKey},
+    node,
+    package::{self, PackageKey},
+    reference::{self, ReferenceInner, References},
+    resolve::Resolver,
     value, FullyQualifiedName, Name,
 };
 
 pub use super::field::{CType, JsType, Label};
 
 slotmap::new_key_type! {
-    pub(super) struct Key;
+    pub(super) struct ExtensionKey;
 }
 
-pub(super) type Ident = node::Ident<Key>;
-pub(super) type Table = super::table::Table<Key, Inner>;
+pub struct Extension<'ast>(pub(super) Resolver<'ast, ExtensionKey, ExtensionInner>);
+impl_traits_and_methods!(Extension, ExtensionKey, ExtensionInner);
 
-pub(super) struct Hydrate {
-    pub(super) name: Name,
-    pub(super) file: file::Key,
-    pub(super) package: Option<package::Key>,
-    pub(super) container: container::Key,
-    pub(super) extension_decl: extension_decl::Key,
-    pub(super) extendee: message::Key,
-    pub(super) location: location::Detail,
-    pub(super) type_: value::TypeInner,
-    pub(super) number: i32,
-    pub(super) default_value: Option<String>,
-    pub(super) json_name: Option<String>,
-    pub(super) proto3_optional: Option<bool>,
-    pub(super) special_fields: protobuf::SpecialFields,
-    pub(super) label: Option<Label>,
-    pub(super) options: protobuf::MessageField<FieldOptions>,
-    pub(super) reference: Option<reference::Inner>,
+impl<'ast> Extension<'ast> {
+    pub fn references(&'ast self) -> References<'ast> {
+        super::access::AccessReferences::references(self)
+    }
+    pub fn name(&'ast self) -> &'ast str {
+        &self.0.name
+    }
+}
+impl<'ast> AccessName for Extension<'ast> {
+    fn name(&self) -> &str {
+        &self.0.name
+    }
+}
+
+impl<'ast> super::access::AccessReferences<'ast> for Extension<'ast> {
+    fn references(&'ast self) -> super::reference::References<'ast> {
+        References::from_option(self.0.reference.as_ref(), self.ast())
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
-pub(super) struct Inner {
-    key: Key,
-    name: Name,
-    block: extension_decl::Key,
-    fqn: FullyQualifiedName,
-    node_path: Vec<i32>,
-    span: location::Span,
-    comments: Option<location::Comments>,
-    number: i32,
-    label: Option<Label>,
-    type_: value::TypeInner,
-    extendee: message::Key,
-    extension_decl: extension_decl::Key,
-    default_value: Option<String>,
-    json_name: Option<String>,
-    ctype: Option<CType>,
-    is_packed: bool,
-    jstype: Option<JsType>,
-    is_lazy: bool,
-    is_deprecated: bool,
-    is_weak: bool,
-    uninterpreted_options: Vec<UninterpretedOption>,
-    proto3_optional: Option<bool>,
-    package: Option<package::Key>,
-    reference: Option<reference::Inner>,
-    container: container::Key,
-    file: file::Key,
-
-    special_fields: protobuf::SpecialFields,
-    options_special_fields: protobuf::SpecialFields,
+pub(super) struct ExtensionInner {
+    pub(super) key: ExtensionKey,
+    pub(super) name: Name,
+    pub(super) block: ExtensionDeclKey,
+    pub(super) fqn: FullyQualifiedName,
+    pub(super) node_path: Vec<i32>,
+    pub(super) span: location::Span,
+    pub(super) comments: Option<Comments>,
+    pub(super) number: i32,
+    pub(super) label: Option<Label>,
+    pub(super) type_: value::TypeInner,
+    pub(super) extendee: MessageKey,
+    pub(super) extension_decl: ExtensionDeclKey,
+    pub(super) default_value: Option<String>,
+    pub(super) json_name: Option<String>,
+    pub(super) proto3_optional: Option<bool>,
+    pub(super) package: Option<PackageKey>,
+    pub(super) reference: Option<ReferenceInner>,
+    pub(super) container: container::Key,
+    pub(super) file: file::FileKey,
+    pub(super) options: FieldOptions,
+    pub(super) proto_opts: ProtoFieldOpts,
+    pub(super) special_fields: protobuf::SpecialFields,
 }
 
-impl Inner {
+impl ExtensionInner {
     pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationFailed> {
         let Hydrate {
             name,
@@ -89,7 +89,7 @@ impl Inner {
             proto3_optional,
             special_fields,
             label,
-            options,
+            mut options,
             reference,
         } = hydrate;
         self.name = name;
@@ -107,49 +107,38 @@ impl Inner {
         self.reference = reference;
         self.extension_decl = extension_decl;
         self.hydrate_location(location);
-        self.hydrate_options(options.unwrap_or_default())?;
+        self.options.hydrate(&mut options);
+        self.proto_opts = options;
         Ok(self.into())
-    }
-    fn hydrate_options(&mut self, opts: FieldOptions) -> Result<(), HydrationFailed> {
-        let FieldOptions {
-            ctype,
-            jstype,
-            packed,
-            lazy,
-            deprecated,
-            weak,
-            uninterpreted_option,
-            special_fields,
-        } = opts;
-        self.options_special_fields = special_fields;
-        self.ctype = ctype.map(Into::into);
-        self.jstype = jstype.map(Into::into);
-        self.is_packed = packed.unwrap_or_default();
-        self.is_lazy = lazy.unwrap_or_default();
-        self.is_deprecated = deprecated.unwrap_or_default();
-        self.is_weak = weak.unwrap_or_default();
-        self.uninterpreted_options = uninterpreted_option.into_iter().map(Into::into).collect();
-        Ok(())
     }
 }
 
-impl NodeKeys for Inner {
-    fn keys(&self) -> impl Iterator<Item = super::node::Key> {
+impl AccessNodeKeys for ExtensionInner {
+    fn keys(&self) -> impl Iterator<Item = super::node::NodeKey> {
         std::iter::empty()
     }
 }
 
-impl Inner {}
-pub struct Extension<'ast>(resolve::Resolver<'ast, Key, Inner>);
-impl_traits_and_methods!(Extension, Key, Inner);
-impl<'ast> Extension<'ast> {
-    pub fn references(&'ast self) -> References<'ast> {
-        super::access::References::references(self)
-    }
+impl ExtensionInner {}
+
+pub(super) struct Hydrate {
+    pub(super) name: Name,
+    pub(super) file: file::FileKey,
+    pub(super) package: Option<PackageKey>,
+    pub(super) container: container::Key,
+    pub(super) extension_decl: ExtensionDeclKey,
+    pub(super) extendee: MessageKey,
+    pub(super) location: location::Location,
+    pub(super) type_: value::TypeInner,
+    pub(super) number: i32,
+    pub(super) default_value: Option<String>,
+    pub(super) json_name: Option<String>,
+    pub(super) proto3_optional: Option<bool>,
+    pub(super) special_fields: protobuf::SpecialFields,
+    pub(super) label: Option<Label>,
+    pub(super) options: ProtoFieldOpts,
+    pub(super) reference: Option<ReferenceInner>,
 }
 
-impl<'ast> super::access::References<'ast> for Extension<'ast> {
-    fn references(&'ast self) -> super::reference::References<'ast> {
-        References::from_option(self.0.reference.as_ref(), self.ast())
-    }
-}
+pub(super) type Ident = node::Ident<ExtensionKey>;
+pub(super) type Table = super::table::Table<ExtensionKey, ExtensionInner>;

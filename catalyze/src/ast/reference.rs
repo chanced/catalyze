@@ -3,8 +3,6 @@ use std::{
     option, slice,
 };
 
-use either::Either;
-
 use super::{
     enum_::{self, Enum},
     extension::{self, Extension},
@@ -36,7 +34,7 @@ impl<'ast> Reference<'ast> {
         self.referent
     }
 
-    fn from_inner(inner: Inner, ast: &'ast Ast) -> Self {
+    fn from_inner(inner: ReferenceInner, ast: &'ast Ast) -> Self {
         let referrer = Referrer::new(inner.referrer, ast);
         let referent = Referent::new(inner.referent, ast);
         Self { referrer, referent }
@@ -44,7 +42,7 @@ impl<'ast> Reference<'ast> {
 }
 
 #[derive(Clone, Default, Copy, Debug, Hash, PartialEq, Eq)]
-pub struct Inner {
+pub struct ReferenceInner {
     /// referring field, extension, or method
     pub(super) referrer: ReferrerKey,
     /// referenced message or enum
@@ -55,18 +53,18 @@ pub struct Inner {
 /// [`Extension`], or [`Method`].
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub(super) enum ReferentKey {
-    Message(message::Key),
-    Enum(enum_::Key),
+    Message(message::MessageKey),
+    Enum(enum_::EnumKey),
 }
 
-impl From<enum_::Key> for ReferentKey {
-    fn from(v: enum_::Key) -> Self {
+impl From<enum_::EnumKey> for ReferentKey {
+    fn from(v: enum_::EnumKey) -> Self {
         Self::Enum(v)
     }
 }
 
-impl From<message::Key> for ReferentKey {
-    fn from(v: message::Key) -> Self {
+impl From<message::MessageKey> for ReferentKey {
+    fn from(v: message::MessageKey) -> Self {
         Self::Message(v)
     }
 }
@@ -97,13 +95,13 @@ impl<'ast> Referent<'ast> {
     }
 }
 
-impl<'ast> From<(enum_::Key, &'ast Ast)> for Referent<'ast> {
-    fn from((key, ast): (enum_::Key, &'ast Ast)) -> Self {
+impl<'ast> From<(enum_::EnumKey, &'ast Ast)> for Referent<'ast> {
+    fn from((key, ast): (enum_::EnumKey, &'ast Ast)) -> Self {
         Self::Enum((key, ast).into())
     }
 }
-impl<'ast> From<(message::Key, &'ast Ast)> for Referent<'ast> {
-    fn from((key, ast): (message::Key, &'ast Ast)) -> Self {
+impl<'ast> From<(message::MessageKey, &'ast Ast)> for Referent<'ast> {
+    fn from((key, ast): (message::MessageKey, &'ast Ast)) -> Self {
         Self::Message((key, ast).into())
     }
 }
@@ -204,35 +202,35 @@ impl<'ast> Referrer<'ast> {
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub(super) enum ReferrerKey {
-    Field(field::Key),
-    Extension(extension::Key),
+    Field(field::FieldKey),
+    Extension(extension::ExtensionKey),
     Method {
-        key: method::Key,
+        key: method::MethodKey,
         direction: method::Direction,
     },
 }
 impl Default for ReferrerKey {
     fn default() -> Self {
-        Self::Field(field::Key::default())
+        Self::Field(field::FieldKey::default())
     }
 }
 impl Default for ReferentKey {
     fn default() -> Self {
-        Self::Message(message::Key::default())
+        Self::Message(message::MessageKey::default())
     }
 }
-impl From<field::Key> for ReferrerKey {
-    fn from(key: field::Key) -> Self {
+impl From<field::FieldKey> for ReferrerKey {
+    fn from(key: field::FieldKey) -> Self {
         Self::Field(key)
     }
 }
-impl From<extension::Key> for ReferrerKey {
-    fn from(key: extension::Key) -> Self {
+impl From<extension::ExtensionKey> for ReferrerKey {
+    fn from(key: extension::ExtensionKey) -> Self {
         Self::Extension(key)
     }
 }
-impl From<(method::Key, method::Direction)> for ReferrerKey {
-    fn from((method, direction): (method::Key, method::Direction)) -> Self {
+impl From<(method::MethodKey, method::Direction)> for ReferrerKey {
+    fn from((method, direction): (method::MethodKey, method::Direction)) -> Self {
         Self::Method {
             key: method,
             direction,
@@ -247,10 +245,10 @@ enum ReferencesInner<'ast> {
         ast: &'ast Ast,
     },
     Reference {
-        inner: Fuse<option::IntoIter<&'ast Inner>>,
+        inner: Fuse<option::IntoIter<&'ast ReferenceInner>>,
     },
     Slice {
-        inner: slice::Iter<'ast, Inner>,
+        inner: slice::Iter<'ast, ReferenceInner>,
     },
 }
 
@@ -259,7 +257,10 @@ pub struct References<'ast> {
     inner: ReferencesInner<'ast>,
 }
 impl<'ast> References<'ast> {
-    pub(super) fn from_option(inner: Option<&'ast Inner>, ast: &'ast Ast) -> References<'ast> {
+    pub(super) fn from_option(
+        inner: Option<&'ast ReferenceInner>,
+        ast: &'ast Ast,
+    ) -> References<'ast> {
         Self {
             ast,
             inner: ReferencesInner::Reference {
@@ -268,7 +269,10 @@ impl<'ast> References<'ast> {
         }
     }
 
-    pub(super) fn from_ref_slice(references: &'ast [Inner], ast: &'ast Ast) -> References<'ast> {
+    pub(super) fn from_ref_slice(
+        references: &'ast [ReferenceInner],
+        ast: &'ast Ast,
+    ) -> References<'ast> {
         Self {
             ast,
             inner: ReferencesInner::Slice {

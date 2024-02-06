@@ -1,66 +1,73 @@
-use protobuf::{descriptor::EnumValueOptions, SpecialFields};
+use protobuf::{descriptor, SpecialFields};
 
 use crate::error::HydrationFailed;
 
 use super::{
-    access::NodeKeys, file, impl_traits_and_methods, location, node, package, resolve::Resolver,
-    uninterpreted::UninterpretedOption, FullyQualifiedName, Name,
+    access::{AccessName, AccessNodeKeys},
+    file, impl_traits_and_methods, location, node, package,
+    resolve::Resolver,
+    uninterpreted::UninterpretedOption,
+    FullyQualifiedName, Name,
 };
 
-pub(super) type Ident = node::Ident<Key>;
-pub(super) type Table = super::table::Table<Key, Inner>;
-
-pub struct EnumValue<'ast>(Resolver<'ast, Key, Inner>);
-
 slotmap::new_key_type! {
-    pub(super) struct Key;
+    pub(super) struct EnumValueKey;
 }
-impl_traits_and_methods!(EnumValue, Key, Inner);
 
-pub(super) struct Hydrate {
-    pub(super) name: Name,
-    pub(super) number: i32,
-    pub(super) location: location::Detail,
-    pub(super) options: protobuf::MessageField<EnumValueOptions>,
-    pub(super) special_fields: protobuf::SpecialFields,
-    pub(super) enum_: super::enum_::Key,
-    pub(super) file: file::Key,
-    pub(super) package: Option<package::Key>,
+pub struct EnumValue<'ast>(pub(super) Resolver<'ast, EnumValueKey, EnumValueInner>);
+
+impl<'ast> EnumValue<'ast> {
+    pub fn name(&self) -> &str {
+        &self.0.name
+    }
 }
+impl<'ast> AccessName for EnumValue<'ast> {
+    fn name(&self) -> &str {
+        &self.0.name
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct EnumValueOptions {
+    deprecated: Option<bool>,
+}
+impl EnumValueOptions {
+    fn hydrate(&mut self, options: &mut descriptor::EnumValueOptions) {
+        self.deprecated = options.deprecated.take();
+    }
+    pub fn deprecated(&self) -> Option<bool> {
+        self.deprecated
+    }
+}
+
+impl_traits_and_methods!(EnumValue, EnumValueKey, EnumValueInner);
 
 /// [`EnumValue`] inner data.
 #[derive(Debug, Default, Clone, PartialEq)]
-pub(super) struct Inner {
+pub(super) struct EnumValueInner {
     /// enum_value::Key
-    key: Key,
-    fqn: FullyQualifiedName,
-    name: Name,
-    node_path: Box<[i32]>,
-
-    number: i32,
-
-    enum_: super::enum_::Key,
-    file: file::Key,
-    package: Option<package::Key>,
-
-    span: location::Span,
-    comments: Option<location::Comments>,
-
-    // options
-    deprecated: bool,
-
-    uninterpreted_options: Vec<UninterpretedOption>,
-
-    special_fields: SpecialFields,
-    options_special_fields: SpecialFields,
+    pub(super) key: EnumValueKey,
+    pub(super) fqn: FullyQualifiedName,
+    pub(super) name: Name,
+    pub(super) node_path: Box<[i32]>,
+    pub(super) number: i32,
+    pub(super) enum_: super::enum_::EnumKey,
+    pub(super) file: file::FileKey,
+    pub(super) package: Option<package::PackageKey>,
+    pub(super) span: location::Span,
+    pub(super) comments: Option<location::Comments>,
+    pub(super) uninterpreted_options: Vec<UninterpretedOption>,
+    pub(super) special_fields: SpecialFields,
+    pub(super) options: EnumValueOptions,
+    pub(super) proto_opts: descriptor::EnumValueOptions,
 }
-impl Inner {
-    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationFailed> {
+impl EnumValueInner {
+    pub(crate) fn hydrate(&mut self, hydrate: Hydrate) -> Result<EnumValueIdent, HydrationFailed> {
         let Hydrate {
             name,
             number,
             location,
-            options,
+            mut options,
             special_fields,
             enum_,
             file,
@@ -72,21 +79,29 @@ impl Inner {
         self.package = package;
         self.special_fields = special_fields;
         self.enum_ = enum_;
-        self.hydrate_options(options.unwrap_or_default())?;
+        self.options.hydrate(&mut options);
+        self.proto_opts = options;
         self.hydrate_location(location);
         Ok(self.into())
     }
-
-    fn hydrate_options(&mut self, options: EnumValueOptions) -> Result<(), HydrationFailed> {
-        self.options_special_fields = options.special_fields;
-        self.deprecated = options.deprecated.unwrap_or(false);
-        self.set_uninterpreted_options(options.uninterpreted_option);
-        Ok(())
-    }
 }
 
-impl NodeKeys for Inner {
-    fn keys(&self) -> impl Iterator<Item = node::Key> {
+impl AccessNodeKeys for EnumValueInner {
+    fn keys(&self) -> impl Iterator<Item = node::NodeKey> {
         std::iter::empty()
     }
 }
+
+pub(super) struct Hydrate {
+    pub(super) name: Name,
+    pub(super) number: i32,
+    pub(super) location: location::Location,
+    pub(super) options: descriptor::EnumValueOptions,
+    pub(super) special_fields: protobuf::SpecialFields,
+    pub(super) enum_: super::enum_::EnumKey,
+    pub(super) file: file::FileKey,
+    pub(super) package: Option<package::PackageKey>,
+}
+
+pub(super) type EnumValueIdent = node::Ident<EnumValueKey>;
+pub(super) type EnumValueTable = super::table::Table<EnumValueKey, EnumValueInner>;

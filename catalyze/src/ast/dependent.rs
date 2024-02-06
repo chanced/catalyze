@@ -9,21 +9,21 @@ pub(super) struct NewDependent {
     pub(super) is_unused: bool,
     pub(super) is_public: bool,
     pub(super) is_weak: bool,
-    pub(super) dependent: file::Key,
-    pub(super) dependency: file::Key,
+    pub(super) dependent: file::FileKey,
+    pub(super) dependency: file::FileKey,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(super) struct DependentsInner {
-    pub(super) direct: Vec<Inner>,
-    pub(super) transitive: Vec<Inner>,
+    pub(super) direct: Vec<DependentInner>,
+    pub(super) transitive: Vec<DependentInner>,
     pub(super) public: Vec<usize>,
     pub(super) weak: Vec<usize>,
     pub(super) unusued: Vec<usize>,
 }
 impl DependentsInner {
     pub(crate) fn push(&mut self, dep: NewDependent) {
-        let inner = Inner {
+        let inner = DependentInner {
             dependency: dep.dependency,
             dependent: dep.dependent,
         };
@@ -42,20 +42,20 @@ impl DependentsInner {
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Inner {
-    pub(super) dependent: file::Key,
-    pub(super) dependency: file::Key,
+pub(super) struct DependentInner {
+    pub(super) dependent: file::FileKey,
+    pub(super) dependency: file::FileKey,
 }
-impl From<dependency::Inner> for Inner {
-    fn from(dep: dependency::Inner) -> Self {
+impl From<dependency::DependencyInner> for DependentInner {
+    fn from(dep: dependency::DependencyInner) -> Self {
         Self {
             dependent: dep.dependent,
             dependency: dep.dependency,
         }
     }
 }
-impl From<Inner> for dependency::Inner {
-    fn from(dep: Inner) -> Self {
+impl From<DependentInner> for dependency::DependencyInner {
+    fn from(dep: DependentInner) -> Self {
         Self {
             dependent: dep.dependent,
             dependency: dep.dependency,
