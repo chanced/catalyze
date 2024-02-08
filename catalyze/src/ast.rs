@@ -19,7 +19,6 @@ pub mod reference;
 pub mod reserved;
 pub mod service;
 pub mod uninterpreted;
-pub mod value;
 
 mod collection;
 mod hydrate;

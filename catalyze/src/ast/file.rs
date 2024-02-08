@@ -39,7 +39,7 @@ slotmap::new_key_type! {
     #[doc(hidden)]
     pub struct FileKey;
 }
-pub type FileIdent = Ident<FileKey>;
+pub(super) type FileIdent = Ident<FileKey>;
 
 pub(super) trait SetPath {
     fn set_path(&mut self, path: PathBuf);

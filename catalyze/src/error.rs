@@ -1,7 +1,7 @@
 use snafu::Snafu;
 use std::{fmt, path::PathBuf};
 
-use crate::ast::{location, method, value, FullyQualifiedName};
+use crate::ast::{field::Scalar, location, method, FullyQualifiedName};
 
 #[derive(snafu::Snafu, Debug)]
 #[snafu(visibility(pub(crate)), context(suffix(Ctx)))]
@@ -210,7 +210,7 @@ pub struct InvalidMapKey {
 
 #[derive(Debug, Clone, Copy)]
 pub enum InvalidMapKeyType {
-    Scalar(value::Scalar),
+    Scalar(Scalar),
     Message,
     Enum,
     Repeated,

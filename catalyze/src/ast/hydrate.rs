@@ -12,7 +12,7 @@ use snafu::{Backtrace, ResultExt};
 use std::{path::PathBuf, str::FromStr};
 
 use crate::{
-    ast::{access::AccessFqn, container::ContainerKey, file},
+    ast::{access::AccessFqn, container::ContainerKey, field::Scalar, file},
     error::{self, Error, HydrationCtx, HydrationFailed, InvalidMapKey},
     HashMap,
 };
@@ -23,7 +23,7 @@ use super::{
     enum_value,
     extension::{self, ExtensionIdent},
     extension_decl::ExtensionDeclKey,
-    field,
+    field::{self, FieldTypeInner, MapInner, MapKey, ValueInner},
     file::{FileIdent, FileKey},
     location::{self, ExtensionDeclLocation, ExtensionLocation, FileLocation, OneofLocation},
     message::{self, MessageKey},
@@ -31,7 +31,6 @@ use super::{
     package::PackageKey,
     reference::{self, ReferenceInner, ReferrerKey},
     service::{self, ServiceKey},
-    value::{self, MapKey},
     Ast, FullyQualifiedName, Name,
 };
 
@@ -556,16 +555,16 @@ impl Hydrator {
     fn hydrate_reference(
         &mut self,
         referrer: ReferrerKey,
-        type_: value::TypeInner,
+        field_type: FieldTypeInner,
     ) -> Option<ReferenceInner> {
-        let value = match type_ {
-            value::TypeInner::Repeated(val) | value::TypeInner::Single(val) => val,
-            value::TypeInner::Map(map) => map.value,
+        let value = match field_type {
+            FieldTypeInner::Repeated(val) | FieldTypeInner::Single(val) => val,
+            FieldTypeInner::Map(map) => map.value,
         };
         let referent = match value {
-            value::Inner::Enum(key) => reference::ReferentKey::Enum(key),
-            value::Inner::Message(key) => reference::ReferentKey::Message(key),
-            value::Inner::Scalar(_) => return None,
+            ValueInner::Enum(key) => reference::ReferentKey::Enum(key),
+            ValueInner::Message(key) => reference::ReferentKey::Message(key),
+            ValueInner::Scalar(_) => return None,
         };
 
         Some(ReferenceInner { referrer, referent })
@@ -589,17 +588,14 @@ impl Hydrator {
         Ok(direct_dependencies)
     }
 
-    fn hydrate_value_type_map(
-        &mut self,
-        key: MessageKey,
-    ) -> Result<value::TypeInner, InvalidMapKey> {
+    fn hydrate_value_type_map(&mut self, key: MessageKey) -> Result<FieldTypeInner, InvalidMapKey> {
         let map = &self.ast.messages[key];
         let map_key = self.ast.fields.get(map.fields.get(0).unwrap()).unwrap();
         let map_value = self.ast.fields.get(map.fields.get(1).unwrap()).unwrap();
         let map_key = MapKey::try_from(map_key.field_type)?;
 
         match map_value.field_type {
-            value::TypeInner::Single(val) => Ok(value::TypeInner::Map(value::MapInner {
+            FieldTypeInner::Single(val) => Ok(FieldTypeInner::Map(MapInner {
                 key: map_key,
                 value: val,
             })),
@@ -610,29 +606,29 @@ impl Hydrator {
         &mut self,
         fqn: FullyQualifiedName,
         is_repeated: bool,
-    ) -> Result<value::TypeInner, InvalidMapKey> {
+    ) -> Result<FieldTypeInner, InvalidMapKey> {
         let key = self.ast.messages.get_or_insert_key(fqn);
         let is_map_entry = self.ast.messages[key].options.map_entry.unwrap_or_default();
         if is_map_entry {
             return self.hydrate_value_type_map(key);
         };
-        let value = value::Inner::Message(key);
+        let value = ValueInner::Message(key);
         if is_repeated {
-            Ok(value::TypeInner::Repeated(value))
+            Ok(FieldTypeInner::Repeated(value))
         } else {
-            Ok(value::TypeInner::Single(value))
+            Ok(FieldTypeInner::Single(value))
         }
     }
     fn hydrate_value_type_enum(
         &mut self,
         fqn: FullyQualifiedName,
         is_repeated: bool,
-    ) -> value::TypeInner {
-        let value = value::Inner::Enum(self.ast.enums.get_or_insert_key(fqn));
+    ) -> FieldTypeInner {
+        let value = ValueInner::Enum(self.ast.enums.get_or_insert_key(fqn));
         if is_repeated {
-            value::TypeInner::Repeated(value)
+            FieldTypeInner::Repeated(value)
         } else {
-            value::TypeInner::Single(value)
+            FieldTypeInner::Single(value)
         }
     }
 
@@ -642,7 +638,7 @@ impl Hydrator {
         label: Option<field::Label>,
         type_name: Option<String>,
         container_fqn: &FullyQualifiedName,
-    ) -> Result<value::TypeInner, HydrationFailed> {
+    ) -> Result<FieldTypeInner, HydrationFailed> {
         use field_descriptor_proto::Type as ProtoType;
 
         let label = label.unwrap_or_default();
@@ -689,8 +685,8 @@ impl Hydrator {
                 })
             }
             _ => {
-                let scalar = value::Scalar::try_from(proto_type).unwrap();
-                Ok(value::TypeInner::Single(value::Inner::Scalar(scalar)))
+                let scalar = Scalar::try_from(proto_type).unwrap();
+                Ok(FieldTypeInner::Single(ValueInner::Scalar(scalar)))
             }
         }
     }

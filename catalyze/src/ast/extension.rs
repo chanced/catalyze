@@ -10,7 +10,7 @@ use super::{
     },
     container::ContainerKey,
     extension_decl::ExtensionDeclKey,
-    field::FieldOptions,
+    field::{FieldOptions, FieldTypeInner},
     file::FileKey,
     location::{Comments, Location},
     message::MessageKey,
@@ -18,7 +18,7 @@ use super::{
     package::PackageKey,
     reference::{ReferenceInner, References},
     resolve::Resolver,
-    value, FullyQualifiedName, Name, Span,
+    FullyQualifiedName, Name, Span,
 };
 
 pub use super::field::{CType, JsType, Label};
@@ -77,7 +77,7 @@ pub(super) struct ExtensionInner {
     pub(super) comments: Option<Comments>,
     pub(super) number: i32,
     pub(super) label: Option<Label>,
-    pub(super) type_: value::TypeInner,
+    pub(super) field_type: FieldTypeInner,
     pub(super) extendee: MessageKey,
     pub(super) extension_decl: ExtensionDeclKey,
     pub(super) default_value: Option<String>,
@@ -139,7 +139,7 @@ impl ExtensionInner {
         self.name = name;
         self.file = file;
         self.package = package;
-        self.type_ = type_;
+        self.field_type = type_;
         self.container = container;
         self.proto3_optional = proto3_optional;
         self.extendee = extendee;
@@ -165,7 +165,7 @@ pub(super) struct HydrateExtension {
     pub(super) extension_decl: ExtensionDeclKey,
     pub(super) extendee: MessageKey,
     pub(super) location: Location,
-    pub(super) type_: value::TypeInner,
+    pub(super) type_: FieldTypeInner,
     pub(super) number: i32,
     pub(super) default_value: Option<String>,
     pub(super) json_name: Option<String>,
