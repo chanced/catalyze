@@ -27,7 +27,9 @@
 use std::fmt::Display;
 
 use ast::{access::AccessProtoOpts, Message, Node};
-use protobuf::{descriptor, reflect::ProtobufValue};
+use protobuf::{
+    descriptor::MessageOptions as ProtoMessageOpts, ext::ExtFieldOptional, reflect::ProtobufValue,
+};
 
 pub mod ast;
 pub mod error;
@@ -57,20 +59,23 @@ pub(crate) mod test;
 /// A trait implemented by types which can extract extension fields from a
 /// protobuf message.
 pub trait ExtractExtension<'ast, V> {
-    type Node: 'ast + Into<Node<'ast>>;
-    fn extract_extension(&self, node: Self::Node) -> Option<V>;
+    fn extract_extension<N>(&self, node: N) -> Option<V>
+    where
+        N: 'ast + Into<Node<'ast>>;
 }
 
-impl<'ast, V> ExtractExtension<'ast, V>
-    for protobuf::ext::ExtFieldOptional<descriptor::MessageOptions, V>
+impl<'ast, V> ExtractExtension<'ast, V> for ExtFieldOptional<ProtoMessageOpts, V>
 where
     V: ProtobufValue,
 {
-    type Node = Message<'ast>;
-    fn extract_extension(&self, node: Self::Node) -> Option<V> {
-        match node.into() {
-            Node::Message(m) => self.get(m.proto_opts()),
-            _ => None,
+    fn extract_extension<N>(&self, node: N) -> Option<V>
+    where
+        N: 'ast + Into<Node<'ast>>,
+    {
+        if let Node::Message(m) = node.into() {
+            self.get(m.proto_opts())
+        } else {
+            None
         }
     }
 }

@@ -161,7 +161,7 @@ impl Location {
 }
 
 #[derive(Debug)]
-pub(super) struct File {
+pub(super) struct FileLocation {
     pub(super) syntax: Option<Location>,
     pub(super) package: Option<Location>,
     pub(super) dependencies: Vec<Location>,
@@ -172,7 +172,7 @@ pub(super) struct File {
     pub(super) node_count: usize,
 }
 
-impl File {
+impl FileLocation {
     pub(super) fn new(info: SourceCodeInfo) -> Result<Self, HydrationFailed> {
         let mut locations = info.location.into_iter().peekable();
         let mut package = None;
@@ -432,7 +432,7 @@ mod tests {
 
     #[test]
     fn test_new() {
-        let f = File::new(construct_info()).unwrap();
+        let f = FileLocation::new(construct_info()).unwrap();
         assert_eq!(f.enums.len(), 2);
         assert_eq!(
             f.enums[0]

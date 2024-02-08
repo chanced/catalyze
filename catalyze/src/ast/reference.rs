@@ -4,11 +4,11 @@ use std::{
 };
 
 use super::{
-    enum_::{self, Enum},
-    extension::{self, Extension},
-    field::{self, Field},
-    message::{self, Message},
-    method::{self, Method},
+    enum_::{Enum, EnumKey},
+    extension::{Extension, ExtensionKey},
+    field::{Field, FieldKey},
+    message::{Message, MessageKey},
+    method::{Direction, Method, MethodKey},
     Ast,
 };
 
@@ -53,18 +53,18 @@ pub struct ReferenceInner {
 /// [`Extension`], or [`Method`].
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub(super) enum ReferentKey {
-    Message(message::MessageKey),
-    Enum(enum_::EnumKey),
+    Message(MessageKey),
+    Enum(EnumKey),
 }
 
-impl From<enum_::EnumKey> for ReferentKey {
-    fn from(v: enum_::EnumKey) -> Self {
+impl From<EnumKey> for ReferentKey {
+    fn from(v: EnumKey) -> Self {
         Self::Enum(v)
     }
 }
 
-impl From<message::MessageKey> for ReferentKey {
-    fn from(v: message::MessageKey) -> Self {
+impl From<MessageKey> for ReferentKey {
+    fn from(v: MessageKey) -> Self {
         Self::Message(v)
     }
 }
@@ -95,15 +95,20 @@ impl<'ast> Referent<'ast> {
     }
 }
 
-impl<'ast> From<(enum_::EnumKey, &'ast Ast)> for Referent<'ast> {
-    fn from((key, ast): (enum_::EnumKey, &'ast Ast)) -> Self {
+impl<'ast> From<(EnumKey, &'ast Ast)> for Referent<'ast> {
+    fn from((key, ast): (EnumKey, &'ast Ast)) -> Self {
         Self::Enum((key, ast).into())
     }
 }
-impl<'ast> From<(message::MessageKey, &'ast Ast)> for Referent<'ast> {
-    fn from((key, ast): (message::MessageKey, &'ast Ast)) -> Self {
+impl<'ast> From<(MessageKey, &'ast Ast)> for Referent<'ast> {
+    fn from((key, ast): (MessageKey, &'ast Ast)) -> Self {
         Self::Message((key, ast).into())
     }
+}
+
+pub struct Referrers<'ast> {
+    slice: &'ast [ReferrerKey],
+    ast: &'ast Ast,
 }
 
 /// The [`Field`], [`Extension`], or [`Method`] which references a [`Message`]
@@ -202,35 +207,35 @@ impl<'ast> Referrer<'ast> {
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub(super) enum ReferrerKey {
-    Field(field::FieldKey),
-    Extension(extension::ExtensionKey),
+    Field(FieldKey),
+    Extension(ExtensionKey),
     Method {
-        key: method::MethodKey,
-        direction: method::Direction,
+        key: MethodKey,
+        direction: Direction,
     },
 }
 impl Default for ReferrerKey {
     fn default() -> Self {
-        Self::Field(field::FieldKey::default())
+        Self::Field(FieldKey::default())
     }
 }
 impl Default for ReferentKey {
     fn default() -> Self {
-        Self::Message(message::MessageKey::default())
+        Self::Message(MessageKey::default())
     }
 }
-impl From<field::FieldKey> for ReferrerKey {
-    fn from(key: field::FieldKey) -> Self {
+impl From<FieldKey> for ReferrerKey {
+    fn from(key: FieldKey) -> Self {
         Self::Field(key)
     }
 }
-impl From<extension::ExtensionKey> for ReferrerKey {
-    fn from(key: extension::ExtensionKey) -> Self {
+impl From<ExtensionKey> for ReferrerKey {
+    fn from(key: ExtensionKey) -> Self {
         Self::Extension(key)
     }
 }
-impl From<(method::MethodKey, method::Direction)> for ReferrerKey {
-    fn from((method, direction): (method::MethodKey, method::Direction)) -> Self {
+impl From<(MethodKey, Direction)> for ReferrerKey {
+    fn from((method, direction): (MethodKey, Direction)) -> Self {
         Self::Method {
             key: method,
             direction,
@@ -239,11 +244,6 @@ impl From<(method::MethodKey, method::Direction)> for ReferrerKey {
 }
 
 enum ReferencesInner<'ast> {
-    ReferrerKeys {
-        keys: Copied<slice::Iter<'ast, ReferrerKey>>,
-        referent: ReferentKey,
-        ast: &'ast Ast,
-    },
     Reference {
         inner: Fuse<option::IntoIter<&'ast ReferenceInner>>,
     },
@@ -285,14 +285,15 @@ impl<'ast> References<'ast> {
         referent: ReferentKey,
         ast: &'ast Ast,
     ) -> References<'ast> {
-        Self {
-            ast,
-            inner: ReferencesInner::ReferrerKeys {
-                keys: keys.iter().copied(),
-                referent,
-                ast,
-            },
-        }
+        todo!()
+        // Self {
+        //     ast,
+        //     inner: ReferencesInner:: Slice {
+        //         keys: keys.iter().copied(),
+        //         referent,
+        //         ast,
+        //     },
+        // }
     }
 }
 

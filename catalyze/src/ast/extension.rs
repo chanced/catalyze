@@ -1,20 +1,24 @@
+use ahash::HashMap;
 use protobuf::descriptor::FieldOptions as ProtoFieldOpts;
 
 use crate::{ast::impl_traits_and_methods, error::HydrationFailed};
 
 use super::{
-    access::{AccessName, AccessNodeKeys},
-    container,
-    extension_decl::{self, ExtensionDeclKey},
+    access::{
+        AccessComments, AccessContainer, AccessFqn, AccessKey, AccessName, AccessNodeKeys,
+        AccessReferences,
+    },
+    container::ContainerKey,
+    extension_decl::ExtensionDeclKey,
     field::FieldOptions,
-    file,
-    location::{self, Comments},
-    message::{self, MessageKey},
+    file::FileKey,
+    location::{Comments, Location},
+    message::MessageKey,
     node,
-    package::{self, PackageKey},
-    reference::{self, ReferenceInner, References},
+    package::PackageKey,
+    reference::{ReferenceInner, References},
     resolve::Resolver,
-    value, FullyQualifiedName, Name,
+    value, FullyQualifiedName, Name, Span,
 };
 
 pub use super::field::{CType, JsType, Label};
@@ -28,7 +32,7 @@ impl_traits_and_methods!(Extension, ExtensionKey, ExtensionInner);
 
 impl<'ast> Extension<'ast> {
     pub fn references(&'ast self) -> References<'ast> {
-        super::access::AccessReferences::references(self)
+        AccessReferences::references(self)
     }
     pub fn name(&'ast self) -> &'ast str {
         &self.0.name
@@ -40,8 +44,24 @@ impl<'ast> AccessName for Extension<'ast> {
     }
 }
 
-impl<'ast> super::access::AccessReferences<'ast> for Extension<'ast> {
-    fn references(&'ast self) -> super::reference::References<'ast> {
+impl AccessFqn for Extension<'_> {
+    fn fqn(&self) -> &FullyQualifiedName {
+        &self.0.fqn
+    }
+}
+impl AccessComments for Extension<'_> {
+    fn comments(&self) -> Option<&Comments> {
+        self.0.comments.as_ref()
+    }
+}
+impl<'ast> AccessContainer<'ast> for Extension<'ast> {
+    fn container(&self) -> super::container::Container<'ast> {
+        (self.0.container, self.ast()).into()
+    }
+}
+
+impl<'ast> AccessReferences<'ast> for Extension<'ast> {
+    fn references(&'ast self) -> References<'ast> {
         References::from_option(self.0.reference.as_ref(), self.ast())
     }
 }
@@ -52,8 +72,8 @@ pub(super) struct ExtensionInner {
     pub(super) name: Name,
     pub(super) block: ExtensionDeclKey,
     pub(super) fqn: FullyQualifiedName,
-    pub(super) node_path: Vec<i32>,
-    pub(super) span: location::Span,
+    pub(super) proto_path: Vec<i32>,
+    pub(super) span: Span,
     pub(super) comments: Option<Comments>,
     pub(super) number: i32,
     pub(super) label: Option<Label>,
@@ -65,16 +85,40 @@ pub(super) struct ExtensionInner {
     pub(super) proto3_optional: Option<bool>,
     pub(super) package: Option<PackageKey>,
     pub(super) reference: Option<ReferenceInner>,
-    pub(super) container: container::Key,
-    pub(super) file: file::FileKey,
+    pub(super) container: ContainerKey,
+    pub(super) file: FileKey,
     pub(super) options: FieldOptions,
     pub(super) proto_opts: ProtoFieldOpts,
     pub(super) special_fields: protobuf::SpecialFields,
 }
 
+impl AccessKey for ExtensionInner {
+    type Key = ExtensionKey;
+
+    fn key(&self) -> Self::Key {
+        self.key
+    }
+
+    fn key_mut(&mut self) -> &mut Self::Key {
+        &mut self.key
+    }
+}
+impl AccessName for ExtensionInner {
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+impl AccessNodeKeys for ExtensionInner {
+    fn keys(&self) -> impl Iterator<Item = super::node::NodeKey> {
+        std::iter::empty()
+    }
+}
 impl ExtensionInner {
-    pub(super) fn hydrate(&mut self, hydrate: Hydrate) -> Result<Ident, HydrationFailed> {
-        let Hydrate {
+    pub(super) fn hydrate(
+        &mut self,
+        hydrate: HydrateExtension,
+    ) -> Result<ExtensionIdent, HydrationFailed> {
+        let HydrateExtension {
             name,
             file,
             package,
@@ -113,22 +157,14 @@ impl ExtensionInner {
     }
 }
 
-impl AccessNodeKeys for ExtensionInner {
-    fn keys(&self) -> impl Iterator<Item = super::node::NodeKey> {
-        std::iter::empty()
-    }
-}
-
-impl ExtensionInner {}
-
-pub(super) struct Hydrate {
+pub(super) struct HydrateExtension {
     pub(super) name: Name,
-    pub(super) file: file::FileKey,
+    pub(super) file: FileKey,
     pub(super) package: Option<PackageKey>,
-    pub(super) container: container::Key,
+    pub(super) container: ContainerKey,
     pub(super) extension_decl: ExtensionDeclKey,
     pub(super) extendee: MessageKey,
-    pub(super) location: location::Location,
+    pub(super) location: Location,
     pub(super) type_: value::TypeInner,
     pub(super) number: i32,
     pub(super) default_value: Option<String>,
@@ -140,5 +176,6 @@ pub(super) struct Hydrate {
     pub(super) reference: Option<ReferenceInner>,
 }
 
-pub(super) type Ident = node::Ident<ExtensionKey>;
-pub(super) type Table = super::table::Table<ExtensionKey, ExtensionInner>;
+pub(super) type ExtensionIdent = node::Ident<ExtensionKey>;
+pub(super) type ExtensionTable =
+    super::table::Table<ExtensionKey, ExtensionInner, HashMap<FullyQualifiedName, ExtensionKey>>;

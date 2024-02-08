@@ -2,15 +2,15 @@ use std::{borrow::Borrow, ops::Deref};
 
 use super::{
     dependency::{self, Dependency},
-    file,
+    file::{self, FileKey},
 };
 
 pub(super) struct NewDependent {
     pub(super) is_unused: bool,
     pub(super) is_public: bool,
     pub(super) is_weak: bool,
-    pub(super) dependent: file::FileKey,
-    pub(super) dependency: file::FileKey,
+    pub(super) dependent: FileKey,
+    pub(super) dependency: FileKey,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -43,8 +43,8 @@ impl DependentsInner {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct DependentInner {
-    pub(super) dependent: file::FileKey,
-    pub(super) dependency: file::FileKey,
+    pub(super) dependent: FileKey,
+    pub(super) dependency: FileKey,
 }
 impl From<dependency::DependencyInner> for DependentInner {
     fn from(dep: dependency::DependencyInner) -> Self {

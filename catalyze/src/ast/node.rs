@@ -3,7 +3,7 @@ use std::fmt;
 use crate::HashMap;
 
 use super::{
-    access::AccessName,
+    access::{AccessFqn, AccessName},
     enum_::{self, Enum, EnumInner, EnumKey},
     enum_value::{self, EnumValue, EnumValueInner, EnumValueKey},
     extension::{self, Extension, ExtensionInner, ExtensionKey},
@@ -54,7 +54,7 @@ impl_from!(
     Oneof @ OneofKey,
     Extension @ ExtensionKey,
 );
-pub(super) type Map = HashMap<FullyQualifiedName, NodeKey>;
+pub(super) type NodeMap = HashMap<FullyQualifiedName, NodeKey>;
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum Node<'ast> {
@@ -68,11 +68,16 @@ pub enum Node<'ast> {
     Extension(Extension<'ast>),
 }
 macro_rules! impl_from {
-    ($($var:ident,)+) => {
+    ($($variant:ident,)+) => {
         $(
-            impl<'ast> From<$var<'ast>> for Node<'ast> {
-                fn from(inner: $var<'ast>) -> Self {
-                    Self::$var(inner)
+            impl<'ast> From<$variant<'ast>> for Node<'ast> {
+                fn from(node: $variant<'ast>) -> Self {
+                    Self::$variant(node)
+                }
+            }
+            impl<'ast> From<&$variant<'ast>> for Node<'ast> {
+                fn from(node: &$variant<'ast>) -> Self {
+                    Self::$variant(*node)
                 }
             }
         )+
@@ -97,7 +102,11 @@ macro_rules! delegate {
         }
     };
 }
-
+impl<'ast> AccessFqn for Node<'ast> {
+    fn fqn(&self) -> &FullyQualifiedName {
+        delegate!(self, fqn)
+    }
+}
 impl<'ast> AccessName for Node<'ast> {
     fn name(&self) -> &str {
         delegate!(self, name)
@@ -126,7 +135,7 @@ pub trait AsNode<'ast>: Into<Node<'ast>> + Copy {
 }
 
 #[derive(Debug, Clone)]
-/// A node's key, fully-qualified name, name, and node path.
+/// A node's key, fully-qualified name, and local name.
 pub struct Ident<K> {
     pub(super) key: K,
     pub(super) fqn: FullyQualifiedName,
@@ -199,8 +208,8 @@ macro_rules! ident_from {
             impl From<&mut $inner> for Ident<$key> {
                 fn from(inner: &mut $inner) -> Self {
                     Self {
-                        key: inner.key(),
-                        fqn: inner.fqn().clone(),
+                        key: inner.key,
+                        fqn: inner.fqn.clone(),
                         name: inner.name.as_ref().into(),
                     }
                 }
@@ -208,8 +217,8 @@ macro_rules! ident_from {
             impl From<&$inner> for Ident<$key> {
                 fn from(inner: &$inner) -> Self {
                     Self {
-                        key: inner.key(),
-                        fqn: inner.fqn().clone(),
+                        key: inner.key,
+                        fqn: inner.fqn.clone(),
                         name: inner.name.as_ref().into(),
                     }
                 }

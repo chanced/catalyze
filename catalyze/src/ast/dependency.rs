@@ -5,12 +5,15 @@ use snafu::ResultExt;
 
 use crate::error::{self, InvalidIndex};
 
-use super::{file, map_try_into_usize, Ast};
+use super::{
+    file::{self, FileKey},
+    map_try_into_usize, Ast,
+};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct DependencyInner {
-    pub(super) dependency: file::FileKey,
-    pub(super) dependent: file::FileKey,
+    pub(super) dependency: FileKey,
+    pub(super) dependent: FileKey,
 }
 
 pub struct Dependency<'ast> {

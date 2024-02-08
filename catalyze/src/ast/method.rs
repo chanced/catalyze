@@ -1,6 +1,7 @@
 use core::fmt;
 use std::ops::Deref;
 
+use ahash::HashMap;
 use protobuf::{
     descriptor::{self, method_options, MethodOptions as ProtoMethodOpts},
     EnumOrUnknown, SpecialFields,
@@ -9,7 +10,10 @@ use protobuf::{
 use crate::error::HydrationFailed;
 
 use super::{
-    access::{AccessName, AccessNodeKeys, AccessReferences},
+    access::{
+        AccessComments, AccessFile, AccessFqn, AccessKey, AccessName, AccessNodeKeys,
+        AccessPackage, AccessReferences,
+    },
     file::FileKey,
     impl_traits_and_methods,
     location::{self, Comments, Span},
@@ -126,7 +130,8 @@ impl IoInner {
 }
 
 pub(super) type MethodIdent = node::Ident<MethodKey>;
-pub(super) type Table = super::table::Table<MethodKey, MethodInner>;
+pub(super) type MethodTable =
+    super::table::Table<MethodKey, MethodInner, HashMap<FullyQualifiedName, MethodKey>>;
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct MethodInner {
@@ -134,7 +139,7 @@ pub(super) struct MethodInner {
     pub(super) fqn: FullyQualifiedName,
     pub(super) name: Name,
     pub(super) service: ServiceKey,
-    pub(super) node_path: Box<[i32]>,
+    pub(super) proto_path: Box<[i32]>,
     pub(super) span: Span,
     pub(super) comments: Option<Comments>,
     pub(super) client_streaming: bool,
@@ -148,7 +153,22 @@ pub(super) struct MethodInner {
     pub(super) options: MethodOptions,
     pub(super) proto_opts: ProtoMethodOpts,
 }
+impl AccessFqn for MethodInner {
+    fn fqn(&self) -> &FullyQualifiedName {
+        &self.fqn
+    }
+}
+impl AccessKey for MethodInner {
+    type Key = MethodKey;
 
+    fn key(&self) -> Self::Key {
+        self.key
+    }
+
+    fn key_mut(&mut self) -> &mut Self::Key {
+        &mut self.key
+    }
+}
 impl AccessNodeKeys for MethodInner {
     fn keys(&self) -> impl Iterator<Item = super::node::NodeKey> {
         std::iter::empty()
@@ -202,6 +222,42 @@ impl MethodInner {
 }
 
 pub struct Method<'ast>(pub(super) Resolver<'ast, MethodKey, MethodInner>);
+impl AccessName for Method<'_> {
+    fn name(&self) -> &str {
+        &self.0.name
+    }
+}
+impl AccessKey for Method<'_> {
+    type Key = MethodKey;
+
+    fn key(&self) -> Self::Key {
+        self.0.key
+    }
+
+    fn key_mut(&mut self) -> &mut Self::Key {
+        &mut self.0.key
+    }
+}
+impl AccessComments for Method<'_> {
+    fn comments(&self) -> Option<&Comments> {
+        self.0.comments.as_ref()
+    }
+}
+impl<'ast> AccessPackage<'ast> for Method<'ast> {
+    fn package(&self) -> Option<super::package::Package<'ast>> {
+        self.0.package.map(|key| (key, self.ast()).into())
+    }
+}
+impl<'ast> AccessFile<'ast> for Method<'ast> {
+    fn file(&self) -> super::file::File<'ast> {
+        (self.0.file, self.ast()).into()
+    }
+}
+impl AccessFqn for Method<'_> {
+    fn fqn(&self) -> &FullyQualifiedName {
+        &self.0.fqn
+    }
+}
 
 impl<'ast> Method<'ast> {
     pub fn io(self) -> Io<'ast> {
@@ -212,11 +268,6 @@ impl<'ast> Method<'ast> {
     }
     pub fn references(&'ast self) -> References<'ast> {
         AccessReferences::references(self)
-    }
-}
-impl AccessName for Method<'_> {
-    fn name(&self) -> &str {
-        &self.0.name
     }
 }
 

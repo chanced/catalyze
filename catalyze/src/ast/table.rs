@@ -1,17 +1,22 @@
 use std::{
-    borrow::Borrow,
+    borrow::{Borrow, BorrowMut},
     ops::{Index, IndexMut},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use slotmap::SlotMap;
 
 use crate::HashMap;
 
-use super::{access, file::SetPath, FullyQualifiedName};
+use super::{access, file::SetPath, FullyQualifiedName, Name};
+
+pub(super) trait AsFqnIndex<K> {
+    fn as_fqn_index(&self) -> &HashMap<FullyQualifiedName, K>;
+    fn as_fqn_index_mut(&mut self) -> &mut HashMap<FullyQualifiedName, K>;
+}
 
 #[derive(Debug, Clone)]
-pub(super) struct Table<K, V, I = HashMap<FullyQualifiedName, K>>
+pub(super) struct Table<K, V, I>
 where
     K: slotmap::Key,
 {
@@ -19,6 +24,7 @@ where
     pub(super) index: I,
     pub(super) order: Vec<K>,
 }
+
 impl<K, V, I> Table<K, V, I>
 where
     K: slotmap::Key,
@@ -64,29 +70,30 @@ where
     }
 }
 
-impl<K, V, N> Default for Table<K, V, N>
+impl<K, V, I> Default for Table<K, V, I>
 where
     K: slotmap::Key,
-    N: Default,
+    I: Default,
 {
     fn default() -> Self {
         Self {
             map: SlotMap::with_key(),
-            index: Default::default(),
+            index: I::default(),
             order: Vec::default(),
         }
     }
 }
-impl<K, V> Table<K, V, HashMap<FullyQualifiedName, K>>
+impl<K, V, I> Table<K, V, I>
 where
     K: slotmap::Key,
     V: access::AccessFqn,
+    I: Borrow<HashMap<FullyQualifiedName, K>> + BorrowMut<HashMap<FullyQualifiedName, K>>,
 {
     pub(super) fn get_by_fqn(&self, fqn: &FullyQualifiedName) -> Option<&V> {
-        self.index.get(fqn).map(|key| &self.map[*key])
+        self.index.borrow().get(fqn).map(|key| &self.map[*key])
     }
     pub(super) fn get_mut_by_fqn(&mut self, fqn: &FullyQualifiedName) -> Option<&mut V> {
-        self.index.get(fqn).map(|key| &mut self.map[*key])
+        self.index.borrow().get(fqn).map(|key| &mut self.map[*key])
     }
 
     pub(crate) fn get_fqn(&self, key: K) -> &FullyQualifiedName {
@@ -94,37 +101,21 @@ where
     }
 }
 
-impl<K, V> Table<K, V, HashMap<PathBuf, K>>
+impl<K, V, I> Table<K, V, I>
 where
     K: slotmap::Key,
-    V: Default + SetPath + access::AccessKey<Key = K>,
+    V: Default + access::AccessKey<Key = K>,
+    I: Borrow<HashMap<Name, K>>,
 {
-    pub(super) fn get_by_path(&self, path: impl Borrow<Path>) -> Option<&V> {
-        self.index.get(path.borrow()).map(|key| &self.map[*key])
+    pub(super) fn get_by_path(&self, path: &Path) -> Option<&V> {
+        self.index
+            .borrow()
+            .get(path.as_os_str().to_str()?)
+            .map(|key| &self.map[*key])
     }
-    pub(super) fn get_mut_by_path(&mut self, path: impl Borrow<Path>) -> Option<&mut V> {
-        self.index.get(path.borrow()).map(|key| &mut self.map[*key])
-    }
-    pub(super) fn get_or_insert_key(&mut self, path: PathBuf) -> K {
-        self.get_or_insert_key_and_value(path).0
-    }
-
-    pub(super) fn get_or_insert(&mut self, path: PathBuf) -> &mut V {
-        self.get_or_insert_key_and_value(path).1
-    }
-    pub(super) fn get_or_insert_key_and_value(&mut self, path: PathBuf) -> (K, &mut V) {
-        let key = *self.index.entry(path.clone()).or_insert_with(|| {
-            let mut entry = V::default();
-            entry.set_path(path.clone());
-            let key = self.map.insert(entry);
-            self.order.push(key);
-            key
-        });
-        let value = &mut self.map[key];
-
-        value.set_key(key);
-
-        (key, value)
+    pub(super) fn get_by_name(&self, name: &str) -> Option<&V> {
+        let path = Path::new(name);
+        self.index.borrow().get(name).map(|key| &self.map[*key])
     }
 }
 
@@ -157,15 +148,44 @@ where
     }
 }
 
-impl<K, V> Table<K, V>
+impl<K, V, I> Table<K, V, I>
+where
+    K: slotmap::Key,
+    V: Default + SetPath + access::AccessKey<Key = K>,
+    I: Default + BorrowMut<HashMap<Name, K>> + Borrow<HashMap<Name, K>>,
+{
+    pub(super) fn get_or_insert_key_by_path(&mut self, path: &Path) -> K {
+        self.get_or_insert_key_and_value_by_path(path).0
+    }
+
+    pub(super) fn get_or_insert_key_and_value_by_path(&mut self, path: &Path) -> (K, &mut V) {
+        let path = path.as_os_str().to_str().unwrap();
+        let index: &mut HashMap<Name, K> = self.index.borrow_mut();
+        let name: Name = path.into();
+        let key = *index.entry(name.clone()).or_insert_with(|| {
+            let mut value = V::default();
+            value.set_path(name.into());
+            let key = self.map.insert(value);
+            self.order.push(key);
+            key
+        });
+        let value = &mut self.map[key];
+
+        value.set_key(key);
+
+        (key, value)
+    }
+}
+impl<K, V, I> Table<K, V, I>
 where
     K: slotmap::Key,
     V: From<FullyQualifiedName> + access::AccessKey<Key = K>,
+    I: Default + BorrowMut<HashMap<FullyQualifiedName, K>>,
 {
     pub(super) fn new() -> Self {
         Self {
             map: SlotMap::with_key(),
-            index: HashMap::default(),
+            index: Default::default(),
             order: Vec::new(),
         }
     }
@@ -178,11 +198,15 @@ where
         self.get_or_insert_key_and_value(fqn).1
     }
     pub(super) fn get_or_insert_key_and_value(&mut self, fqn: FullyQualifiedName) -> (K, &mut V) {
-        let key = *self.index.entry(fqn.clone()).or_insert_with(|| {
-            let key = self.map.insert(fqn.into());
-            self.order.push(key);
-            key
-        });
+        let key = *self
+            .index
+            .borrow_mut()
+            .entry(fqn.clone())
+            .or_insert_with(|| {
+                let key = self.map.insert(fqn.into());
+                self.order.push(key);
+                key
+            });
         let value = &mut self.map[key];
 
         value.set_key(key);

@@ -1,3 +1,5 @@
+use crate::ExtractExtension;
+
 use super::{container, node, reference, uninterpreted::UninterpretedOption};
 
 pub trait AccessReferences<'ast> {
@@ -11,19 +13,19 @@ pub trait AccessReferencedBy<'ast> {
 /// A trait implemented by nodes with parent nodes, providing access to
 /// the [`Container`](super::Container) node.
 pub trait AccessContainer<'ast> {
-    fn container(self) -> container::Container<'ast>;
+    fn container(&self) -> container::Container<'ast>;
 }
 
 /// A trait implemented by all nodes (except `Package` itself) which returns
 /// the [`Package`](super::package::Package) of the node, if any.
 pub trait AccessPackage<'ast> {
-    fn package(self) -> Option<super::package::Package<'ast>>;
+    fn package(&self) -> Option<super::package::Package<'ast>>;
 }
 
 /// A trait implemented by all nodes (except `File` and `Package`) which returns
 /// the containing [`File`](super::file::File).
 pub trait AccessFile<'ast> {
-    fn file(self) -> super::file::File<'ast>;
+    fn file(&self) -> super::file::File<'ast>;
 }
 
 /// A trait implemented by all nodes which returns the name of the node.
@@ -33,9 +35,6 @@ pub trait AccessName {
 
 /// A trait which returns a slice of
 /// [`UninterpretedOption`](super::UninterpretedOption)s.
-pub trait AccessUninterpretedOptions {
-    fn uninterpreted_options(&self) -> &[UninterpretedOption];
-}
 
 /// A trait implemented by nodes with reserved names and ranges.
 pub trait AccessReserved {
@@ -52,17 +51,17 @@ pub trait AccessReserved {
 /// [`FullyQualifiedName`](crate::ast::FullyQualifiedName) of the node.
 pub trait AccessFqn {
     /// Returns the [`FullyQualifiedName`] of the node.
-    fn fully_qualified_name(&self) -> &super::FullyQualifiedName;
+    fn fully_qualified_name(&self) -> &super::FullyQualifiedName {
+        self.fqn()
+    }
 
     /// Alias for `fully_qualified_name` - returns the [`FullyQualifiedName`] of
     /// the node.
-    fn fqn(&self) -> &super::FullyQualifiedName {
-        self.fully_qualified_name()
-    }
+    fn fqn(&self) -> &super::FullyQualifiedName;
 }
 
-pub trait AccessNodePath {
-    fn node_path(&self) -> &[i32];
+pub trait AccessProtoPath {
+    fn proto_path(&self) -> &[i32];
 }
 
 pub trait AccessComments {
@@ -92,4 +91,11 @@ pub(super) trait AccessKey {
 pub(crate) trait AccessProtoOpts {
     type ProtoOpts: protobuf::Message;
     fn proto_opts(&self) -> &Self::ProtoOpts;
+}
+
+pub(super) trait AccessExtension<'ast> {
+    fn extension<E, V>(&self, extract: E) -> Option<V>
+    where
+        E: ExtractExtension<'ast, V>,
+        V: protobuf::reflect::ProtobufValue;
 }

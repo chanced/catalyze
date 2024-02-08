@@ -1,41 +1,45 @@
-use crate::{
-    error::{self, HydrationFailed},
-    HashMap,
-};
+use crate::{error, HashMap};
 use protobuf::{
     descriptor::{
-        self, file_options::OptimizeMode as ProtoOptimizeMode, uninterpreted_option,
-        FileOptions as ProtoFileOpts,
+        self, file_options::OptimizeMode as ProtoOptimizeMode, FileOptions as ProtoFileOpts,
     },
     SpecialFields,
 };
 use snafu::Backtrace;
 use std::{
+    borrow::{Borrow, BorrowMut},
     fmt,
     hash::Hash,
-    ops::{Deref, DerefMut},
     path::{Path, PathBuf},
     str::FromStr,
 };
 
 use super::{
-    access::{AccessName, AccessNodeKeys},
+    access::{AccessFqn, AccessKey, AccessName, AccessNodeKeys},
     collection::Collection,
-    dependency::{self, DependenciesInner},
+    dependency::{DependenciesInner, DependencyInner},
     dependent::DependentsInner,
-    enum_, extension, extension_decl, impl_traits_and_methods, location, message, node, package,
-    reference,
+    enum_::{EnumIdent, EnumKey},
+    extension::{ExtensionIdent, ExtensionKey},
+    extension_decl::ExtensionDeclKey,
+    impl_traits_and_methods,
+    location::{Comments, Location},
+    message::{MessageIdent, MessageKey},
+    node::{Ident, NodeKey},
+    package::PackageKey,
+    reference::ReferenceInner,
     resolve::Resolver,
-    service, table,
+    service::{ServiceIdent, ServiceKey},
+    table::{self},
     uninterpreted::UninterpretedOption,
-    FullyQualifiedName, Name,
+    Ast, FullyQualifiedName, Name,
 };
 
 slotmap::new_key_type! {
     #[doc(hidden)]
     pub struct FileKey;
 }
-pub type Ident = node::Ident<FileKey>;
+pub type FileIdent = Ident<FileKey>;
 
 pub(super) trait SetPath {
     fn set_path(&mut self, path: PathBuf);
@@ -68,6 +72,96 @@ impl<'ast> File<'ast> {
 impl<'ast> AccessName for File<'ast> {
     fn name(&self) -> &str {
         &self.0.name
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Files<'ast> {
+    by_fqn: &'ast HashMap<FullyQualifiedName, FileKey>,
+    by_name: &'ast HashMap<Name, FileKey>,
+    list: &'ast [FileKey],
+    ast: &'ast Ast,
+}
+
+impl<'ast> From<(&'ast Collection<FileKey>, &'ast Ast)> for Files<'ast> {
+    fn from((collection, ast): (&'ast Collection<FileKey>, &'ast Ast)) -> Self {
+        Self {
+            by_fqn: &collection.by_fqn,
+            by_name: &collection.by_name,
+            list: &collection.list,
+            ast,
+        }
+    }
+}
+
+impl<'ast> Files<'ast> {
+    pub(super) fn new(table: &'ast FileTable, ast: &'ast Ast) -> Files<'ast> {
+        Files {
+            by_fqn: &table.index.by_fqn,
+            by_name: &table.index.by_name,
+            list: &table.order,
+            ast,
+        }
+    }
+    pub fn get_by_name(&self, name: &str) -> Option<File> {
+        self.by_name
+            .get(name)
+            .copied()
+            .map(|f| (f, self.ast).into())
+    }
+    pub fn get_by_path(&self, path: &Path) -> Option<File> {
+        self.by_name
+            .get(path.as_os_str().to_str()?)
+            .copied()
+            .map(|f| (f, self.ast).into())
+    }
+    pub fn get_by_fqn(&self, fqn: &FullyQualifiedName) -> Option<File> {
+        self.by_fqn
+            .get(fqn)
+            .copied()
+            .map(|key| (key, self.ast).into())
+    }
+    pub fn in_package(&self, package_name: &str) -> FileIter<'ast> {
+        self.ast
+            .packages
+            .get_by_name(package_name)
+            .map(|pkg| FileIter::from_slice(&pkg.files, self.ast))
+            .unwrap_or(FileIter::empty(self.ast))
+    }
+}
+
+enum IterSource<'ast> {
+    Slice(std::slice::Iter<'ast, FileKey>),
+    Iter(Box<dyn Iterator<Item = File<'ast>> + 'ast>),
+}
+
+pub struct FileIter<'ast> {
+    src: IterSource<'ast>,
+    ast: &'ast Ast,
+}
+
+impl<'ast> FileIter<'ast> {
+    pub(super) fn from_slice(slice: &'ast [FileKey], ast: &'ast Ast) -> Self {
+        FileIter {
+            src: IterSource::Slice(slice.iter()),
+            ast,
+        }
+    }
+    pub(super) fn empty(ast: &'ast Ast) -> Self {
+        FileIter {
+            src: IterSource::Slice([].iter()),
+            ast,
+        }
+    }
+}
+impl<'ast> Iterator for FileIter<'ast> {
+    type Item = File<'ast>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match &mut self.src {
+            IterSource::Slice(s) => s.next().map(|k| File(Resolver::new(*k, self.ast))),
+            IterSource::Iter(i) => i.next(),
+        }
     }
 }
 
@@ -223,29 +317,44 @@ pub(super) struct FileInner {
     pub(super) fqn: FullyQualifiedName,
     pub(super) name: Name,
     pub(super) path: PathBuf,
-    pub(super) package: Option<package::PackageKey>,
-    pub(super) messages: Collection<message::MessageKey>,
-    pub(super) enums: Collection<enum_::EnumKey>,
-    pub(super) services: Collection<service::ServiceKey>,
-    pub(super) defined_extensions: Collection<extension::ExtensionKey>,
-    pub(super) extension_decls: Vec<extension_decl::ExtensionDeclKey>,
+    pub(super) package: Option<PackageKey>,
+    pub(super) messages: Collection<MessageKey>,
+    pub(super) enums: Collection<EnumKey>,
+    pub(super) services: Collection<ServiceKey>,
+    pub(super) defined_extensions: Collection<ExtensionKey>,
+    pub(super) extension_decls: Vec<ExtensionDeclKey>,
     pub(super) dependencies: DependenciesInner,
-    pub(super) package_comments: Option<location::Comments>,
-    pub(super) comments: Option<location::Comments>,
-    pub(super) all_references: Vec<reference::ReferenceInner>,
-    pub(super) ext_references: Vec<reference::ReferenceInner>,
+    pub(super) package_comments: Option<Comments>,
+    pub(super) comments: Option<Comments>,
+    pub(super) all_references: Vec<ReferenceInner>,
+    pub(super) ext_references: Vec<ReferenceInner>,
     pub(super) dependents: DependentsInner,
     pub(super) is_build_target: bool,
     pub(super) syntax: Syntax,
-    pub(super) nodes: HashMap<FullyQualifiedName, super::node::NodeKey>,
+    pub(super) nodes: HashMap<FullyQualifiedName, NodeKey>,
     pub(super) special_fields: SpecialFields,
-    pub(super) options_special_fields: SpecialFields,
     pub(super) options: FileOptions,
     pub(super) proto_opts: descriptor::FileOptions,
 }
 
+impl AccessFqn for FileInner {
+    fn fqn(&self) -> &FullyQualifiedName {
+        &self.fqn
+    }
+}
+impl AccessKey for FileInner {
+    type Key = FileKey;
+    fn key_mut(&mut self) -> &mut Self::Key {
+        &mut self.key
+    }
+
+    fn key(&self) -> Self::Key {
+        self.key
+    }
+}
+
 impl AccessNodeKeys for FileInner {
-    fn keys(&self) -> impl Iterator<Item = super::node::NodeKey> {
+    fn keys(&self) -> impl Iterator<Item = NodeKey> {
         std::iter::empty()
             .chain(self.messages.iter().copied().map(Into::into))
             .chain(self.enums.iter().copied().map(Into::into))
@@ -454,7 +563,7 @@ impl FileInner {
     pub(super) fn hydrate(
         &mut self,
         hydrate: Hydrate,
-    ) -> Result<node::Ident<FileKey>, crate::error::HydrationFailed> {
+    ) -> Result<Ident<FileKey>, crate::error::HydrationFailed> {
         let Hydrate {
             name,
             syntax,
@@ -501,69 +610,41 @@ impl FileInner {
     }
 }
 
-// #[derive(Debug, Default)]
-// pub(super) struct Files {
-//     files: Vec<Key>,
-//     fqn_lookup: HashMap<FullyQualifiedName, usize>,
-//     path_lookup: HashMap<PathBuf, usize>,
-// }
-
-// impl Files {
-//     pub(super) fn new() -> Self {
-//         Self {
-//             files: Vec::new(),
-//             fqn_lookup: HashMap::default(),
-//             path_lookup: HashMap::default(),
-//         }
-//     }
-//     pub(super) fn files(&self) -> &[File] {
-//         &self.files
-//     }
-//     pub(super) fn contains_fqn(&self, fqn: &FullyQualifiedName) -> bool {
-//         self.fqn_lookup.contains_key(fqn)
-//     }
-//     pub(super) fn contains_path(&self, path: &Path) -> bool {
-//         self.path_lookup.contains_key(path)
-//     }
-//     pub(super) fn get_by_fqn(&self, fqn: &FullyQualifiedName) ->
-// Option<&File> {         self.fqn_lookup.get(fqn).map(|idx| &self.files[*idx])
-//     }
-//     pub(super) fn get_by_path(&self, path: impl AsRef<Path>) -> Option<Key> {
-//         self.path_lookup
-//             .get(path.as_ref())
-//             .map(|idx| &self.files[*idx])
-//     }
-
-//     pub(super) fn push(&mut self, path: PathBuf, fqn: FullyQualifiedName,
-// key: Key) {         if self.fqn_lookup.contains_key(&fqn) {
-//             return;
-//         }
-//         let idx = self.files.len();
-//         self.fqn_lookup.insert(fqn, self.files.len());
-//         self.path_lookup.insert(path, idx);
-//         self.files.push(key);
-//     }
-// }
+pub(super) type FileTable = table::Table<FileKey, FileInner, FileIndex>;
 
 #[derive(Debug, Clone, Default)]
-pub(super) struct Table(table::Table<FileKey, FileInner, HashMap<PathBuf, FileKey>>);
-impl Table {
-    pub(super) fn with_capacity(capacity: usize) -> Self {
-        Self(table::Table::with_capacity(capacity))
+pub(super) struct FileIndex {
+    pub(super) by_fqn: HashMap<FullyQualifiedName, FileKey>,
+    pub(super) by_name: HashMap<Name, FileKey>,
+}
+impl FileIndex {
+    pub(super) fn get_by_name(&self, name: &str) -> Option<FileKey> {
+        self.by_name.get(name).copied()
     }
-    pub(super) fn get_by_name(&self, name: &str) -> Option<&FileInner> {
-        self.0.iter().find(|(_, v)| v.name == *name).map(|(_, v)| v)
+    pub(super) fn get_by_path(&self, path: &Path) -> Option<FileKey> {
+        let path = path.as_os_str().to_str()?;
+        self.by_name.get(path).copied()
     }
 }
-impl Deref for Table {
-    type Target = table::Table<FileKey, FileInner, HashMap<PathBuf, FileKey>>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
+impl Borrow<HashMap<Name, FileKey>> for FileIndex {
+    fn borrow(&self) -> &HashMap<Name, FileKey> {
+        &self.by_name
     }
 }
-impl DerefMut for Table {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+impl BorrowMut<HashMap<Name, FileKey>> for FileIndex {
+    fn borrow_mut(&mut self) -> &mut HashMap<Name, FileKey> {
+        &mut self.by_name
+    }
+}
+
+impl Borrow<HashMap<FullyQualifiedName, FileKey>> for FileIndex {
+    fn borrow(&self) -> &HashMap<FullyQualifiedName, FileKey> {
+        &self.by_fqn
+    }
+}
+impl BorrowMut<HashMap<FullyQualifiedName, FileKey>> for FileIndex {
+    fn borrow_mut(&mut self) -> &mut HashMap<FullyQualifiedName, FileKey> {
+        &mut self.by_fqn
     }
 }
 
@@ -571,20 +652,20 @@ pub(super) struct Hydrate {
     pub(super) name: Name,
     pub(super) syntax: Option<String>,
     pub(super) options: ProtoFileOpts,
-    pub(super) package: Option<package::PackageKey>,
-    pub(super) messages: Vec<message::Ident>,
-    pub(super) enums: Vec<enum_::EnumIdent>,
-    pub(super) services: Vec<service::Ident>,
-    pub(super) extensions: Vec<extension::Ident>,
-    pub(super) extension_decls: Vec<extension_decl::ExtensionDeclKey>,
-    pub(super) dependencies: Vec<dependency::DependencyInner>,
+    pub(super) package: Option<PackageKey>,
+    pub(super) messages: Vec<MessageIdent>,
+    pub(super) enums: Vec<EnumIdent>,
+    pub(super) services: Vec<ServiceIdent>,
+    pub(super) extensions: Vec<ExtensionIdent>,
+    pub(super) extension_decls: Vec<ExtensionDeclKey>,
+    pub(super) dependencies: Vec<DependencyInner>,
     pub(super) public_dependencies: Vec<i32>,
     pub(super) weak_dependencies: Vec<i32>,
-    pub(super) ext_references: Vec<reference::ReferenceInner>,
-    pub(super) all_references: Vec<reference::ReferenceInner>,
-    pub(super) package_comments: Option<location::Location>,
-    pub(super) comments: Option<location::Location>,
+    pub(super) ext_references: Vec<ReferenceInner>,
+    pub(super) all_references: Vec<ReferenceInner>,
+    pub(super) package_comments: Option<Location>,
+    pub(super) comments: Option<Location>,
     pub(super) is_build_target: bool,
     pub(super) special_fields: SpecialFields,
-    pub(super) nodes: HashMap<FullyQualifiedName, node::NodeKey>,
+    pub(super) nodes: HashMap<FullyQualifiedName, NodeKey>,
 }

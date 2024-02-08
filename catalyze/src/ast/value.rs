@@ -2,15 +2,15 @@ use std::fmt;
 
 use crate::error::{self, UnknownFieldType};
 
-use super::{enum_, field, message, Ast, Enum, Message};
+use super::{enum_::EnumKey, message::MessageKey, Ast, Enum, Message};
 use protobuf::descriptor::field_descriptor_proto::{self, Type as ProtoType};
 use snafu::Backtrace;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Inner {
     Scalar(Scalar),
-    Enum(enum_::EnumKey),
-    Message(message::MessageKey),
+    Enum(EnumKey),
+    Message(MessageKey),
 }
 impl Default for Inner {
     fn default() -> Self {
@@ -53,13 +53,13 @@ impl<'ast> From<Scalar> for Value<'ast> {
     }
 }
 
-impl<'ast> From<(message::MessageKey, &'ast Ast)> for Value<'ast> {
-    fn from((key, ast): (message::MessageKey, &'ast Ast)) -> Self {
+impl<'ast> From<(MessageKey, &'ast Ast)> for Value<'ast> {
+    fn from((key, ast): (MessageKey, &'ast Ast)) -> Self {
         Self::from(Message::from((key, ast)))
     }
 }
-impl<'ast> From<(enum_::EnumKey, &'ast Ast)> for Value<'ast> {
-    fn from((key, ast): (enum_::EnumKey, &'ast Ast)) -> Self {
+impl<'ast> From<(EnumKey, &'ast Ast)> for Value<'ast> {
+    fn from((key, ast): (EnumKey, &'ast Ast)) -> Self {
         Self::from(Enum::from((key, ast)))
     }
 }
@@ -142,8 +142,8 @@ impl<'ast> Value<'ast> {
 impl Inner {
     pub(super) fn new(
         typ: field_descriptor_proto::Type,
-        enum_: Option<enum_::EnumKey>,
-        msg: Option<message::MessageKey>,
+        enum_: Option<EnumKey>,
+        msg: Option<MessageKey>,
     ) -> Self {
         match typ {
             ProtoType::TYPE_ENUM => Self::Enum(enum_.unwrap()),

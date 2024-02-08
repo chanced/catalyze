@@ -8,9 +8,9 @@ use super::{node, package, FullyQualifiedName, Name};
 
 #[derive(Debug, Clone)]
 pub(super) struct Collection<K> {
-    list: Vec<K>,
-    by_name: HashMap<Name, K>,
-    by_fqn: HashMap<FullyQualifiedName, K>,
+    pub(super) list: Vec<K>,
+    pub(super) by_name: HashMap<Name, K>,
+    pub(super) by_fqn: HashMap<FullyQualifiedName, K>,
 }
 
 impl<K> Collection<K>
@@ -48,7 +48,6 @@ where
     pub(super) fn get_by_name(&self, name: &str) -> Option<K> {
         self.by_name.get(name).copied()
     }
-
     pub(super) fn get(&self, index: usize) -> Option<K> {
         self.list.get(index).copied()
     }

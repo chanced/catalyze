@@ -1,31 +1,75 @@
+use ahash::HashMap;
 use protobuf::{
     descriptor::{self, enum_descriptor_proto},
     SpecialFields,
 };
 
-use crate::{
-    ast::{
-        access::AccessNodeKeys,
-        file, impl_traits_and_methods,
-        location::{Comments, Span},
-        package,
-        reference::ReferrerKey,
-        resolve::Resolver,
-        uninterpreted::UninterpretedOption,
-        FullyQualifiedName,
-    },
-    error::HydrationFailed,
-};
+use crate::error::HydrationFailed;
 
 use std::{fmt, str::FromStr};
 
-use super::{collection::Collection, container, enum_value, location, node, Name};
+use super::{
+    access::{
+        AccessComments, AccessFile, AccessFqn, AccessKey, AccessName, AccessNodeKeys, AccessPackage,
+    },
+    collection::Collection,
+    container::ContainerKey,
+    enum_value::EnumValueKey,
+    file::FileKey,
+    impl_traits_and_methods,
+    location::{Comments, Location, Span},
+    node::Ident,
+    package::PackageKey,
+    reference::ReferrerKey,
+    reserved::Reserved,
+    resolve::Resolver,
+    table::Table,
+    uninterpreted::UninterpretedOption,
+    FullyQualifiedName, Name,
+};
 
 slotmap::new_key_type! {
     pub(super) struct EnumKey;
 }
 
 pub struct Enum<'ast>(pub(super) Resolver<'ast, EnumKey, EnumInner>);
+impl AccessName for Enum<'_> {
+    fn name(&self) -> &str {
+        &self.0.name
+    }
+}
+impl AccessKey for Enum<'_> {
+    type Key = EnumKey;
+
+    fn key(&self) -> Self::Key {
+        self.0.key
+    }
+
+    fn key_mut(&mut self) -> &mut Self::Key {
+        &mut self.0.key
+    }
+}
+impl AccessComments for Enum<'_> {
+    fn comments(&self) -> Option<&Comments> {
+        self.0.comments.as_ref()
+    }
+}
+impl<'ast> AccessPackage<'ast> for Enum<'ast> {
+    fn package(&self) -> Option<super::package::Package<'ast>> {
+        self.0.package.map(|key| (key, self.ast()).into())
+    }
+}
+impl<'ast> AccessFile<'ast> for Enum<'ast> {
+    fn file(&self) -> super::file::File<'ast> {
+        (self.0.file, self.ast()).into()
+    }
+}
+impl AccessFqn for Enum<'_> {
+    fn fqn(&self) -> &FullyQualifiedName {
+        &self.0.fqn
+    }
+}
+
 impl_traits_and_methods!(Enum, EnumKey, EnumInner);
 
 impl<'ast> Enum<'ast> {
@@ -34,23 +78,23 @@ impl<'ast> Enum<'ast> {
     }
 }
 
-pub(super) type EnumTable = super::table::Table<EnumKey, EnumInner>;
-pub(super) type EnumIdent = node::Ident<EnumKey>;
+pub(super) type EnumTable = Table<EnumKey, EnumInner, HashMap<FullyQualifiedName, EnumKey>>;
+pub(super) type EnumIdent = Ident<EnumKey>;
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct EnumInner {
     pub(super) key: EnumKey,
     pub(super) fqn: FullyQualifiedName,
     pub(super) name: Name,
-    pub(super) node_path: Box<[i32]>,
+    pub(super) proto_path: Box<[i32]>,
     pub(super) span: Span,
     pub(super) comments: Option<Comments>,
-    pub(super) reserved: super::reserved::Reserved,
-    pub(super) package: Option<package::PackageKey>,
-    pub(super) file: file::FileKey,
-    pub(super) container: container::Key,
+    pub(super) reserved: Reserved,
+    pub(super) package: Option<PackageKey>,
+    pub(super) file: FileKey,
+    pub(super) container: ContainerKey,
     pub(super) referenced_by: Vec<ReferrerKey>,
-    pub(super) values: Collection<super::enum_value::EnumValueKey>,
+    pub(super) values: Collection<EnumValueKey>,
     pub(super) well_known: Option<WellKnownEnum>,
     pub(super) option_special_fields: SpecialFields,
     pub(super) uninterpreted_options: Vec<UninterpretedOption>,
@@ -90,6 +134,25 @@ impl EnumInner {
         Ok(self.into())
     }
 }
+impl AccessKey for EnumInner {
+    type Key = EnumKey;
+
+    fn key(&self) -> Self::Key {
+        self.key
+    }
+
+    fn key_mut(&mut self) -> &mut Self::Key {
+        &mut self.key
+    }
+}
+impl AccessNodeKeys for EnumInner {
+    fn keys(&self) -> impl Iterator<Item = super::node::NodeKey> {
+        self.values
+            .iter()
+            .copied()
+            .map(super::node::NodeKey::EnumValue)
+    }
+}
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct EnumOptions {
@@ -108,15 +171,6 @@ impl EnumOptions {
     fn hydrate(&mut self, options: &mut descriptor::EnumOptions) {
         self.allow_alias = options.allow_alias.take();
         self.deprecated = options.deprecated.take();
-    }
-}
-
-impl AccessNodeKeys for EnumInner {
-    fn keys(&self) -> impl Iterator<Item = super::node::NodeKey> {
-        self.values
-            .iter()
-            .copied()
-            .map(super::node::NodeKey::EnumValue)
     }
 }
 
@@ -176,14 +230,14 @@ impl fmt::Display for WellKnownEnum {
 
 pub(super) struct Hydrate {
     pub(super) name: Name,
-    pub(super) package: Option<package::PackageKey>,
-    pub(super) file: file::FileKey,
-    pub(super) values: Vec<node::Ident<enum_value::EnumValueKey>>,
-    pub(super) location: location::Location,
+    pub(super) package: Option<PackageKey>,
+    pub(super) file: FileKey,
+    pub(super) values: Vec<Ident<EnumValueKey>>,
+    pub(super) location: Location,
     pub(super) special_fields: protobuf::SpecialFields,
     pub(super) reserved_names: Vec<String>,
     pub(super) reserved_ranges: Vec<enum_descriptor_proto::EnumReservedRange>,
-    pub(super) container: container::Key,
+    pub(super) container: ContainerKey,
     pub(super) well_known: Option<WellKnownEnum>,
     pub(super) options: descriptor::EnumOptions,
 }

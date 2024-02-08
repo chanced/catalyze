@@ -1,27 +1,28 @@
 use super::{
-    file::{self, File},
-    message::{self, Message},
+    file::{File, FileKey},
+    message::{Message, MessageKey},
+    Ast,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) enum Key {
-    Message(message::MessageKey),
-    File(file::FileKey),
+pub(super) enum ContainerKey {
+    Message(MessageKey),
+    File(FileKey),
 }
 
-impl Default for Key {
+impl Default for ContainerKey {
     fn default() -> Self {
-        Self::File(file::FileKey::default())
+        Self::File(FileKey::default())
     }
 }
 
-impl From<message::MessageKey> for Key {
-    fn from(key: message::MessageKey) -> Self {
+impl From<MessageKey> for ContainerKey {
+    fn from(key: MessageKey) -> Self {
         Self::Message(key)
     }
 }
-impl From<file::FileKey> for Key {
-    fn from(key: file::FileKey) -> Self {
+impl From<FileKey> for ContainerKey {
+    fn from(key: FileKey) -> Self {
         Self::File(key)
     }
 }
@@ -30,6 +31,18 @@ impl From<file::FileKey> for Key {
 pub enum Container<'ast> {
     Message(Message<'ast>),
     File(File<'ast>),
+}
+
+impl<'ast, T> From<(T, &'ast Ast)> for Container<'ast>
+where
+    T: Into<ContainerKey>,
+{
+    fn from((key, ast): (T, &'ast Ast)) -> Self {
+        match key.into() {
+            ContainerKey::Message(key) => Self::Message(Message::new(key, ast)),
+            ContainerKey::File(key) => Self::File(File::new(key, ast)),
+        }
+    }
 }
 
 impl<'ast> From<File<'ast>> for Container<'ast> {

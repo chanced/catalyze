@@ -1,8 +1,10 @@
+use std::slice;
+
 use crate::{
     ast::{impl_traits_and_methods, uninterpreted::UninterpretedOption, FullyQualifiedName},
     error::HydrationFailed,
 };
-use ::std::vec::Vec;
+use ahash::HashMap;
 use protobuf::{
     descriptor::{
         self, field_descriptor_proto, field_options::CType as ProtobufCType,
@@ -12,12 +14,20 @@ use protobuf::{
 };
 
 use super::{
-    access::{AccessName, AccessNodeKeys},
-    file, location, message, node, package,
-    reference::{self, References},
+    access::{
+        AccessComments, AccessFile, AccessFqn, AccessKey, AccessName, AccessNodeKeys,
+        AccessReferences,
+    },
+    collection::Collection,
+    file::FileKey,
+    location::{Comments, Location},
+    message::MessageKey,
+    node,
+    package::PackageKey,
+    reference::{ReferenceInner, References},
     resolve::Resolver,
     uninterpreted::into_uninterpreted_options,
-    value, Name,
+    value, Ast, File, Name, Span,
 };
 
 slotmap::new_key_type! {
@@ -33,13 +43,80 @@ impl<'ast> Field<'ast> {
     }
 }
 
+impl<'ast> AccessFqn for Field<'ast> {
+    fn fqn(&self) -> &FullyQualifiedName {
+        &self.0.fqn
+    }
+}
 impl<'ast> AccessName for Field<'ast> {
     fn name(&self) -> &str {
         &self.0.name
     }
 }
+impl<'ast> AccessFile<'ast> for Field<'ast> {
+    fn file(&self) -> File<'ast> {
+        (self.0.file, self.ast()).into()
+    }
+}
+impl<'ast> AccessComments for Field<'ast> {
+    fn comments(&self) -> Option<&Comments> {
+        self.0.comments.as_ref()
+    }
+}
+pub struct Fields<'ast> {
+    collection: &'ast Collection<FieldKey>,
+    ast: &'ast Ast,
+}
+impl<'ast> Fields<'ast> {
+    pub fn get_by_name(&self, name: &str) -> Option<Field> {
+        self.collection
+            .get_by_name(name)
+            .map(|k| (k, self.ast).into())
+    }
+}
+
+impl<'ast> IntoIterator for Fields<'ast> {
+    type Item = Field<'ast>;
+    type IntoIter = Iter<'ast>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Iter {
+            iter: self.collection.iter(),
+            ast: self.ast,
+        }
+    }
+}
+impl<'ast> IntoIterator for &Fields<'ast> {
+    type Item = Field<'ast>;
+    type IntoIter = Iter<'ast>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Iter {
+            iter: self.collection.iter(),
+            ast: self.ast,
+        }
+    }
+}
+
+pub struct Iter<'ast> {
+    iter: slice::Iter<'ast, FieldKey>,
+    ast: &'ast Ast,
+}
+impl<'ast> Iterator for Iter<'ast> {
+    type Item = Field<'ast>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().copied().map(|key| (key, self.ast).into())
+    }
+}
+impl ExactSizeIterator for Iter<'_> {
+    fn len(&self) -> usize {
+        self.iter.len()
+    }
+}
+
 pub(super) type FieldIdent = node::Ident<FieldKey>;
-pub(super) type FieldTable = super::table::Table<FieldKey, FieldInner>;
+pub(super) type FieldTable =
+    super::table::Table<FieldKey, FieldInner, HashMap<FullyQualifiedName, FieldKey>>;
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct FieldOptions {
@@ -71,21 +148,20 @@ pub(super) struct FieldInner {
     pub(super) key: FieldKey,
     pub(super) fqn: FullyQualifiedName,
     pub(super) name: Name,
-    pub(super) node_path: Box<[i32]>,
-    pub(super) span: location::Span,
-    pub(super) comments: Option<location::Comments>,
+    pub(super) proto_path: Box<[i32]>,
+    pub(super) span: Span,
+    pub(super) comments: Option<Comments>,
     pub(super) number: i32,
     pub(super) label: Option<Label>,
     pub(super) field_type: value::TypeInner,
-    pub(super) message: message::MessageKey,
+    pub(super) message: MessageKey,
     pub(super) default_value: Option<String>,
     pub(super) oneof_index: Option<i32>,
     pub(super) json_name: Option<String>,
-    pub(super) uninterpreted_options: Vec<UninterpretedOption>,
     pub(super) proto3_optional: Option<bool>,
-    pub(super) package: Option<package::PackageKey>,
-    pub(super) reference: Option<reference::ReferenceInner>,
-    pub(super) file: file::FileKey,
+    pub(super) package: Option<PackageKey>,
+    pub(super) reference: Option<ReferenceInner>,
+    pub(super) file: FileKey,
     pub(super) special_fields: SpecialFields,
     pub(super) options: FieldOptions,
     pub(super) proto_opts: descriptor::FieldOptions,
@@ -131,6 +207,23 @@ impl FieldInner {
     }
 }
 
+impl AccessKey for FieldInner {
+    type Key = FieldKey;
+
+    fn key(&self) -> Self::Key {
+        self.key
+    }
+
+    fn key_mut(&mut self) -> &mut Self::Key {
+        &mut self.key
+    }
+}
+
+impl AccessFqn for FieldInner {
+    fn fqn(&self) -> &FullyQualifiedName {
+        &self.fqn
+    }
+}
 impl AccessNodeKeys for FieldInner {
     fn keys(&self) -> impl Iterator<Item = node::NodeKey> {
         std::iter::empty()
@@ -272,10 +365,10 @@ impl super::access::AccessReferencesMut for FieldInner {
 
 pub(super) struct Hydrate {
     pub(super) name: Name,
-    pub(super) file: file::FileKey,
-    pub(super) package: Option<package::PackageKey>,
-    pub(super) message: message::MessageKey,
-    pub(super) location: location::Location,
+    pub(super) file: FileKey,
+    pub(super) package: Option<PackageKey>,
+    pub(super) message: MessageKey,
+    pub(super) location: Location,
     pub(super) number: i32,
     pub(super) type_: value::TypeInner,
     pub(super) default_value: Option<String>,
@@ -285,5 +378,5 @@ pub(super) struct Hydrate {
     pub(super) special_fields: protobuf::SpecialFields,
     pub(super) label: Option<Label>,
     pub(super) options: ProtoFieldOpts,
-    pub(super) reference: Option<reference::ReferenceInner>,
+    pub(super) reference: Option<ReferenceInner>,
 }
